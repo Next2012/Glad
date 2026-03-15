@@ -1,14 +1,14 @@
 {
-  "name": "@termly-dev/cli",
-  "version": "1.9.0",
-  "description": "Mirror your AI coding sessions to mobile - control Claude, Aider, Copilot, and 19+ tools from your phone",
+  "name": "glad-cli",
+  "version": "1.0.0",
+  "description": "Glad - Transform your AI terminal tools into a beautiful Web interface. Forked from termly-cli.",
   "main": "index.js",
   "bin": {
-    "termly": "./bin/cli.js"
+    "glad": "./bin/cli.js"
   },
   "scripts": {
     "start": "node bin/cli.js",
-    "build:linux": "npx caxa -i . -m \"This may take a while to extract...\" --output \"termly-linux-amd64\" -- \"{{caxa}}/node_modules/.bin/node\" \"{{caxa}}/bin/cli.js\"",
+    "build:linux": "npx caxa -i . -m \"Extracting Glad...\" --output \"glad-linux-amd64\" -- \"{{caxa}}/node_modules/.bin/node\" \"{{caxa}}/bin/cli.js\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
@@ -20,21 +20,17 @@
     "claude",
     "aider",
     "copilot",
-    "mobile"
+    "web-ui"
   ],
-  "author": "Termly Team",
+  "author": "Glad Team",
   "license": "MIT",
-  "homepage": "https://termly.dev",
+  "homepage": "https://gitee.com/next2012/glad",
   "repository": {
     "type": "git",
-    "url": "https://github.com/termly-dev/termly-cli"
+    "url": "git@gitee.com:next2012/glad.git"
   },
   "bugs": {
-    "url": "https://github.com/termly-dev/termly-cli/issues"
-  },
-  "funding": {
-    "type": "kofi",
-    "url": "https://ko-fi.com/termly"
+    "url": "https://gitee.com/next2012/glad/issues"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -42,7 +38,8 @@
   "files": [
     "bin/",
     "lib/",
-    "scripts/"
+    "scripts/",
+    "README.md"
   ],
   "dependencies": {
     "axios": "^1.6.0",
@@ -52,7 +49,6 @@
     "express": "^5.2.1",
     "inquirer": "^8.2.5",
     "node-pty": "npm:@lydell/node-pty@^1.1.0",
-    "qrcode-terminal": "^0.12.0",
     "semver": "^7.7.3",
     "uuid": "^9.0.0",
     "ws": "^8.19.0"

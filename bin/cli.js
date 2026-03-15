@@ -5,78 +5,25 @@ const chalk = require('chalk');
 const packageJson = require('../package.json');
 
 // Import commands
-const setupCommand = require('../lib/commands/setup');
-const startCommand = require('../lib/commands/start');
-const statusCommand = require('../lib/commands/status');
-const stopCommand = require('../lib/commands/stop');
-const listCommand = require('../lib/commands/list');
+const webCommand = require('../lib/commands/web');
 const toolsCommand = require('../lib/commands/tools');
 const configCommand = require('../lib/commands/config');
-const cleanupCommand = require('../lib/commands/cleanup');
 
 const program = new Command();
 
 // Configure program
 program
-  .name('termly')
-  .description('Mirror your AI coding sessions to mobile - control 17+ tools from your phone')
+  .name('glad')
+  .description('Transform your AI terminal tools into a beautiful Web interface')
   .version(packageJson.version, '-v, --version', 'Show version');
 
-// Setup command
+// Default Web command
 program
   .command('web', { isDefault: true })
-  .description('Start a local web server (PWA) to access AI tools via browser')
+  .description('Start the local web server to access AI tools')
   .option('-p, --port <number>', 'Port to run the server on', '3000')
-  .option('--ai <name>', 'AI tool to use (claude, aider, etc.)')
-  .option('--ai-args <args>', 'Additional arguments for the AI tool')
   .action(async (options) => {
-    const webCommand = require('../lib/commands/web');
     await webCommand(options);
-  });
-
-program
-  .command('stop')
-  .description('Interactive setup')
-  .action(async () => {
-    await setupCommand();
-  });
-
-// Start command - can be called explicitly
-program
-  .command('start [directory]')
-  .description('Start AI tool with remote access')
-  .option('--ai <tool>', 'Specify AI tool to use')
-  .option('--ai-args <args>', 'Additional arguments for AI tool (e.g., "--continue" for Claude Code)')
-  .option('--no-auto-detect', 'Disable AI tool auto-detection')
-  .option('--debug', 'Enable debug logging')
-  .action(async (directory, options) => {
-    await startCommand(directory, options);
-  });
-
-// Status command
-program
-  .command('status')
-  .description('Show session status')
-  .option('--all', 'Show all sessions including stopped')
-  .action(async (options) => {
-    await statusCommand(options);
-  });
-
-// Stop command
-program
-  .command('stop [session-id]')
-  .description('Stop session(s)')
-  .option('--all', 'Stop all sessions')
-  .action(async (sessionId, options) => {
-    await stopCommand(sessionId, options);
-  });
-
-// List command
-program
-  .command('list')
-  .description('List active sessions')
-  .action(async () => {
-    await listCommand();
   });
 
 // Tools command
@@ -95,57 +42,21 @@ program
     await configCommand(action, key, value);
   });
 
-// Cleanup command
-program
-  .command('cleanup')
-  .description('Remove stale sessions')
-  .action(async () => {
-    await cleanupCommand();
-  });
-
 // Help command customization
 program.on('--help', () => {
   console.log('');
-  console.log('Examples:');
-  console.log('  $ termly                                # Auto-detect AI tool');
-  console.log('  $ termly --ai aider                     # Use Aider');
-  console.log('  $ termly --ai "claude code"             # Use Claude Code');
-  console.log('  $ termly start                          # Same as just "termly"');
-  console.log('  $ termly tools list                     # List available tools');
-  console.log('  $ termly status                         # Show all sessions');
+  console.log('Quick Start:');
+  console.log('  $ glad                                  # Start web server on port 3000');
+  console.log('  $ glad --port 8080                      # Start on custom port');
   console.log('');
-  console.log('Special modes:');
-  console.log('  --ai demo    Demo mode for testing (no AI agent installation required)');
-  console.log('');
-  console.log('Multiple Sessions:');
-  console.log('  You can run multiple sessions simultaneously:');
-  console.log('');
-  console.log('  Terminal 1:');
-  console.log('    $ cd ~/frontend');
-  console.log('    $ termly');
-  console.log('');
-  console.log('  Terminal 2:');
-  console.log('    $ cd ~/backend');
-  console.log('    $ termly');
-  console.log('');
-  console.log('  Each session is independent with its own AI tool.');
+  console.log('Manage Tools:');
+  console.log('  $ glad tools list                       # List all supported tools');
+  console.log('  $ glad tools detect                     # Check installed tools');
   console.log('');
   console.log('Supported AI Tools:');
-  console.log('  • Claude Code');
-  console.log('  • Aider');
-  console.log('  • GitHub Copilot CLI');
-  console.log('  • Cursor');
-  console.log('  • Continue');
-  console.log('  • Cody');
-  console.log('  • And more...');
+  console.log('  • Claude Code, Aider, GitHub Copilot, Gemini CLI, and more...');
   console.log('');
-  console.log('About Termly:');
-  console.log('  Termly mirrors your AI coding workflow to mobile in real time.');
-  console.log('  Your existing tools (Claude, Aider, Copilot, and more) stay with you');
-  console.log('  wherever you go — secured with end-to-end encryption.');
-  console.log('');
-  console.log('Website: https://termly.dev');
-  console.log('Support: https://ko-fi.com/termly');
+  console.log('Source: https://gitee.com/next2012/glad');
   console.log('');
 });
 
