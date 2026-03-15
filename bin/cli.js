@@ -13,14 +13,14 @@ const program = new Command();
 
 // Configure program
 program
-  .name('termly')
-  .description('Transform your AI terminal tools into a beautiful Web PWA interface')
+  .name('glad')
+  .description('Transform your AI terminal tools into a beautiful Web interface')
   .version(packageJson.version, '-v, --version', 'Show version');
 
 // Default Web command
 program
   .command('web', { isDefault: true })
-  .description('Start the local web server (PWA) to access AI tools')
+  .description('Start the local web server to access AI tools')
   .option('-p, --port <number>', 'Port to run the server on', '3000')
   .action(async (options) => {
     await webCommand(options);
@@ -46,17 +46,17 @@ program
 program.on('--help', () => {
   console.log('');
   console.log('Quick Start:');
-  console.log('  $ termly                                # Start web server on port 3000');
-  console.log('  $ termly --port 8080                    # Start on custom port');
+  console.log('  $ glad                                  # Start web server on port 3000');
+  console.log('  $ glad --port 8080                      # Start on custom port');
   console.log('');
   console.log('Manage Tools:');
-  console.log('  $ termly tools list                     # List all supported tools');
-  console.log('  $ termly tools detect                   # Check installed tools');
+  console.log('  $ glad tools list                       # List all supported tools');
+  console.log('  $ glad tools detect                     # Check installed tools');
   console.log('');
   console.log('Supported AI Tools:');
   console.log('  • Claude Code, Aider, GitHub Copilot, Gemini CLI, and more...');
   console.log('');
-  console.log('Website: https://termly.dev');
+  console.log('Source: https://gitee.com/next2012/glad');
   console.log('');
 });
 
