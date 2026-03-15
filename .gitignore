@@ -108,4 +108,4 @@ dist
 # AI Assistant settings (local only)
 .claude/
 .grok/
-termly-linux-amd64
+glad-linux-amd64
