@@ -24,15 +24,26 @@ program
 
 // Setup command
 program
-  .command('setup')
+  .command('web', { isDefault: true })
+  .description('Start a local web server (PWA) to access AI tools via browser')
+  .option('-p, --port <number>', 'Port to run the server on', '3000')
+  .option('--ai <name>', 'AI tool to use (claude, aider, etc.)')
+  .option('--ai-args <args>', 'Additional arguments for the AI tool')
+  .action(async (options) => {
+    const webCommand = require('../lib/commands/web');
+    await webCommand(options);
+  });
+
+program
+  .command('stop')
   .description('Interactive setup')
   .action(async () => {
     await setupCommand();
   });
 
-// Start command - can be called explicitly or as default action
+// Start command - can be called explicitly
 program
-  .command('start [directory]', { isDefault: true })
+  .command('start [directory]')
   .description('Start AI tool with remote access')
   .option('--ai <tool>', 'Specify AI tool to use')
   .option('--ai-args <args>', 'Additional arguments for AI tool (e.g., "--continue" for Claude Code)')
