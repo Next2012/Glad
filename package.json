@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node bin/cli.js",
+    "build:linux": "npx caxa -i . -m \"This may take a while to extract...\" --output \"termly-linux-amd64\" -- \"{{caxa}}/node_modules/.bin/node\" \"{{caxa}}/bin/cli.js\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
@@ -48,11 +49,15 @@
     "chalk": "^4.1.2",
     "commander": "^11.0.0",
     "conf": "^10.2.0",
+    "express": "^5.2.1",
     "inquirer": "^8.2.5",
     "node-pty": "npm:@lydell/node-pty@^1.1.0",
     "qrcode-terminal": "^0.12.0",
     "semver": "^7.7.3",
     "uuid": "^9.0.0",
-    "ws": "^8.14.0"
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "caxa": "^3.0.1"
   }
 }
