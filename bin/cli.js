@@ -24,7 +24,18 @@ program
 
 // Setup command
 program
-  .command('setup')
+  .command('web')
+  .description('Start a local web server (PWA) to access AI tools via browser')
+  .option('-p, --port <number>', 'Port to run the server on', '3000')
+  .option('--ai <name>', 'AI tool to use (claude, aider, etc.)')
+  .option('--ai-args <args>', 'Additional arguments for the AI tool')
+  .action(async (options) => {
+    const webCommand = require('../lib/commands/web');
+    await webCommand(options);
+  });
+
+program
+  .command('stop')
   .description('Interactive setup')
   .action(async () => {
     await setupCommand();
