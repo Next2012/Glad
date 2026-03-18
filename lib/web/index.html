@@ -47,6 +47,17 @@
         #scroll-controls { position: fixed; right: 14px; top: 60%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 18px; z-index: 3000; }
         .scroll-btn { width: 56px; height: 56px; background: rgba(30, 30, 30, 0.5); backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 28px; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); cursor: pointer; }
         #debug-log { position: fixed; bottom: 0; left: 0; right: 0; max-height: 100px; background: rgba(0,0,0,0.8); color: #0f0; font-size: 10px; overflow-y: auto; padding: 5px; z-index: 9999; display: none; pointer-events: none; }
+        .tab-bar { display: flex; border-bottom: 1px solid rgba(255,255,255,0.1); background: var(--bg); }
+        .tab-btn { flex: 1; text-align: center; padding: 12px 0; font-size: 14px; font-weight: 600; color: var(--text-dim); background: none; border: none; cursor: pointer; position: relative; }
+        .tab-btn.active { color: var(--text); }
+        .tab-btn.active::after { content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); height: 2px; width: 40px; background: var(--primary); border-radius: 2px; }
+        .list-item { display: flex; align-items: center; padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.05); cursor: pointer; transition: background 0.2s; }
+        .list-item:hover { background: rgba(255,255,255,0.05); }
+        .dir-icon { color: var(--primary); margin-right: 12px; }
+        .file-icon { color: var(--text-dim); margin-right: 12px; }
+        .btn-toggle { background: var(--card-bg); border-radius: 6px; padding: 4px; display: flex; gap: 4px; margin: 10px; }
+        .btn-toggle button { flex: 1; padding: 6px 0; border-radius: 4px; border: none; background: transparent; color: var(--text-dim); font-size: 13px; font-weight: 600; cursor: pointer; }
+        .btn-toggle button.active { background: var(--primary); color: #fff; }
     </style>
 </head>
 <body>
@@ -71,7 +82,9 @@
                     Lobby
                 </button>
                 <div id="session-title">Terminal</div>
-                <div style="width: 50px"></div>
+                <button class="icon-btn" onclick="showGitPreview()" style="color: var(--primary); font-size: 14px; font-weight: 700; background: rgba(0, 122, 255, 0.1); padding: 5px 12px; border-radius: 15px;">
+                    GIT
+                </button>
             </div>
             <div id="input-row">
                 <textarea id="cmd-input" rows="1" placeholder="Type a message..."></textarea>
@@ -94,6 +107,27 @@
             <div class="scroll-btn" id="scroll-down">▼</div>
         </div>
         <div id="terminal-container"><div id="terminal"></div></div>
+    </div>
+
+    <div id="git-view" class="view">
+        <div style="flex-shrink: 0; background: #121212; border-bottom: 1px solid #222; padding-top: env(safe-area-inset-top);">
+            <div style="display: flex; align-items: center; padding: 8px 14px;">
+                <button class="icon-btn" onclick="showTerminal()" style="color: var(--primary); font-size: 16px; font-weight: 500;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                    Terminal
+                </button>
+                <div style="flex: 1; text-align: center; font-weight: 600; font-size: 16px;">Git Status</div>
+                <button class="icon-btn" onclick="loadGitStatus()" style="color: var(--primary);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"></path><polyline points="21 3 21 9 15 9"></polyline></svg>
+                </button>
+            </div>
+        </div>
+        <div class="tab-bar">
+            <button id="tab-changes" class="tab-btn active" onclick="switchGitTab('changes')">Changes</button>
+            <button id="tab-directories" class="tab-btn" onclick="switchGitTab('directories')">Directories</button>
+        </div>
+        <div id="git-content" style="flex: 1; overflow-y: auto; padding: 0; background: var(--bg);">
+        </div>
     </div>
 
     <div id="modal-overlay" onclick="closeToolModal(event)">
@@ -339,6 +373,250 @@
         window.addEventListener('touchcancel', stopScroll);
         window.addEventListener('resize', syncLayout);
         
+        let currentGitTab = 'changes';
+        let currentDirPath = '';
+
+        async function showGitPreview() {
+            document.getElementById('terminal-view').classList.remove('active');
+            document.getElementById('git-view').classList.add('active');
+            switchGitTab('changes');
+        }
+
+        function showTerminal() {
+            document.getElementById('git-view').classList.remove('active');
+            document.getElementById('terminal-view').classList.add('active');
+        }
+
+        function switchGitTab(tab) {
+            currentGitTab = tab;
+            document.getElementById('tab-changes').classList.toggle('active', tab === 'changes');
+            document.getElementById('tab-directories').classList.toggle('active', tab === 'directories');
+            if (tab === 'changes') {
+                loadGitStatus();
+            } else {
+                loadDirectories(currentDirPath);
+            }
+        }
+
+        async function loadDirectories(path = '') {
+            currentDirPath = path;
+            const content = document.getElementById('git-content');
+            content.innerHTML = '<p style="text-align:center;color:#888;padding:20px;">Loading...</p>';
+            if (!activeSessionId) return;
+            try {
+                const res = await fetchWithTimeout(`/api/sessions/${activeSessionId}/fs/dir?path=${encodeURIComponent(path)}`);
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error);
+                
+                let html = '<div>';
+                
+                // Back button if not root
+                if (path !== '') {
+                    const parts = path.split('/');
+                    parts.pop();
+                    const parentPath = parts.join('/');
+                    html += `<div class="list-item" onclick="loadDirectories('${parentPath}')">
+                        <svg class="dir-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                        <div style="font-size:14px; font-weight:500;">..</div>
+                    </div>`;
+                }
+
+                if (data.files.length === 0) {
+                     html += '<p style="color:var(--text-dim); text-align:center; padding: 20px;">Empty directory</p>';
+                } else {
+                    data.files.forEach(f => {
+                        const fullPath = path ? `${path}/${f.name}` : f.name;
+                        let colorStyle = '';
+                        let badgeHtml = '';
+                        if (f.gitStatus) {
+                             let color = '#fff';
+                             let label = f.gitStatus.trim();
+                             if (label.includes('U') || label.includes('?')) { colorStyle = 'color: #4ade80;'; color = '#4ade80'; if(label === '??') label = 'U'; }
+                             else if (label.includes('M')) { colorStyle = 'color: #f59e0b;'; color = '#f59e0b'; }
+                             else if (label.includes('D')) { colorStyle = 'color: #f87171;'; color = '#f87171'; }
+                             
+                             badgeHtml = `<span style="color:${color}; font-weight:700; font-size:10px; border:1px solid ${color}; padding:1px 4px; border-radius:3px; opacity:0.7; margin-left: auto;">${label}</span>`;
+                        }
+                        
+                        if (f.isDirectory) {
+                            html += `<div class="list-item" onclick="loadDirectories('${fullPath}')">
+                                <svg class="dir-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+                                <div style="font-size:14px; font-weight:500; ${colorStyle}">${f.name}</div>
+                                ${badgeHtml}
+                            </div>`;
+                        } else {
+                            html += `<div class="list-item" onclick="showFileDetails('${fullPath}', false)">
+                                <svg class="file-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                                <div style="font-size:14px; font-weight:500; ${colorStyle}">${f.name}</div>
+                                ${badgeHtml}
+                            </div>`;
+                        }
+                    });
+                }
+                html += '</div>';
+                content.innerHTML = html;
+            } catch (e) {
+                content.innerHTML = `<p style="color:#ff3b30; padding:10px;">${e.message}</p>`;
+            }
+        }
+
+        async function loadGitStatus() {
+            const content = document.getElementById('git-content');
+            content.innerHTML = '<p style="text-align:center;color:#888;padding:20px;">Loading...</p>';
+            if (!activeSessionId) return;
+            try {
+                const res = await fetchWithTimeout(`/api/sessions/${activeSessionId}/git-status`);
+                if (!res.ok) throw new Error('Failed to load status');
+                const data = await res.json();
+                
+                if (data.error) {
+                    content.innerHTML = `<p style="color:#ff3b30; padding:10px;">Git error: ${data.error}</p>`;
+                    return;
+                }
+
+                const lines = (data.stdout || '').trim().split('\n').filter(Boolean);
+                const files = [];
+                lines.forEach(line => {
+                    if (line.startsWith('1 ') || line.startsWith('2 ') || line.startsWith('u ')) {
+                        const parts = line.split(' ');
+                        const path = parts[parts.length - 1];
+                        const xy = parts[1];
+                        files.push({ path, status: xy });
+                    } else if (line.startsWith('? ')) {
+                        const path = line.substring(2);
+                        files.push({ path, status: '??' });
+                    }
+                });
+
+                if (files.length === 0) {
+                    content.innerHTML = '<p style="text-align:center;color:#888;padding:20px;">No changes detected.</p>';
+                    return;
+                }
+
+                let html = '<div style="padding:10px;"><div style="background:var(--card-bg); border-radius:12px; overflow:hidden;">';
+                files.forEach((f, idx) => {
+                    let color = '#fff';
+                    let label = f.status;
+                    if (label.includes('M')) { color = '#f59e0b'; } 
+                    else if (label.includes('A') || label === '??') { color = '#4ade80'; if(label === '??') label = 'U'; }
+                    else if (label.includes('D')) { color = '#f87171'; }
+                    
+                    const borderBottom = idx < files.length - 1 ? 'border-bottom: 1px solid rgba(255,255,255,0.05);' : '';
+                    
+                    html += `<div style="padding:14px; ${borderBottom} display:flex; justify-content:space-between; align-items:center; cursor:pointer; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'" onclick="showFileDetails('${f.path}', true)">
+                        <div style="flex:1; min-width:0; margin-right:10px;">
+                            <div style="font-size:14px; font-weight:500; word-break:break-all;">${f.path.split('/').pop() || f.path}</div>
+                            <div style="font-size:12px; color:var(--text-dim); word-break:break-all;">${f.path}</div>
+                        </div>
+                        <span style="color:${color}; font-weight:700; font-size:12px; border:1px solid ${color}; padding:2px 6px; border-radius:4px; opacity:0.8;">${label}</span>
+                    </div>`;
+                });
+                html += '</div></div>';
+                content.innerHTML = html;
+            } catch (e) {
+                content.innerHTML = `<p style="color:#ff3b30; padding:10px;">${e.message}</p>`;
+            }
+        }
+
+        let currentFilePath = '';
+        let currentFileDiff = '';
+        let currentFileContent = '';
+        let currentFileMode = 'diff';
+
+        async function showFileDetails(path, isFromChanges = true) {
+            currentFilePath = path;
+            currentFileMode = isFromChanges ? 'diff' : 'file';
+            const content = document.getElementById('git-content');
+            content.innerHTML = '<p style="text-align:center;color:#888;padding:20px;">Loading details...</p>';
+            try {
+                const [diffRes, fileRes] = await Promise.all([
+                    fetchWithTimeout(`/api/sessions/${activeSessionId}/git-diff-file?path=${encodeURIComponent(path)}`).catch(()=>({ok:false})),
+                    fetchWithTimeout(`/api/sessions/${activeSessionId}/file?path=${encodeURIComponent(path)}`).catch(()=>({ok:false}))
+                ]);
+                
+                let diffData = diffRes.ok ? await diffRes.json() : { success: false };
+                let fileData = fileRes.ok ? await fileRes.json() : { success: false };
+
+                currentFileDiff = (diffData.success && diffData.stdout) ? diffData.stdout : '';
+                currentFileContent = fileData.success ? fileData.content : '';
+
+                if (!currentFileDiff && isFromChanges && currentFileContent) {
+                     currentFileDiff = 'Untracked or new file:\n\n' + currentFileContent;
+                }
+
+                if (!currentFileDiff && !currentFileContent) {
+                     content.innerHTML = `<p style="color:#ff3b30; padding:10px;">Failed to load file details.</p><button class="btn-retry" style="margin:10px;" onclick="switchGitTab(currentGitTab)">Back</button>`;
+                     return;
+                }
+                
+                // If it's a new file, and diff mode has no diff output except our fallback, just show File
+                if (!diffData.stdout && !isFromChanges) {
+                     currentFileMode = 'file';
+                }
+
+                renderFileDetails();
+            } catch (e) {
+                content.innerHTML = `<p style="color:#ff3b30; padding:10px;">${e.message}</p><button class="btn-retry" style="margin:10px;" onclick="switchGitTab(currentGitTab)">Back</button>`;
+            }
+        }
+
+        function setFileMode(mode) {
+            currentFileMode = mode;
+            renderFileDetails();
+        }
+
+        function renderFileDetails() {
+            const content = document.getElementById('git-content');
+            const path = currentFilePath;
+            
+            let html = `
+            <div style="display:flex; align-items:center; background: var(--card-bg); padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <button class="icon-btn" onclick="switchGitTab(currentGitTab)" style="color: var(--primary); margin-right: 12px; font-weight:600; font-size:14px; display:flex; align-items:center; gap:4px;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg> Back
+                </button>
+                <div style="flex:1; min-width:0;">
+                    <div style="font-weight: 600; word-break: break-all; font-size:15px; color:var(--text);">${path.split('/').pop() || path}</div>
+                    <div style="font-size:12px; color:var(--text-dim); word-break:break-all;">${path}</div>
+                </div>
+            </div>`;
+
+            if (currentFileDiff && currentFileContent) {
+                html += `
+                <div class="btn-toggle">
+                    <button class="${currentFileMode === 'diff' ? 'active' : ''}" onclick="setFileMode('diff')">Diff</button>
+                    <button class="${currentFileMode === 'file' ? 'active' : ''}" onclick="setFileMode('file')">File</button>
+                </div>`;
+            }
+
+            html += `<div style="padding: 10px;">`;
+
+            if (currentFileMode === 'diff' && currentFileDiff) {
+                html += `<div style="background:#0d0d0d; border: 1px solid rgba(255,255,255,0.1); border-radius:8px; overflow-x:auto; font-family:monospace; font-size:12px; line-height:1.5;">`;
+                currentFileDiff.split('\n').forEach(line => {
+                    let color = '#ccc';
+                    let bg = 'transparent';
+                    let borderLeft = '2px solid transparent';
+                    if (line.startsWith('+') && !line.startsWith('+++')) { color = '#4ade80'; bg = 'rgba(74, 222, 128, 0.1)'; borderLeft = '2px solid #4ade80'; }
+                    else if (line.startsWith('-') && !line.startsWith('---')) { color = '#f87171'; bg = 'rgba(248, 113, 113, 0.1)'; borderLeft = '2px solid #f87171'; }
+                    else if (line.startsWith('@@')) { color = '#60a5fa'; bg = 'rgba(96, 165, 250, 0.1)'; }
+                    
+                    html += `<div style="color:${color}; background:${bg}; border-left:${borderLeft}; white-space:pre-wrap; padding: 2px 8px; min-height: 18px;">${line.replace(/</g, '&lt;').replace(/>/g, '&gt;') || ' '}</div>`;
+                });
+                html += `</div>`;
+            } else if (currentFileMode === 'file' || (!currentFileDiff && currentFileContent)) {
+                if (currentFileContent) {
+                    html += `<pre style="background:#0d0d0d; border: 1px solid rgba(255,255,255,0.1); border-radius:8px; overflow-x:auto; font-family:monospace; font-size:12px; line-height:1.5; padding: 12px; color: #ccc; margin: 0; white-space: pre-wrap; word-break: break-all;"><code>${currentFileContent.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>`;
+                } else {
+                    html += `<p style="color:var(--text-dim); text-align:center;">File is empty or binary.</p>`;
+                }
+            } else {
+                html += `<p style="color:var(--text-dim); text-align:center;">No content to display.</p>`;
+            }
+
+            html += `</div>`;
+            content.innerHTML = html;
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             log('DOM Content Loaded');
             loadSessions();
