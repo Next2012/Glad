@@ -34,8 +34,8 @@
         #terminal-view { background: #000; }
         #top-ui { flex-shrink: 0; background: #121212; border-bottom: 1px solid #222; z-index: 2000; padding-top: env(safe-area-inset-top); }
         #nav-bar { display: flex; align-items: center; padding: 8px 14px; border-bottom: 1px solid #222; }
-        #back-btn { color: var(--primary); font-size: 16px; font-weight: 500; display: flex; align-items: center; text-decoration: none; background: none; border: none; padding: 0; cursor: pointer; }
-        #session-title { flex: 1; text-align: center; font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 10px; }
+        #back-btn { color: var(--primary); font-size: 16px; font-weight: 500; display: flex; align-items: center; text-decoration: none; background: none; border: none; padding: 0; cursor: pointer; flex-shrink: 0; }
+        #session-title { flex: 1; text-align: center; font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 10px; min-width: 0; }
         #input-row { display: flex; align-items: flex-end; padding: 10px 14px; }
         #cmd-input { flex: 1; min-height: 38px; max-height: 150px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 19px; color: #fff; padding: 9px 16px; font-size: 16px; outline: none; resize: none; overflow-y: auto; line-height: 20px; box-sizing: border-box; }
         #send-btn { width: 44px; height: 38px; margin-left: 10px; background: #007aff; border: none; border-radius: 19px; color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer; }
@@ -47,6 +47,10 @@
         #scroll-controls { position: fixed; right: 14px; top: 60%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 18px; z-index: 3000; }
         .scroll-btn { width: 56px; height: 56px; background: rgba(30, 30, 30, 0.5); backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 28px; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); cursor: pointer; }
         #debug-log { position: fixed; bottom: 0; left: 0; right: 0; max-height: 100px; background: rgba(0,0,0,0.8); color: #0f0; font-size: 10px; overflow-y: auto; padding: 5px; z-index: 9999; display: none; pointer-events: none; }
+        
+        /* Fulltext Select View */
+        #fulltext-content { flex: 1; background: #000; color: #ccc; padding: 15px; overflow-y: auto; font-family: monospace; font-size: 13px; line-height: 1.4; white-space: pre-wrap; word-break: break-all; user-select: text !important; -webkit-user-select: text !important; }
+
         .tab-bar { display: flex; border-bottom: 1px solid rgba(255,255,255,0.1); background: var(--bg); }
         .tab-btn { flex: 1; text-align: center; padding: 12px 0; font-size: 14px; font-weight: 600; color: var(--text-dim); background: none; border: none; cursor: pointer; position: relative; }
         .tab-btn.active { color: var(--text); }
@@ -62,6 +66,8 @@
 </head>
 <body>
     <div id="debug-log"></div>
+    
+    <!-- Lobby View -->
     <div id="lobby-view" class="view active">
         <div id="lobby">
             <div class="header">
@@ -74,6 +80,7 @@
         </div>
     </div>
 
+    <!-- Terminal View -->
     <div id="terminal-view" class="view">
         <div id="top-ui">
             <div id="nav-bar">
@@ -82,9 +89,14 @@
                     Lobby
                 </button>
                 <div id="session-title">Terminal</div>
-                <button class="icon-btn" onclick="showGitPreview()" style="color: var(--primary); font-size: 14px; font-weight: 700; background: rgba(0, 122, 255, 0.1); padding: 5px 12px; border-radius: 15px;">
-                    GIT
-                </button>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <button class="icon-btn" onclick="showFullText()" style="color: var(--text-dim); font-size: 13px; font-weight: 700; background: rgba(255, 255, 255, 0.05); padding: 5px 10px; border-radius: 15px;">
+                        COPY
+                    </button>
+                    <button class="icon-btn" onclick="showGitPreview()" style="color: var(--primary); font-size: 13px; font-weight: 700; background: rgba(0, 122, 255, 0.1); padding: 5px 12px; border-radius: 15px;">
+                        GIT
+                    </button>
+                </div>
             </div>
             <div id="input-row">
                 <textarea id="cmd-input" rows="1" placeholder="Type a message..."></textarea>
@@ -109,6 +121,24 @@
         <div id="terminal-container"><div id="terminal"></div></div>
     </div>
 
+    <!-- Fulltext Selection View -->
+    <div id="fulltext-view" class="view">
+        <div style="flex-shrink: 0; background: #121212; border-bottom: 1px solid #222; padding-top: env(safe-area-inset-top);">
+            <div style="display: flex; align-items: center; padding: 8px 14px;">
+                <button class="icon-btn" onclick="hideFullText()" style="color: var(--primary); font-size: 16px; font-weight: 500;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                    Back
+                </button>
+                <div style="flex: 1; text-align: center; font-weight: 600; font-size: 16px;">Copy Output</div>
+                <button class="icon-btn" onclick="copyFullContent()" style="color: var(--primary); font-size: 13px; font-weight: 700;">
+                    SELECT ALL
+                </button>
+            </div>
+        </div>
+        <pre id="fulltext-content"></pre>
+    </div>
+
+    <!-- Git View -->
     <div id="git-view" class="view">
         <div style="flex-shrink: 0; background: #121212; border-bottom: 1px solid #222; padding-top: env(safe-area-inset-top);">
             <div style="display: flex; align-items: center; padding: 8px 14px;">
@@ -130,6 +160,7 @@
         </div>
     </div>
 
+    <!-- Tool Modal -->
     <div id="modal-overlay" onclick="closeToolModal(event)">
         <div id="tool-modal" onclick="event.stopPropagation()">
             <h2 style="margin-top:0">Create Session</h2>
@@ -143,8 +174,8 @@
         </div>
     </div>
 
-    <script defer src="https://unpkg.com/xterm@5.3.0/lib/xterm.js" onerror="log('XTerm Load Failed')"></script>
-    <script defer src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js" onerror="log('FitAddon Load Failed')"></script>
+    <script defer src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
+    <script defer src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
     <script>
         let currentSocket = null, term = null, fitAddon = null, activeSessionId = null;
         const modifiers = { ctrl: false, alt: false };
@@ -177,7 +208,6 @@
                 const res = await fetchWithTimeout('/api/sessions');
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const sessions = await res.json();
-                log('Sessions loaded: ' + sessions.length);
                 if (!sessions || sessions.length === 0) { 
                     list.innerHTML = '<p style="color:#888; text-align:center; margin-top:50px;">No active sessions</p>'; 
                     return; 
@@ -198,7 +228,6 @@
                 });
                 list.innerHTML = html;
             } catch (e) { 
-                log('Load sessions error: ' + e.message);
                 list.innerHTML = `<div style="color:#ff3b30; text-align:center; margin-top:50px;"><p>Failed to load: ${e.message}</p><button class="btn-retry" onclick="loadSessions()">Retry</button></div>`;
             }
         }
@@ -219,12 +248,10 @@
         }
 
         async function showToolModal() {
-            log('Opening tool modal...');
             document.getElementById('modal-overlay').style.display = 'flex';
             const list = document.getElementById('tools-list');
             try {
                 const res = await fetchWithTimeout('/api/tools');
-                if (!res.ok) throw new Error('HTTP ' + res.status);
                 const tools = await res.json();
                 
                 let html = '';
@@ -239,7 +266,6 @@
                 });
                 list.innerHTML = html;
             } catch (e) { 
-                log('Load tools error: ' + e.message);
                 list.innerHTML = `<p style="color:#ff3b30">Detection failed: ${e.message}</p>`;
             }
         }
@@ -259,7 +285,7 @@
                 const { id } = await res.json();
                 document.getElementById('modal-overlay').style.display = 'none';
                 loadSessions();
-            } catch (e) { log('Create failed: ' + e.message); alert('Failed to create session'); }
+            } catch (e) { alert('Failed to create session'); }
         }
 
         async function deleteSession(id, e) {
@@ -269,7 +295,7 @@
 
         function showLobby() {
             if (currentSocket) { currentSocket.close(); currentSocket = null; }
-            document.getElementById('terminal-view').classList.remove('active');
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.getElementById('lobby-view').classList.add('active');
             loadSessions();
         }
@@ -277,19 +303,19 @@
         function joinSession(id, sessionName) {
             activeSessionId = id;
             document.getElementById('session-title').innerText = sessionName;
-            document.getElementById('lobby-view').classList.remove('active');
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.getElementById('terminal-view').classList.add('active');
             initTerminal(id);
         }
 
         function initTerminal(sessionId) {
             if (typeof Terminal === 'undefined') {
-                alert('Terminal library not loaded yet. Please check your network.');
+                alert('Terminal library not loaded yet.');
                 showLobby();
                 return;
             }
             if (!term) {
-                term = new Terminal({ theme: { background: '#000', foreground: '#fff', cursor: '#0f0' }, cursorBlink: true, fontSize: 14, cursorStyle: 'bar', scrollback: 5000 });
+                term = new Terminal({ theme: { background: '#000', foreground: '#fff', cursor: '#0f0' }, cursorBlink: true, fontSize: 14, cursorStyle: 'bar', scrollback: 10000 });
                 fitAddon = new FitAddon.FitAddon();
                 term.loadAddon(fitAddon);
                 term.open(document.getElementById('terminal'));
@@ -324,6 +350,51 @@
                 fitAddon.fit(); 
                 if (currentSocket.readyState === 1) currentSocket.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows })); 
             }, 50); 
+        }
+
+        // Navigation
+        function showTerminal() {
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.getElementById('terminal-view').classList.add('active');
+            syncLayout();
+        }
+
+        function showGitPreview() {
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.getElementById('git-view').classList.add('active');
+            switchGitTab('changes');
+        }
+
+        function showFullText() {
+            if (!term) return;
+            // Extract all text from terminal
+            term.selectAll();
+            const fullText = term.getSelection();
+            term.clearSelection();
+
+            const contentEl = document.getElementById('fulltext-content');
+            contentEl.textContent = fullText || 'No output to display.';
+            
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.getElementById('fulltext-view').classList.add('active');
+            contentEl.scrollTop = contentEl.scrollHeight;
+        }
+
+        function hideFullText() {
+            showTerminal();
+        }
+
+        function copyFullContent() {
+            const range = document.createRange();
+            range.selectNode(document.getElementById('fulltext-content'));
+            window.getSelection().removeAllRanges();
+            window.getSelection().addRange(range);
+            try {
+                document.execCommand('copy');
+                alert('All text selected and copied!');
+            } catch (e) {
+                alert('Selected! You can now copy manually.');
+            }
         }
 
         const inputEl = document.getElementById('cmd-input');
@@ -373,19 +444,9 @@
         window.addEventListener('touchcancel', stopScroll);
         window.addEventListener('resize', syncLayout);
         
+        // Git Logic
         let currentGitTab = 'changes';
         let currentDirPath = '';
-
-        async function showGitPreview() {
-            document.getElementById('terminal-view').classList.remove('active');
-            document.getElementById('git-view').classList.add('active');
-            switchGitTab('changes');
-        }
-
-        function showTerminal() {
-            document.getElementById('git-view').classList.remove('active');
-            document.getElementById('terminal-view').classList.add('active');
-        }
 
         function switchGitTab(tab) {
             currentGitTab = tab;
@@ -409,8 +470,6 @@
                 if (!data.success) throw new Error(data.error);
                 
                 let html = '<div>';
-                
-                // Back button if not root
                 if (path !== '') {
                     const parts = path.split('/');
                     parts.pop();
@@ -434,7 +493,6 @@
                              if (label.includes('U') || label.includes('?')) { colorStyle = 'color: #4ade80;'; color = '#4ade80'; if(label === '??') label = 'U'; }
                              else if (label.includes('M')) { colorStyle = 'color: #f59e0b;'; color = '#f59e0b'; }
                              else if (label.includes('D')) { colorStyle = 'color: #f87171;'; color = '#f87171'; }
-                             
                              badgeHtml = `<span style="color:${color}; font-weight:700; font-size:10px; border:1px solid ${color}; padding:1px 4px; border-radius:3px; opacity:0.7; margin-left: auto;">${label}</span>`;
                         }
                         
@@ -466,14 +524,11 @@
             if (!activeSessionId) return;
             try {
                 const res = await fetchWithTimeout(`/api/sessions/${activeSessionId}/git-status`);
-                if (!res.ok) throw new Error('Failed to load status');
                 const data = await res.json();
-                
                 if (data.error) {
                     content.innerHTML = `<p style="color:#ff3b30; padding:10px;">Git error: ${data.error}</p>`;
                     return;
                 }
-
                 const lines = (data.stdout || '').trim().split('\n').filter(Boolean);
                 const files = [];
                 lines.forEach(line => {
@@ -500,13 +555,11 @@
                     if (label.includes('M')) { color = '#f59e0b'; } 
                     else if (label.includes('A') || label === '??') { color = '#4ade80'; if(label === '??') label = 'U'; }
                     else if (label.includes('D')) { color = '#f87171'; }
-                    
                     const borderBottom = idx < files.length - 1 ? 'border-bottom: 1px solid rgba(255,255,255,0.05);' : '';
-                    
-                    html += `<div style="padding:14px; ${borderBottom} display:flex; justify-content:space-between; align-items:center; cursor:pointer; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'" onclick="showFileDetails('${f.path}', true)">
+                    html += `<div style="padding:14px; ${borderBottom} display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="showFileDetails('${f.path}', true)">
                         <div style="flex:1; min-width:0; margin-right:10px;">
-                            <div style="font-size:14px; font-weight:500; word-break:break-all;">${f.path.split('/').pop() || f.path}</div>
-                            <div style="font-size:12px; color:var(--text-dim); word-break:break-all;">${f.path}</div>
+                            <div style="font-size:14px; font-weight:500;">${f.path.split('/').pop() || f.path}</div>
+                            <div style="font-size:12px; color:var(--text-dim);">${f.path}</div>
                         </div>
                         <span style="color:${color}; font-weight:700; font-size:12px; border:1px solid ${color}; padding:2px 6px; border-radius:4px; opacity:0.8;">${label}</span>
                     </div>`;
@@ -518,10 +571,7 @@
             }
         }
 
-        let currentFilePath = '';
-        let currentFileDiff = '';
-        let currentFileContent = '';
-        let currentFileMode = 'diff';
+        let currentFilePath = '', currentFileDiff = '', currentFileContent = '', currentFileMode = 'diff';
 
         async function showFileDetails(path, isFromChanges = true) {
             currentFilePath = path;
@@ -533,92 +583,58 @@
                     fetchWithTimeout(`/api/sessions/${activeSessionId}/git-diff-file?path=${encodeURIComponent(path)}`).catch(()=>({ok:false})),
                     fetchWithTimeout(`/api/sessions/${activeSessionId}/file?path=${encodeURIComponent(path)}`).catch(()=>({ok:false}))
                 ]);
-                
                 let diffData = diffRes.ok ? await diffRes.json() : { success: false };
                 let fileData = fileRes.ok ? await fileRes.json() : { success: false };
-
                 currentFileDiff = (diffData.success && diffData.stdout) ? diffData.stdout : '';
                 currentFileContent = fileData.success ? fileData.content : '';
-
-                if (!currentFileDiff && isFromChanges && currentFileContent) {
-                     currentFileDiff = 'Untracked or new file:\n\n' + currentFileContent;
-                }
-
+                if (!currentFileDiff && isFromChanges && currentFileContent) currentFileDiff = 'Untracked file:\n\n' + currentFileContent;
                 if (!currentFileDiff && !currentFileContent) {
-                     content.innerHTML = `<p style="color:#ff3b30; padding:10px;">Failed to load file details.</p><button class="btn-retry" style="margin:10px;" onclick="switchGitTab(currentGitTab)">Back</button>`;
+                     content.innerHTML = `<p style="color:#ff3b30; padding:10px;">Failed to load details.</p>`;
                      return;
                 }
-                
-                // If it's a new file, and diff mode has no diff output except our fallback, just show File
-                if (!diffData.stdout && !isFromChanges) {
-                     currentFileMode = 'file';
-                }
-
+                if (!diffData.stdout && !isFromChanges) currentFileMode = 'file';
                 renderFileDetails();
-            } catch (e) {
-                content.innerHTML = `<p style="color:#ff3b30; padding:10px;">${e.message}</p><button class="btn-retry" style="margin:10px;" onclick="switchGitTab(currentGitTab)">Back</button>`;
-            }
+            } catch (e) { content.innerHTML = `<p style="color:#ff3b30; padding:10px;">${e.message}</p>`; }
         }
 
-        function setFileMode(mode) {
-            currentFileMode = mode;
-            renderFileDetails();
-        }
+        function setFileMode(mode) { currentFileMode = mode; renderFileDetails(); }
 
         function renderFileDetails() {
             const content = document.getElementById('git-content');
-            const path = currentFilePath;
-            
             let html = `
             <div style="display:flex; align-items:center; background: var(--card-bg); padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                <button class="icon-btn" onclick="switchGitTab(currentGitTab)" style="color: var(--primary); margin-right: 12px; font-weight:600; font-size:14px; display:flex; align-items:center; gap:4px;">
+                <button class="icon-btn" onclick="switchGitTab(currentGitTab)" style="color: var(--primary); margin-right: 12px; font-weight:600; font-size:14px; display:flex; align-items:center;">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg> Back
                 </button>
                 <div style="flex:1; min-width:0;">
-                    <div style="font-weight: 600; word-break: break-all; font-size:15px; color:var(--text);">${path.split('/').pop() || path}</div>
-                    <div style="font-size:12px; color:var(--text-dim); word-break:break-all;">${path}</div>
+                    <div style="font-weight:600; font-size:15px;">${currentFilePath.split('/').pop() || currentFilePath}</div>
                 </div>
             </div>`;
-
             if (currentFileDiff && currentFileContent) {
-                html += `
-                <div class="btn-toggle">
+                html += `<div class="btn-toggle">
                     <button class="${currentFileMode === 'diff' ? 'active' : ''}" onclick="setFileMode('diff')">Diff</button>
                     <button class="${currentFileMode === 'file' ? 'active' : ''}" onclick="setFileMode('file')">File</button>
                 </div>`;
             }
-
             html += `<div style="padding: 10px;">`;
-
             if (currentFileMode === 'diff' && currentFileDiff) {
-                html += `<div style="background:#0d0d0d; border: 1px solid rgba(255,255,255,0.1); border-radius:8px; overflow-x:auto; font-family:monospace; font-size:12px; line-height:1.5;">`;
+                html += `<div style="background:#0d0d0d; border-radius:8px; overflow-x:auto; font-family:monospace; font-size:12px; line-height:1.5;">`;
                 currentFileDiff.split('\n').forEach(line => {
-                    let color = '#ccc';
-                    let bg = 'transparent';
-                    let borderLeft = '2px solid transparent';
+                    let color = '#ccc', bg = 'transparent', borderLeft = '2px solid transparent';
                     if (line.startsWith('+') && !line.startsWith('+++')) { color = '#4ade80'; bg = 'rgba(74, 222, 128, 0.1)'; borderLeft = '2px solid #4ade80'; }
                     else if (line.startsWith('-') && !line.startsWith('---')) { color = '#f87171'; bg = 'rgba(248, 113, 113, 0.1)'; borderLeft = '2px solid #f87171'; }
                     else if (line.startsWith('@@')) { color = '#60a5fa'; bg = 'rgba(96, 165, 250, 0.1)'; }
-                    
-                    html += `<div style="color:${color}; background:${bg}; border-left:${borderLeft}; white-space:pre-wrap; padding: 2px 8px; min-height: 18px;">${line.replace(/</g, '&lt;').replace(/>/g, '&gt;') || ' '}</div>`;
+                    html += `<div style="color:${color}; background:${bg}; border-left:${borderLeft}; white-space:pre-wrap; padding: 2px 8px;">${line.replace(/</g, '&lt;').replace(/>/g, '&gt;') || ' '}</div>`;
                 });
                 html += `</div>`;
-            } else if (currentFileMode === 'file' || (!currentFileDiff && currentFileContent)) {
-                if (currentFileContent) {
-                    html += `<pre style="background:#0d0d0d; border: 1px solid rgba(255,255,255,0.1); border-radius:8px; overflow-x:auto; font-family:monospace; font-size:12px; line-height:1.5; padding: 12px; color: #ccc; margin: 0; white-space: pre-wrap; word-break: break-all;"><code>${currentFileContent.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>`;
-                } else {
-                    html += `<p style="color:var(--text-dim); text-align:center;">File is empty or binary.</p>`;
-                }
             } else {
-                html += `<p style="color:var(--text-dim); text-align:center;">No content to display.</p>`;
+                html += `<pre style="background:#0d0d0d; border-radius:8px; overflow-x:auto; font-family:monospace; font-size:12px; line-height:1.5; padding: 12px; color: #ccc; margin: 0; white-space: pre-wrap; word-break: break-all;"><code>${currentFileContent.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>`;
             }
-
             html += `</div>`;
             content.innerHTML = html;
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            log('DOM Content Loaded');
             loadSessions();
         });
     </script>
