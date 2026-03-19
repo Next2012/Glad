@@ -19,11 +19,11 @@ program
 
 // Default Web command
 program
-  .command('web', { isDefault: true })
+  .command('web [directory]', { isDefault: true })
   .description('Start the local web server to access AI tools')
   .option('-p, --port <number>', 'Port to run the server on', '3000')
-  .action(async (options) => {
-    await webCommand(options);
+  .action(async (directory, options) => {
+    await webCommand({ ...options, directory });
   });
 
 // Tools command
@@ -46,8 +46,9 @@ program
 program.on('--help', () => {
   console.log('');
   console.log('Quick Start:');
-  console.log('  $ glad                                  # Start web server on port 3000');
-  console.log('  $ glad --port 8080                      # Start on custom port');
+  console.log('  $ glad                                  # Start web server in current folder');
+  console.log('  $ glad /path/to/project                 # Start in specific folder');
+  console.log('  $ glad . --port 8080                    # Custom port in current folder');
   console.log('');
   console.log('Manage Tools:');
   console.log('  $ glad tools list                       # List all supported tools');
