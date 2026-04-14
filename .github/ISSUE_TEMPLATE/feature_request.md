@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest an idea for Termly CLI
+about: Suggest an idea for Glad
 title: '[FEATURE] '
 labels: enhancement
 assignees: ''

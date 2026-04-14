@@ -15,7 +15,7 @@ assignees: ''
 
 ## Tool Description
 
-Describe what this AI tool does and why you'd like to use it with Termly.
+Describe what this AI tool does and why you'd like to use it with Glad.
 
 ## Installation Instructions
 
@@ -52,7 +52,7 @@ Any other information about compatibility, known issues, or special requirements
 
 ## Popularity
 
-Why should Termly support this tool?
+Why should Glad support this tool?
 - GitHub stars:
 - User base:
 - Official/Community tool:
