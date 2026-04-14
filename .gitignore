@@ -109,3 +109,4 @@ dist
 .claude/
 .grok/
 glad-linux-amd64
+glad-windows-amd64.exe

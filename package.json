@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node bin/cli.js",
     "build:linux": "npx caxa -i . -m \"Extracting Glad...\" --output \"glad-linux-amd64\" -- \"{{caxa}}/node_modules/.bin/node\" \"{{caxa}}/bin/cli.js\"",
+    "build:windows": "npx caxa -i . -m \"Extracting Glad...\" --output \"glad-windows-amd64.exe\" -- \"{{caxa}}/node_modules/.bin/node\" \"{{caxa}}/bin/cli.js\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
