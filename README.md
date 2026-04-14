@@ -7,6 +7,8 @@ Glad is a lightweight, local-only web interface for interactive terminal AI assi
 > [!IMPORTANT]
 > **Acknowledgment**: This project is a major refactor and fork of the excellent [termly-cli](https://github.com/termly-dev/termly-cli) by the Termly Team. While the original focused on E2EE remote connections, **Glad** is redesigned to focus exclusively on a high-performance, local-only Web interface architecture.
 
+![Glad AI mobile interface](./demo.gif)
+
 ---
 
 ## ✨ Features
@@ -75,6 +77,12 @@ This generates a `glad-linux-amd64` binary.
 
 - **Local Network Only**: Glad only listens on your local network.
 - **Privacy First**: Your data never leaves your network. Glad acts only as a local proxy between your terminal and your browser.
+
+## 💬 Community
+
+Scan the QR code below to join the **vibe coding** discussion group:
+
+![Glad vibe coding group QR code](./wechat.jpg)
 
 ## 📄 License
 

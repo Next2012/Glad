@@ -201,6 +201,23 @@
             }
         }
 
+        function escapeHtml(value = '') {
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function encodePathValue(path = '') {
+            return encodeURIComponent(path).replace(/'/g, '%27');
+        }
+
+        function decodePathValue(path = '') {
+            return decodeURIComponent(path);
+        }
+
         async function loadSessions() {
             log('Loading sessions...');
             const list = document.getElementById('sessions-list');
@@ -474,7 +491,7 @@
                     const parts = path.split('/');
                     parts.pop();
                     const parentPath = parts.join('/');
-                    html += `<div class="list-item" onclick="loadDirectories('${parentPath}')">
+                    html += `<div class="list-item" onclick="loadDirectories(decodePathValue('${encodePathValue(parentPath)}'))">
                         <svg class="dir-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
                         <div style="font-size:14px; font-weight:500;">..</div>
                     </div>`;
@@ -485,6 +502,8 @@
                 } else {
                     data.files.forEach(f => {
                         const fullPath = path ? `${path}/${f.name}` : f.name;
+                        const encodedPath = encodePathValue(fullPath);
+                        const escapedName = escapeHtml(f.name);
                         let colorStyle = '';
                         let badgeHtml = '';
                         if (f.gitStatus) {
@@ -497,15 +516,15 @@
                         }
                         
                         if (f.isDirectory) {
-                            html += `<div class="list-item" onclick="loadDirectories('${fullPath}')">
+                            html += `<div class="list-item" onclick="loadDirectories(decodePathValue('${encodedPath}'))">
                                 <svg class="dir-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
-                                <div style="font-size:14px; font-weight:500; ${colorStyle}">${f.name}</div>
+                                <div style="font-size:14px; font-weight:500; ${colorStyle}">${escapedName}</div>
                                 ${badgeHtml}
                             </div>`;
                         } else {
-                            html += `<div class="list-item" onclick="showFileDetails('${fullPath}', false)">
+                            html += `<div class="list-item" onclick="showFileDetails(decodePathValue('${encodedPath}'), false)">
                                 <svg class="file-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-                                <div style="font-size:14px; font-weight:500; ${colorStyle}">${f.name}</div>
+                                <div style="font-size:14px; font-weight:500; ${colorStyle}">${escapedName}</div>
                                 ${badgeHtml}
                             </div>`;
                         }
@@ -525,23 +544,11 @@
             try {
                 const res = await fetchWithTimeout(`/api/sessions/${activeSessionId}/git-status`);
                 const data = await res.json();
-                if (data.error) {
+                if (!data.success) {
                     content.innerHTML = `<p style="color:#ff3b30; padding:10px;">Git error: ${data.error}</p>`;
                     return;
                 }
-                const lines = (data.stdout || '').trim().split('\n').filter(Boolean);
-                const files = [];
-                lines.forEach(line => {
-                    if (line.startsWith('1 ') || line.startsWith('2 ') || line.startsWith('u ')) {
-                        const parts = line.split(' ');
-                        const path = parts[parts.length - 1];
-                        const xy = parts[1];
-                        files.push({ path, status: xy });
-                    } else if (line.startsWith('? ')) {
-                        const path = line.substring(2);
-                        files.push({ path, status: '??' });
-                    }
-                });
+                const files = Array.isArray(data.files) ? data.files : [];
 
                 if (files.length === 0) {
                     content.innerHTML = '<p style="text-align:center;color:#888;padding:20px;">No changes detected.</p>';
@@ -550,16 +557,19 @@
 
                 let html = '<div style="padding:10px;"><div style="background:var(--card-bg); border-radius:12px; overflow:hidden;">';
                 files.forEach((f, idx) => {
+                    const encodedPath = encodePathValue(f.path);
+                    const escapedPath = escapeHtml(f.path);
+                    const escapedBaseName = escapeHtml(f.path.split('/').pop() || f.path);
                     let color = '#fff';
                     let label = f.status;
                     if (label.includes('M')) { color = '#f59e0b'; } 
                     else if (label.includes('A') || label === '??') { color = '#4ade80'; if(label === '??') label = 'U'; }
                     else if (label.includes('D')) { color = '#f87171'; }
                     const borderBottom = idx < files.length - 1 ? 'border-bottom: 1px solid rgba(255,255,255,0.05);' : '';
-                    html += `<div style="padding:14px; ${borderBottom} display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="showFileDetails('${f.path}', true)">
+                    html += `<div style="padding:14px; ${borderBottom} display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="showFileDetails(decodePathValue('${encodedPath}'), true)">
                         <div style="flex:1; min-width:0; margin-right:10px;">
-                            <div style="font-size:14px; font-weight:500;">${f.path.split('/').pop() || f.path}</div>
-                            <div style="font-size:12px; color:var(--text-dim);">${f.path}</div>
+                            <div style="font-size:14px; font-weight:500;">${escapedBaseName}</div>
+                            <div style="font-size:12px; color:var(--text-dim);">${escapedPath}</div>
                         </div>
                         <span style="color:${color}; font-weight:700; font-size:12px; border:1px solid ${color}; padding:2px 6px; border-radius:4px; opacity:0.8;">${label}</span>
                     </div>`;
@@ -607,7 +617,7 @@
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg> Back
                 </button>
                 <div style="flex:1; min-width:0;">
-                    <div style="font-weight:600; font-size:15px;">${currentFilePath.split('/').pop() || currentFilePath}</div>
+                    <div style="font-weight:600; font-size:15px;">${escapeHtml(currentFilePath.split('/').pop() || currentFilePath)}</div>
                 </div>
             </div>`;
             if (currentFileDiff && currentFileContent) {
@@ -624,11 +634,11 @@
                     if (line.startsWith('+') && !line.startsWith('+++')) { color = '#4ade80'; bg = 'rgba(74, 222, 128, 0.1)'; borderLeft = '2px solid #4ade80'; }
                     else if (line.startsWith('-') && !line.startsWith('---')) { color = '#f87171'; bg = 'rgba(248, 113, 113, 0.1)'; borderLeft = '2px solid #f87171'; }
                     else if (line.startsWith('@@')) { color = '#60a5fa'; bg = 'rgba(96, 165, 250, 0.1)'; }
-                    html += `<div style="color:${color}; background:${bg}; border-left:${borderLeft}; white-space:pre-wrap; padding: 2px 8px;">${line.replace(/</g, '&lt;').replace(/>/g, '&gt;') || ' '}</div>`;
+                    html += `<div style="color:${color}; background:${bg}; border-left:${borderLeft}; white-space:pre-wrap; padding: 2px 8px;">${escapeHtml(line) || ' '}</div>`;
                 });
                 html += `</div>`;
             } else {
-                html += `<pre style="background:#0d0d0d; border-radius:8px; overflow-x:auto; font-family:monospace; font-size:12px; line-height:1.5; padding: 12px; color: #ccc; margin: 0; white-space: pre-wrap; word-break: break-all;"><code>${currentFileContent.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>`;
+                html += `<pre style="background:#0d0d0d; border-radius:8px; overflow-x:auto; font-family:monospace; font-size:12px; line-height:1.5; padding: 12px; color: #ccc; margin: 0; white-space: pre-wrap; word-break: break-all;"><code>${escapeHtml(currentFileContent)}</code></pre>`;
             }
             html += `</div>`;
             content.innerHTML = html;
