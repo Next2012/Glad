@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug to help us improve Termly CLI
+about: Report a bug to help improve Glad
 title: '[BUG] '
 labels: bug
 assignees: ''
@@ -31,7 +31,7 @@ What actually happened instead.
 
 - OS: [e.g., macOS 14.1, Windows 11, Ubuntu 22.04]
 - Node.js version: [run `node --version`]
-- Termly CLI version: [run `termly --version`]
+- Glad version: [run `glad --version`]
 - AI tool: [e.g., Claude Code, Aider, GitHub Copilot]
 - Environment: [Production / Development / Local]
 
@@ -41,7 +41,7 @@ What actually happened instead.
 <summary>Click to expand logs</summary>
 
 ```
-Paste relevant logs from ~/.termly/logs/cli.log (or %USERPROFILE%\.termly\logs\cli.log on Windows)
+Paste relevant logs from Glad's log directory: ~/.termly/logs/cli.log (or %USERPROFILE%\.termly\logs\cli.log on Windows)
 
 Please redact any sensitive information!
 ```

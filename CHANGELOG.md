@@ -1,9 +1,12 @@
 # Changelog
 
-All notable changes to Termly CLI will be documented in this file.
+All notable changes to Glad will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+> Note:
+> Parts of the historical changelog reflect the earlier upstream lineage of the project. Current Glad releases should be interpreted in the context of the local-first Web interface described in the README.
 
 ## [1.3.0] - 2025-01-12
 
@@ -64,7 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Start command made default for simplified CLI usage
 
 ### Changed
-- Default command is now `start` (just run `termly` in project directory)
+- Default command is now the main web entrypoint
 - Debug messages only log when DEBUG mode is enabled
 
 ### Improved
@@ -126,7 +129,7 @@ See git history for detailed changes in earlier versions.
 
 ## Version Support
 
-**We only support the latest version.** Termly CLI includes automatic version enforcement - outdated versions will be blocked from connecting if they have security issues.
+**We only support the latest version.**
 
 | Version | Status | Support |
 |---------|--------|---------|
@@ -135,7 +138,7 @@ See git history for detailed changes in earlier versions.
 
 To update:
 ```bash
-npm update -g @termly-dev/cli
+npm install -g glad-cli
 ```
 
 ## Upgrade Guide
@@ -145,7 +148,7 @@ npm update -g @termly-dev/cli
 No breaking changes for users. Simply update:
 
 ```bash
-npm update -g @termly-dev/cli
+npm install -g glad-cli
 ```
 
 **Note:** If you had build tools installed for previous versions, you can now uninstall them if not needed for other projects.
@@ -160,4 +163,4 @@ Version 1.0 introduced stability improvements but no breaking API changes.
 
 ---
 
-For detailed commit history, see: https://github.com/termly-dev/termly-cli/commits/main
+For detailed commit history, see the repository history.

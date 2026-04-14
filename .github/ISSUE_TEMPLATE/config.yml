@@ -1,11 +1,11 @@
 blank_issues_enabled: true
 contact_links:
   - name: 🔒 Security Vulnerability
-    url: https://github.com/termly-dev/termly-cli/security/advisories/new
-    about: Please report security vulnerabilities privately via GitHub Security Advisory
+    url: https://gitee.com/next2012/glad/issues
+    about: Please report security issues responsibly and avoid posting sensitive details publicly
   - name: 💬 Discussions
-    url: https://github.com/termly-dev/termly-cli/discussions
+    url: https://gitee.com/next2012/glad/issues
     about: Ask questions and discuss ideas with the community
   - name: 📚 Documentation
-    url: https://termly.dev/docs
-    about: Check out the documentation for guides and tutorials
+    url: https://gitee.com/next2012/glad
+    about: Read the README and project docs for guides and usage details

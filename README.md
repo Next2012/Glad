@@ -1,29 +1,31 @@
-# Glad 🚀
+# Glad
 
-**Transform your terminal-based AI coding tools into a beautiful, mobile-friendly Web interface.**
+Glad is a local-first Web interface for terminal-based AI coding tools.
 
-Glad is a lightweight, local-only web interface for interactive terminal AI assistants. It allows you to run tools like **Claude Code**, **Aider**, **GitHub Copilot CLI**, and **Gemini CLI** on your machine and access them through a responsive Web PWA in your local network.
+It lets you run interactive CLI tools such as **Claude Code**, **Aider**, **GitHub Copilot CLI**, and **Gemini CLI** on your machine, then access them through a clean browser UI from desktop or mobile devices on your local network.
 
-> [!IMPORTANT]
-> **Acknowledgment**: This project is a major refactor and fork of the excellent [termly-cli](https://github.com/termly-dev/termly-cli) by the Termly Team. While the original focused on E2EE remote connections, **Glad** is redesigned to focus exclusively on a high-performance, local-only Web interface architecture.
+![Glad AI mobile interface](./assets/demo.gif)
 
-![Glad AI mobile interface](./demo.gif)
+> [!NOTE]
+> Glad is derived from [termly-cli](https://github.com/termly-dev/termly-cli), but the current project is intentionally focused on a simpler model: local execution, local network access, and a lightweight Web UI for terminal-native AI tools.
 
----
+## Highlights
 
-## ✨ Features
+- One-command Web UI for terminal AI tools
+- Mobile-friendly terminal experience with touch shortcuts
+- Multiple sessions from a single dashboard
+- Per-session working directory selection
+- Built-in detection for many popular AI CLIs
+- Linux standalone binary packaging
 
-- 🌐 **Instant Web UI** - One command to turn any CLI tool into a Web PWA.
-- 📱 **Mobile Optimized** - Full touch-friendly terminal with shortcut keys.
-- 🎯 **Multi-Session** - Manage multiple AI agents from a single dashboard.
-- 📂 **Custom Paths** - Specify different working directories for each session.
-- ⌨️ **Smart Input** - Automatically handles multi-line prompts and Enter key simulation (1s delay).
-- 🛠️ **Auto-Detection** - Automatically finds 20+ installed AI assistants on your system.
-- 📦 **Zero Dependencies** - Standalone binary release, no Node.js required on target machines.
+## Quick Start
 
-## 🚀 Quick Start
+### Run from source
 
-### Run from Source
+Requirements:
+
+- Node.js `>=18`
+
 ```bash
 git clone git@gitee.com:next2012/glad.git
 cd glad
@@ -31,59 +33,76 @@ npm install
 node bin/cli.js
 ```
 
-### Run as Binary (Linux amd64)
-Download the `glad-linux-amd64` executable:
+### Run as a Linux binary
+
 ```bash
 chmod +x glad-linux-amd64
 ./glad-linux-amd64
 ```
 
-## 🛠 Usage
+## Usage
 
-By default, Glad starts a web server on port **3000**.
+Glad starts a local Web server on port `3000` by default.
 
-1.  Open `http://localhost:3000` (or your local IP) on any device.
-2.  Click **"+ New"** to create a session.
-3.  (Optional) Enter a **Working Directory** path.
-4.  Select your favorite AI tool from the list.
-5.  Start coding!
+1. Open `http://localhost:3000`.
+2. Click `+ New`.
+3. Optionally choose a working directory.
+4. Pick an installed AI tool.
+5. Start the session from the browser UI.
 
-### Custom Port
+Useful commands:
+
 ```bash
-glad --port 8080
+glad
+glad /path/to/project
+glad . --port 8080
+glad tools list
+glad tools detect
 ```
 
-## 🤖 Supported AI Tools
+## Supported Tools
 
-Glad supports **22+** interactive AI assistants, including:
-- **Claude Code** (Anthropic)
-- **Aider** (Open-source agent)
-- **GitHub Copilot CLI**
-- **Google Gemini CLI**
-- **Amazon Q Developer**
-- **Cursor Agent CLI**
-- **Continue CLI**
-- **OpenHands**, **Mentat**, **ChatGPT CLI**, and many more.
+Glad currently supports detection for 20+ terminal AI tools, including:
 
-## 📦 Build Binary
+- Claude Code
+- Aider
+- OpenAI Codex CLI
+- GitHub Copilot CLI
+- Google Gemini CLI
+- Amazon Q Developer
+- Cursor Agent CLI
+- Continue CLI
+- OpenHands
+- Mentat
 
-To package Glad into a single executable for distribution:
+## Packaging
+
+Build a Linux standalone binary with:
+
 ```bash
 npm run build:linux
 ```
-This generates a `glad-linux-amd64` binary.
 
-## 🔒 Security & Privacy
+This produces `glad-linux-amd64`.
 
-- **Local Network Only**: Glad only listens on your local network.
-- **Privacy First**: Your data never leaves your network. Glad acts only as a local proxy between your terminal and your browser.
+## Security Model
 
-## 💬 Community
+Glad is designed for trusted local or private-network use.
 
-Scan the QR code below to join the **vibe coding** discussion group:
+- the server runs on your machine
+- terminal I/O stays local to that machine
+- the browser UI talks directly to the local Glad process
 
-![Glad vibe coding group QR code](./wechat.jpg)
+Do not expose Glad directly to the public internet without adding your own access controls.
 
-## 📄 License
+See [SECURITY.md](./SECURITY.md) for details.
 
-MIT. Original work by [Termly Team](https://github.com/termly-dev/termly-cli). Refactored and maintained by [next2012](https://gitee.com/next2012/glad).
+## Community
+
+If you want to join the project chat group, scan the QR code below:
+
+![Glad community group QR code](./assets/wechat.jpg)
+
+## License
+
+MIT. Glad is maintained by [next2012](https://gitee.com/next2012/glad).

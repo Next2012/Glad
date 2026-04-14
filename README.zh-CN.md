@@ -1,33 +1,30 @@
-# Glad 🚀
+# Glad
 
-**把终端里的 AI 编码工具转换成一个美观、适合手机访问的 Web 界面。**
+Glad 是一个面向终端 AI 编码工具的本地优先 Web 界面。
 
-Glad 是一个轻量级、仅本地使用的 Web 界面，用于承载交互式终端 AI 助手。它可以在你的机器上运行 **Claude Code**、**Aider**、**GitHub Copilot CLI**、**Gemini CLI** 等工具，并通过本地网络中的响应式 Web PWA 进行访问。
+它让你可以在自己的机器上运行 **Claude Code**、**Aider**、**GitHub Copilot CLI**、**Gemini CLI** 等交互式命令行工具，并通过一个适合桌面和移动端访问的浏览器界面来使用它们。
 
-> [!IMPORTANT]
-> **致谢**：本项目是在优秀的 [termly-cli](https://github.com/termly-dev/termly-cli) 基础上进行大幅重构并分叉而来。原项目主要聚焦端到端加密的远程连接，而 **Glad** 重新设计为专注于高性能、仅本地使用的 Web 界面架构。
+![Glad AI 移动端界面](./assets/demo.gif)
 
-![Glad AI 移动端界面](./demo.gif)
+> [!NOTE]
+> Glad 基于 [termly-cli](https://github.com/termly-dev/termly-cli) 演化而来，但当前项目已经明确收敛为更简单的模型：本地执行、局域网访问、以及围绕终端 AI 工具的轻量 Web UI。
 
----
+## 项目特点
 
-## ✨ 功能特性
+- 一条命令启动 Web UI
+- 适合手机访问的终端交互体验
+- 在一个面板中管理多个会话
+- 每个会话可单独指定工作目录
+- 自动检测多种主流 AI CLI
+- 支持打包 Linux 独立二进制
 
-- 🌐 **即时 Web UI**：一条命令即可把任意 CLI 工具转换成 Web PWA。
-- 📱 **移动端优化**：完整的触控友好终端体验，并带有快捷按键。
-- 🎯 **多会话管理**：在一个面板中统一管理多个 AI Agent 会话。
-- 📂 **自定义路径**：可以为每个会话指定不同的工作目录。
-- ⌨️ **智能输入**：自动处理多行提示词，并模拟回车发送（1 秒延迟）。
-- 🛠️ **自动检测**：自动发现系统中已安装的 20+ AI 助手。
-- 📦 **零目标机依赖**：可打包为独立二进制，目标机器无需预装 Node.js。
-
-## 🚀 快速开始
+## 快速开始
 
 ### 从源码运行
 
 要求：
 
-- Node.js `>=18.0.0`
+- Node.js `>=18`
 
 ```bash
 git clone git@gitee.com:next2012/glad.git
@@ -36,102 +33,76 @@ npm install
 node bin/cli.js
 ```
 
-你也可以使用：
-
-```bash
-npm start
-```
-
-### 以二进制方式运行（Linux amd64）
-
-下载 `glad-linux-amd64` 可执行文件后执行：
+### 以 Linux 二进制运行
 
 ```bash
 chmod +x glad-linux-amd64
 ./glad-linux-amd64
 ```
 
-## 🛠 使用方式
+## 使用方式
 
-默认情况下，Glad 会在 **3000** 端口启动本地 Web 服务。
+Glad 默认在本机 `3000` 端口启动 Web 服务。
 
-1. 在任意设备上打开 `http://localhost:3000`，或使用当前机器的局域网 IP 访问。
-2. 点击 **“+ New”** 创建一个新会话。
-3. 可选填写 **Working Directory**。
-4. 从列表中选择要使用的 AI 工具。
-5. 开始编码。
+1. 打开 `http://localhost:3000`
+2. 点击 `+ New`
+3. 按需填写工作目录
+4. 选择一个已安装的 AI 工具
+5. 在浏览器里启动并使用会话
 
-### 常用命令
+常用命令：
 
 ```bash
 glad
 glad /path/to/project
 glad . --port 8080
-```
-
-含义分别是：
-
-- 在当前目录启动 Web 服务
-- 在指定目录启动 Web 服务
-- 在当前目录使用自定义端口启动
-
-### CLI 命令
-
-```bash
-glad web [directory]
 glad tools list
 glad tools detect
-glad tools info <tool-name>
-glad config get [key]
-glad config set <key> <value>
 ```
 
-### 自定义端口
+## 支持的工具
 
-```bash
-glad --port 8080
-```
+Glad 当前支持检测 20+ 终端 AI 工具，包括：
 
-## 🤖 支持的 AI 工具
+- Claude Code
+- Aider
+- OpenAI Codex CLI
+- GitHub Copilot CLI
+- Google Gemini CLI
+- Amazon Q Developer
+- Cursor Agent CLI
+- Continue CLI
+- OpenHands
+- Mentat
 
-Glad 支持 **22+** 交互式 AI 助手，包括但不限于：
+## 打包
 
-- **Claude Code**（Anthropic）
-- **Aider**
-- **GitHub Copilot CLI**
-- **Google Gemini CLI**
-- **Amazon Q Developer**
-- **Cursor Agent CLI**
-- **Continue CLI**
-- **OpenHands**
-- **Mentat**
-- **ChatGPT CLI**
-
-以及更多可自动检测的工具。
-
-## 📦 构建二进制
-
-如果你想把 Glad 打包成单个可执行文件用于分发，可以运行：
+构建 Linux 独立二进制：
 
 ```bash
 npm run build:linux
 ```
 
-执行后会生成 `glad-linux-amd64` 二进制文件。
+构建后会生成 `glad-linux-amd64`。
 
-## 🔒 安全与隐私
+## 安全模型
 
-- **仅本地网络使用**：Glad 只监听本地网络环境。
-- **隐私优先**：数据不会离开你的网络。Glad 仅作为浏览器与终端之间的本地代理。
+Glad 面向受信任的本机或局域网环境使用。
 
-## 💬 交流群
+- 服务进程运行在你的机器上
+- 终端 I/O 保留在本机
+- 浏览器 UI 直接与本地 Glad 进程通信
 
-扫描下方二维码，加入 **vibe coding 技能交流** 群聊：
+如果没有额外访问控制，不建议直接暴露到公网。
 
-![Glad vibe coding 技能交流群二维码](./wechat.jpg)
+更多说明见 [SECURITY.md](./SECURITY.md)。
 
-## 📄 开源协议
+## 社区
 
-本项目使用 **MIT** 协议。
+如果你想加入项目交流群，可以扫描下方二维码：
 
-原始项目由 [Termly Team](https://github.com/termly-dev/termly-cli) 开发，Glad 版本由 [next2012](https://gitee.com/next2012/glad) 重构并维护。
+![Glad 社区交流群二维码](./assets/wechat.jpg)
+
+## 开源协议
+
+本项目使用 MIT 协议，由 [next2012](https://gitee.com/next2012/glad) 维护。

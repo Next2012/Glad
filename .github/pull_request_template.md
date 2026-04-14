@@ -37,7 +37,7 @@ Please describe the tests that you ran to verify your changes. Provide instructi
 - [ ] I have made corresponding changes to the documentation
 - [ ] My changes generate no new warnings
 - [ ] I have tested my changes locally
-- [ ] I have updated CLAUDE.md if implementation details changed
+- [ ] I have updated project docs if implementation details changed
 - [ ] I have updated README.md if user-facing changes were made
 
 ## Screenshots (if applicable)
