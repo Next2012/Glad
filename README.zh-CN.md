@@ -1,4 +1,7 @@
-# Glad
+<div align="center">
+  <img src="./assets/logo.svg" alt="Glad Logo" width="150" height="150" />
+  <h1>Glad</h1>
+</div>
 
 Glad 是一个面向终端 AI 编码工具的本地优先 Web 界面。
 
