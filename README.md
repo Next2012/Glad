@@ -1,4 +1,7 @@
-# Glad
+<div align="center">
+  <img src="./assets/logo.svg" alt="Glad Logo" width="150" height="150" />
+  <h1>Glad</h1>
+</div>
 
 Glad is a local-first Web interface for terminal-based AI coding tools.
 
