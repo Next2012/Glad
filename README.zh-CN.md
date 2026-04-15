@@ -12,11 +12,13 @@ Glad 是一个面向终端 AI 编码工具的本地优先 Web 界面。
 ## 项目特点
 
 - 一条命令启动 Web UI
-- 适合手机访问的终端交互体验
+- 不必担心手机断联导致CLI中断
+- 适合手机访问的终端交互体验和快捷按键
+- 集成Git改动预览
 - 在一个面板中管理多个会话
 - 每个会话可单独指定工作目录
 - 自动检测多种主流 AI CLI
-- 支持打包 Linux 独立二进制
+- 支持打包 Linux 和 Windows 独立二进制
 
 ## 快速开始
 
@@ -33,11 +35,21 @@ npm install
 node bin/cli.js
 ```
 
-### 以 Linux 二进制运行
+### 以二进制运行
+
+**Linux:**
 
 ```bash
 chmod +x glad-linux-amd64
 ./glad-linux-amd64
+```
+
+**Windows:**
+
+直接双击 `glad-windows-amd64.exe` 即可运行，或者在命令提示符中执行：
+
+```cmd
+glad-windows-amd64.exe
 ```
 
 ## 使用方式
@@ -62,18 +74,28 @@ glad tools detect
 
 ## 支持的工具
 
-Glad 当前支持检测 20+ 终端 AI 工具，包括：
+Glad 当前支持检测 20 种终端 AI 工具，包括：
 
 - Claude Code
 - Aider
 - OpenAI Codex CLI
 - GitHub Copilot CLI
+- Cody CLI
 - Google Gemini CLI
-- Amazon Q Developer
-- Cursor Agent CLI
 - Continue CLI
-- OpenHands
+- Cursor Agent CLI
+- ChatGPT CLI
+- ShellGPT
 - Mentat
+- Grok CLI
+- Ollama
+- OpenHands
+- OpenCode
+- Blackbox AI
+- Amazon Q Developer
+- Pi Coding Agent
+- Kilo Code CLI
+- Qoder CLI
 
 ## 打包
 
@@ -83,7 +105,13 @@ Glad 当前支持检测 20+ 终端 AI 工具，包括：
 npm run build:linux
 ```
 
-构建后会生成 `glad-linux-amd64`。
+构建 Windows 独立二进制：
+
+```bash
+npm run build:windows
+```
+
+构建后会分别生成 `glad-linux-amd64` 和 `glad-windows-amd64.exe` 文件。
 
 ## 安全模型
 
