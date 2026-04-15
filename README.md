@@ -12,11 +12,13 @@ It lets you run interactive CLI tools such as **Claude Code**, **Aider**, **GitH
 ## Highlights
 
 - One-command Web UI for terminal AI tools
+- No need to worry about CLI interruptions due to mobile disconnection
 - Mobile-friendly terminal experience with touch shortcuts
+- Integrated Git changes preview
 - Multiple sessions from a single dashboard
 - Per-session working directory selection
 - Built-in detection for many popular AI CLIs
-- Linux standalone binary packaging
+- Linux and Windows standalone binary packaging
 
 ## Quick Start
 
@@ -33,11 +35,21 @@ npm install
 node bin/cli.js
 ```
 
-### Run as a Linux binary
+### Run as a binary
+
+**Linux:**
 
 ```bash
 chmod +x glad-linux-amd64
 ./glad-linux-amd64
+```
+
+**Windows:**
+
+Simply double-click `glad-windows-amd64.exe` to run, or execute it in the Command Prompt:
+
+```cmd
+glad-windows-amd64.exe
 ```
 
 ## Usage
@@ -62,18 +74,28 @@ glad tools detect
 
 ## Supported Tools
 
-Glad currently supports detection for 20+ terminal AI tools, including:
+Glad currently supports detection for 20 terminal AI tools, including:
 
 - Claude Code
 - Aider
 - OpenAI Codex CLI
 - GitHub Copilot CLI
+- Cody CLI
 - Google Gemini CLI
-- Amazon Q Developer
-- Cursor Agent CLI
 - Continue CLI
-- OpenHands
+- Cursor Agent CLI
+- ChatGPT CLI
+- ShellGPT
 - Mentat
+- Grok CLI
+- Ollama
+- OpenHands
+- OpenCode
+- Blackbox AI
+- Amazon Q Developer
+- Pi Coding Agent
+- Kilo Code CLI
+- Qoder CLI
 
 ## Packaging
 
@@ -83,7 +105,13 @@ Build a Linux standalone binary with:
 npm run build:linux
 ```
 
-This produces `glad-linux-amd64`.
+Build a Windows standalone binary with:
+
+```bash
+npm run build:windows
+```
+
+After building, `glad-linux-amd64` and `glad-windows-amd64.exe` files will be generated respectively.
 
 ## Security Model
 
