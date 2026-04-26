@@ -7,21 +7,27 @@ Glad is a local-first Web interface for terminal-based AI coding tools.
 
 It lets you run interactive CLI tools such as **Claude Code**, **Aider**, **GitHub Copilot CLI**, and **Gemini CLI** on your machine, then access them through a clean browser UI from desktop or mobile devices on your local network.
 
-![Glad AI mobile interface](./assets/demo.gif)
+### Demo Video
+
+Watch how Glad brings terminal AI tools to your mobile device seamlessly:
+
+<video src="assets/Demo.mp4" controls width="100%"></video>
 
 > [!NOTE]
 > Glad is derived from [termly-cli](https://github.com/termly-dev/termly-cli), but the current project is intentionally focused on a simpler model: local execution, local network access, and a lightweight Web UI for terminal-native AI tools.
 
-## Highlights
+## Design Philosophy & Highlights
 
-- One-command Web UI for terminal AI tools
-- No need to worry about CLI interruptions due to mobile disconnection
-- Mobile-friendly terminal experience with touch shortcuts
-- Integrated Git changes preview
-- Multiple sessions from a single dashboard
-- Per-session working directory selection
-- Built-in detection for many popular AI CLIs
-- Linux and Windows standalone binary packaging
+Glad was created to enable **vibe coding** on mobile devices. By bringing various CLIs to the web browser, login and authorization are completely aligned with the official tools, ensuring you can fully utilize your paid monthly subscriptions anywhere.
+
+Our design philosophy is **Easy to use, Stable, and Restrained**. Glad focuses strictly on the essentials:
+- **Session management:** Run multiple sessions from a single dashboard with per-session working directories.
+- **High-fidelity terminal interaction:** A mobile-friendly terminal experience with touch shortcuts.
+- **Extreme performance history viewing:** Fast and responsive text history.
+- **Simple but effective change checking:** Integrated Git changes preview.
+- **Resilient execution:** Client (mobile) disconnections will not interrupt running tasks on the host machine.
+- **Simplicity:** One-command Web UI with built-in detection for many popular AI CLIs.
+- **Standalone binaries:** Linux and Windows standalone packaging available.
 
 ## Quick Start
 
@@ -128,11 +134,6 @@ Do not expose Glad directly to the public internet without adding your own acces
 
 See [SECURITY.md](./SECURITY.md) for details.
 
-## Community
-
-If you want to join the project chat group, scan the QR code below:
-
-![Glad community group QR code](./assets/wechat.jpg)
 
 ## License
 
