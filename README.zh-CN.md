@@ -85,28 +85,32 @@ glad tools detect
 
 ## 支持的工具
 
-Glad 当前支持检测 20 种终端 AI 工具，包括：
+Glad 当前会自动检测代码注册表中定义的 20 个终端 AI 工具。下面的名称严格使用 Glad 注册表里的 `displayName`：
 
-- Claude Code
-- Aider
-- OpenAI Codex CLI
-- GitHub Copilot CLI
-- Cody CLI
-- Google Gemini CLI
-- Continue CLI
-- Cursor Agent CLI
-- ChatGPT CLI
-- ShellGPT
-- Mentat
-- Grok CLI
-- Ollama
-- OpenHands
-- OpenCode
-- Blackbox AI
-- Amazon Q Developer
-- Pi Coding Agent
-- Kilo Code CLI
-- Qoder CLI
+| 工具 | 检测命令 |
+| --- | --- |
+| Claude | `claude` |
+| Aider | `aider` |
+| Codex | `codex` |
+| Copilot | `copilot` |
+| Cody | `cody chat` |
+| Gemini | `gemini` |
+| Continue | `cn` |
+| Cursor | `cursor-agent` |
+| ChatGPT | `chatgpt` |
+| ShellGPT | `sgpt --repl temp` |
+| Mentat | `mentat` |
+| Grok | `grok` |
+| Ollama | `ollama run codellama` |
+| OpenHands | `openhands` |
+| OpenCode | `opencode` |
+| Blackbox AI | `blackboxai` |
+| Amazon Q | `q` |
+| Pi | `pi` |
+| Kilo | `kilo` |
+| Qoder | `qodercli` |
+
+Glad 还内置了用于测试的 `demo` 工具，但 demo 模式不计入自动检测列表。
 
 ## 打包
 
