@@ -220,6 +220,9 @@
                 return response;
             } catch (e) {
                 clearTimeout(id);
+                if (e && e.name === 'AbortError') {
+                    throw new Error(`Request timed out after ${Math.round(timeout / 1000)}s`);
+                }
                 throw e;
             }
         }
@@ -427,7 +430,10 @@
             } else { term.clear(); }
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             currentSocket = new WebSocket(protocol + '//' + window.location.host + '?sessionId=' + sessionId);
-            currentSocket.onopen = () => syncLayout();
+            currentSocket.onopen = () => {
+                syncLayout();
+                setTimeout(() => logViewSnapshot('ws-open'), 300);
+            };
             currentSocket.onmessage = (e) => {
                 const msg = JSON.parse(e.data);
                 if (msg.type === 'output') term.write(msg.data);
@@ -447,12 +453,63 @@
             }, 50); 
         }
 
+        function previewText(text, maxChars = 320) {
+            if (!text) return '';
+            const normalized = String(text)
+                .replace(/\r/g, '\\r')
+                .replace(/\n/g, '\\n')
+                .replace(/\t/g, '\\t')
+                .replace(/\x1b/g, '\\x1b');
+            return normalized.length > maxChars ? normalized.slice(-maxChars) : normalized;
+        }
+
+        async function logClientDebug(event, payload) {
+            try {
+                await fetch('/api/debug/client-log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionId: activeSessionId, event, payload })
+                });
+            } catch (_) {}
+        }
+
+        function snapshotTerminalBuffer(maxLines = 12) {
+            if (!term || !term.buffer || !term.buffer.active) return null;
+            const active = term.buffer.active;
+            const totalLines = active.length || 0;
+            const start = Math.max(0, totalLines - maxLines);
+            const tailLines = [];
+            for (let i = start; i < totalLines; i++) {
+                const line = active.getLine(i);
+                if (!line) continue;
+                tailLines.push(line.translateToString(true));
+            }
+            return {
+                cols: term.cols,
+                rows: term.rows,
+                baseY: active.baseY,
+                viewportY: active.viewportY,
+                cursorX: active.cursorX,
+                cursorY: active.cursorY,
+                totalLines,
+                tailPreview: previewText(tailLines.join('\n'))
+            };
+        }
+
+        function logViewSnapshot(event) {
+            logClientDebug(event, {
+                sessionId: activeSessionId,
+                terminalSnapshot: snapshotTerminalBuffer()
+            });
+        }
+
         // Navigation
         function showTerminal() {
             clearTimeout(sessionPollTimer);
             sessionPollTimer = null;
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.getElementById('terminal-view').classList.add('active');
+            logViewSnapshot('show-terminal');
             syncLayout();
         }
 
@@ -471,6 +528,7 @@
             sessionPollTimer = null;
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.getElementById('history-view').classList.add('active');
+            logViewSnapshot('show-history-before-load');
             loadHistory();
         }
 
@@ -492,7 +550,7 @@
 
             metaEl.textContent = 'Loading...';
             try {
-                const res = await fetchWithTimeout(`/api/sessions/${activeSessionId}/history`, {}, 10000);
+                const res = await fetchWithTimeout(`/api/sessions/${activeSessionId}/history`, {}, 30000);
                 const data = await res.json();
                 if (!data.success) throw new Error(data.error || 'Failed to load history');
 
@@ -503,12 +561,19 @@
                 contentEl.textContent = data.text || 'No readable history yet.';
                 contentEl.classList.toggle('nowrap', !historyWrapEnabled);
                 document.getElementById('history-wrap-btn').style.color = historyWrapEnabled ? 'var(--primary)' : 'var(--text-dim)';
+                logClientDebug('history-loaded', {
+                    meta: metaEl.textContent,
+                    historyLines: data.lines || 0,
+                    historyBytes: data.bytes || 0,
+                    historyTail: previewText(data.text || '')
+                });
                 requestAnimationFrame(() => {
                     contentEl.scrollTop = contentEl.scrollHeight;
                 });
             } catch (e) {
                 metaEl.textContent = 'Failed to load history.';
                 contentEl.textContent = e.message;
+                logClientDebug('history-load-failed', { message: e.message });
             }
         }
 
