@@ -85,28 +85,32 @@ glad tools detect
 
 ## Supported Tools
 
-Glad currently supports detection for 20 terminal AI tools, including:
+Glad currently auto-detects the 20 terminal AI tools defined in the code registry. The names below are the registry `displayName` values used by Glad:
 
-- Claude Code
-- Aider
-- OpenAI Codex CLI
-- GitHub Copilot CLI
-- Cody CLI
-- Google Gemini CLI
-- Continue CLI
-- Cursor Agent CLI
-- ChatGPT CLI
-- ShellGPT
-- Mentat
-- Grok CLI
-- Ollama
-- OpenHands
-- OpenCode
-- Blackbox AI
-- Amazon Q Developer
-- Pi Coding Agent
-- Kilo Code CLI
-- Qoder CLI
+| Tool | Detected command |
+| --- | --- |
+| Claude | `claude` |
+| Aider | `aider` |
+| Codex | `codex` |
+| Copilot | `copilot` |
+| Cody | `cody chat` |
+| Gemini | `gemini` |
+| Continue | `cn` |
+| Cursor | `cursor-agent` |
+| ChatGPT | `chatgpt` |
+| ShellGPT | `sgpt --repl temp` |
+| Mentat | `mentat` |
+| Grok | `grok` |
+| Ollama | `ollama run codellama` |
+| OpenHands | `openhands` |
+| OpenCode | `opencode` |
+| Blackbox AI | `blackboxai` |
+| Amazon Q | `q` |
+| Pi | `pi` |
+| Kilo | `kilo` |
+| Qoder | `qodercli` |
+
+Glad also includes a built-in `demo` tool for testing, but demo mode is not included in auto-detection.
 
 ## Packaging
 
