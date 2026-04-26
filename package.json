@@ -52,7 +52,8 @@
     "node-pty": "npm:@lydell/node-pty@^1.1.0",
     "semver": "^7.7.3",
     "uuid": "^9.0.0",
-    "ws": "^8.19.0"
+    "ws": "^8.19.0",
+    "xterm-headless": "^5.3.0"
   },
   "devDependencies": {
     "caxa": "^3.0.1"
