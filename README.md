@@ -7,6 +7,8 @@ Glad is a local-first Web interface for terminal-based AI coding tools.
 
 It lets you run interactive CLI tools such as **Claude Code**, **Aider**, **GitHub Copilot CLI**, and **Gemini CLI** on your machine, then access them through a clean browser UI from desktop or mobile devices on your local network.
 
+![Glad AI mobile interface](./assets/demo.jpg)
+
 ### Demo Video
 
 Watch how Glad brings terminal AI tools to your mobile device seamlessly:
