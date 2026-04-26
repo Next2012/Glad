@@ -7,6 +7,8 @@ Glad 是一个面向终端 AI 编码工具的本地优先 Web 界面。
 
 它让你可以在自己的机器上运行 **Claude Code**、**Aider**、**GitHub Copilot CLI**、**Gemini CLI** 等交互式命令行工具，并通过一个适合桌面和移动端访问的浏览器界面来使用它们。
 
+![Glad AI 移动端界面](./assets/demo.jpg)
+
 ### 演示视频
 
 看看 Glad 如何将终端 AI 工具无缝带到你的移动设备上：
