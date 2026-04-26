@@ -50,8 +50,9 @@
         .scroll-btn { width: 56px; height: 56px; background: rgba(30, 30, 30, 0.5); backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 28px; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); cursor: pointer; }
         #debug-log { position: fixed; bottom: 0; left: 0; right: 0; max-height: 100px; background: rgba(0,0,0,0.8); color: #0f0; font-size: 10px; overflow-y: auto; padding: 5px; z-index: 9999; display: none; pointer-events: none; }
         
-        /* Fulltext Select View */
-        #fulltext-content { flex: 1; background: #000; color: #ccc; padding: 15px; overflow-y: auto; font-family: monospace; font-size: 13px; line-height: 1.4; white-space: pre-wrap; word-break: break-all; user-select: text !important; -webkit-user-select: text !important; }
+        #history-content { flex: 1; background: #000; color: #d1d5db; padding: 14px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text !important; -webkit-user-select: text !important; box-sizing: border-box; }
+        #history-content.nowrap { white-space: pre; overflow-wrap: normal; overflow-x: auto; }
+        .history-meta { color: var(--text-dim); font-size: 11px; padding: 8px 14px; border-bottom: 1px solid rgba(255,255,255,0.06); background: #0d0d0d; }
 
         .tab-bar { display: flex; border-bottom: 1px solid rgba(255,255,255,0.1); background: var(--bg); }
         .tab-btn { flex: 1; text-align: center; padding: 12px 0; font-size: 14px; font-weight: 600; color: var(--text-dim); background: none; border: none; cursor: pointer; position: relative; }
@@ -92,10 +93,12 @@
                 </button>
                 <div id="session-title">Terminal</div>
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <button class="icon-btn" onclick="showFullText()" style="color: var(--text-dim); font-size: 13px; font-weight: 700; background: rgba(255, 255, 255, 0.05); padding: 5px 10px; border-radius: 15px;">
-                        COPY
+                    <button class="icon-btn" onclick="showHistory()" title="History" style="color: var(--primary); font-size: 12px; font-weight: 700; background: rgba(0, 122, 255, 0.1); padding: 5px 9px; border-radius: 15px; gap: 4px;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"></path><polyline points="3 3 3 9 9 9"></polyline><path d="M12 7v5l3 2"></path></svg>
+                        HIS
                     </button>
-                    <button class="icon-btn" onclick="showGitPreview()" style="color: var(--primary); font-size: 13px; font-weight: 700; background: rgba(0, 122, 255, 0.1); padding: 5px 12px; border-radius: 15px;">
+                    <button class="icon-btn" onclick="showGitPreview()" title="Git" style="color: var(--primary); font-size: 12px; font-weight: 700; background: rgba(0, 122, 255, 0.1); padding: 5px 9px; border-radius: 15px; gap: 4px;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"></circle><circle cx="18" cy="6" r="2.5"></circle><circle cx="12" cy="18" r="2.5"></circle><path d="M8.2 7.6 11 15.7"></path><path d="M15.8 7.6 13 15.7"></path></svg>
                         GIT
                     </button>
                 </div>
@@ -123,21 +126,28 @@
         <div id="terminal-container"><div id="terminal"></div></div>
     </div>
 
-    <!-- Fulltext Selection View -->
-    <div id="fulltext-view" class="view">
+    <!-- Plain Text History View -->
+    <div id="history-view" class="view">
         <div style="flex-shrink: 0; background: #121212; border-bottom: 1px solid #222; padding-top: env(safe-area-inset-top);">
             <div style="display: flex; align-items: center; padding: 8px 14px;">
-                <button class="icon-btn" onclick="hideFullText()" style="color: var(--primary); font-size: 16px; font-weight: 500;">
+                <button class="icon-btn" onclick="showTerminal()" style="color: var(--primary); font-size: 16px; font-weight: 500;">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-                    Back
+                    Terminal
                 </button>
-                <div style="flex: 1; text-align: center; font-weight: 600; font-size: 16px;">Copy Output</div>
-                <button class="icon-btn" onclick="copyFullContent()" style="color: var(--primary); font-size: 13px; font-weight: 700;">
-                    SELECT ALL
+                <div style="flex: 1; text-align: center; font-weight: 600; font-size: 16px;">History</div>
+                <button class="icon-btn" onclick="loadHistory()" title="Refresh" style="color: var(--primary); margin-right: 8px;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"></path><polyline points="21 3 21 9 15 9"></polyline></svg>
+                </button>
+                <button class="icon-btn" onclick="copyHistoryContent()" title="Copy all" style="color: var(--text-dim); margin-right: 8px;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                </button>
+                <button id="history-wrap-btn" class="icon-btn" onclick="toggleHistoryWrap()" title="Toggle wrap" style="color: var(--text-dim);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="4" x2="4" y2="20"></line><line x1="20" y1="4" x2="20" y2="20"></line><path d="M8 8h7a3 3 0 0 1 0 6H9"></path><polyline points="11 11 8 14 11 17"></polyline></svg>
                 </button>
             </div>
         </div>
-        <pre id="fulltext-content"></pre>
+        <div id="history-meta" class="history-meta">Loading...</div>
+        <pre id="history-content">Loading...</pre>
     </div>
 
     <!-- Git View -->
@@ -386,35 +396,74 @@
             switchGitTab('changes');
         }
 
-        function showFullText() {
-            if (!term) return;
-            // Extract all text from terminal
-            term.selectAll();
-            const fullText = term.getSelection();
-            term.clearSelection();
+        let historyWrapEnabled = true;
 
-            const contentEl = document.getElementById('fulltext-content');
-            contentEl.textContent = fullText || 'No output to display.';
-            
+        function showHistory() {
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-            document.getElementById('fulltext-view').classList.add('active');
-            contentEl.scrollTop = contentEl.scrollHeight;
+            document.getElementById('history-view').classList.add('active');
+            loadHistory();
         }
 
-        function hideFullText() {
-            showTerminal();
+        function toggleHistoryWrap() {
+            historyWrapEnabled = !historyWrapEnabled;
+            const contentEl = document.getElementById('history-content');
+            contentEl.classList.toggle('nowrap', !historyWrapEnabled);
+            document.getElementById('history-wrap-btn').style.color = historyWrapEnabled ? 'var(--primary)' : 'var(--text-dim)';
         }
 
-        function copyFullContent() {
-            const range = document.createRange();
-            range.selectNode(document.getElementById('fulltext-content'));
-            window.getSelection().removeAllRanges();
-            window.getSelection().addRange(range);
+        async function loadHistory() {
+            const contentEl = document.getElementById('history-content');
+            const metaEl = document.getElementById('history-meta');
+            if (!activeSessionId) {
+                metaEl.textContent = 'No active session.';
+                contentEl.textContent = '';
+                return;
+            }
+
+            metaEl.textContent = 'Loading...';
             try {
-                document.execCommand('copy');
-                alert('All text selected and copied!');
+                const res = await fetchWithTimeout(`/api/sessions/${activeSessionId}/history`, {}, 10000);
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Failed to load history');
+
+                const updatedAt = data.updatedAt ? new Date(data.updatedAt).toLocaleTimeString() : 'unknown';
+                const size = typeof data.bytes === 'number' ? `${Math.round(data.bytes / 1024)} KB` : 'unknown size';
+                const truncated = data.truncated ? ' | truncated' : '';
+                metaEl.textContent = `${data.tool || 'Session'} | ${data.lines || 0} lines | ${size} | updated ${updatedAt}${truncated}`;
+                contentEl.textContent = data.text || 'No readable history yet.';
+                contentEl.classList.toggle('nowrap', !historyWrapEnabled);
+                document.getElementById('history-wrap-btn').style.color = historyWrapEnabled ? 'var(--primary)' : 'var(--text-dim)';
+                requestAnimationFrame(() => {
+                    contentEl.scrollTop = contentEl.scrollHeight;
+                });
             } catch (e) {
-                alert('Selected! You can now copy manually.');
+                metaEl.textContent = 'Failed to load history.';
+                contentEl.textContent = e.message;
+            }
+        }
+
+        async function copyHistoryContent() {
+            const contentEl = document.getElementById('history-content');
+            const text = contentEl.textContent || '';
+            if (!text || text === 'Loading...' || text === 'No readable history yet.') {
+                alert('No history to copy.');
+                return;
+            }
+
+            try {
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(text);
+                } else {
+                    const range = document.createRange();
+                    range.selectNode(contentEl);
+                    window.getSelection().removeAllRanges();
+                    window.getSelection().addRange(range);
+                    document.execCommand('copy');
+                    window.getSelection().removeAllRanges();
+                }
+                alert('History copied.');
+            } catch (e) {
+                alert('Copy failed. You can select the history text manually.');
             }
         }
 
