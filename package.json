@@ -1,6 +1,6 @@
 {
   "name": "glad-cli",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Glad transforms terminal-based AI coding tools into a polished, mobile-friendly local Web interface.",
   "main": "index.js",
   "bin": {
