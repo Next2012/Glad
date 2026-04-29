@@ -17,7 +17,7 @@
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
         .header h1 { font-size: 28px; font-weight: 700; margin: 0; display: flex; align-items: center; gap: 10px; }
         .header-logo { width: 32px; height: 32px; flex-shrink: 0; }
-        .btn-new { background: var(--primary); color: #fff; border: none; padding: 8px 16px; border-radius: 20px; font-weight: 600; font-size: 15px; cursor: pointer; }
+        .btn-new { background: var(--primary); color: #fff; border: none; padding: 8px 11px; border-radius: 16px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; min-height: 32px; white-space: nowrap; }
         .btn-retry { background: #333; color: #fff; border: none; padding: 8px 16px; border-radius: 20px; margin-top: 10px; cursor: pointer; }
         .session-card { background: var(--card-bg); border-radius: 12px; padding: 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; transition: transform 0.1s; position: relative; }
         .session-card:active { transform: scale(0.98); }
@@ -69,6 +69,30 @@
         .btn-toggle { background: var(--card-bg); border-radius: 6px; padding: 4px; display: flex; gap: 4px; margin: 10px; }
         .btn-toggle button { flex: 1; padding: 6px 0; border-radius: 4px; border: none; background: transparent; color: var(--text-dim); font-size: 13px; font-weight: 600; cursor: pointer; }
         .btn-toggle button.active { background: var(--primary); color: #fff; }
+        .lobby-tabs { display: flex; background: var(--card-bg); border-radius: 8px; padding: 4px; margin-bottom: 16px; gap: 4px; }
+        .lobby-tab { flex: 1; border: none; border-radius: 6px; background: transparent; color: var(--text-dim); padding: 8px; font-size: 14px; font-weight: 700; cursor: pointer; }
+        .lobby-tab.active { background: var(--primary); color: #fff; }
+        .schedule-card { background: var(--card-bg); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+        .schedule-row { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+        .schedule-meta { margin-top: 6px; color: var(--text-dim); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+        .schedule-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+        .small-btn { border: none; border-radius: 16px; padding: 7px 10px; font-weight: 700; font-size: 12px; color: #fff; background: rgba(255,255,255,0.1); cursor: pointer; }
+        .small-btn.primary { background: var(--primary); }
+        .small-btn.danger { background: rgba(255,59,48,0.18); color: #ff6b61; }
+        .form-field { margin-bottom: 12px; }
+        .form-field label { display:block; margin-bottom: 6px; font-size: 13px; color: var(--text-dim); font-weight: 600; }
+        .form-field input, .form-field select, .form-field textarea { width: 100%; box-sizing: border-box; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 8px; padding: 9px 10px; font-size: 14px; outline: none; }
+        .weekday-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+        .weekday-btn { border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.05); color: var(--text-dim); border-radius: 8px; padding: 8px 0; font-size: 12px; font-weight: 700; cursor: pointer; }
+        .weekday-btn.active { border-color: var(--primary); background: rgba(0,122,255,0.25); color: #fff; }
+        #schedule-modal { background: var(--card-bg); width: 100%; max-width: 720px; max-height: 92dvh; overflow-y: auto; border-radius: 16px; padding: 18px; box-shadow: 0 20px 40px rgba(0,0,0,0.4); box-sizing: border-box; }
+        .step-card { border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 10px; margin-bottom: 8px; background: rgba(255,255,255,0.04); }
+        .step-grid { display: grid; grid-template-columns: minmax(110px, 150px) 1fr auto; gap: 8px; align-items: center; }
+        @media (max-width: 640px) {
+            .schedule-row { flex-direction: column; }
+            .schedule-actions { justify-content: flex-start; }
+            .step-grid { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
@@ -79,10 +103,20 @@
         <div id="lobby">
             <div class="header">
                 <h1><img class="header-logo" src="/logo.svg" alt="">Glad</h1>
-                <button class="btn-new" onclick="showToolModal()">+ New</button>
+                <div style="display:flex; gap:6px;">
+                    <button class="btn-new" onclick="showToolModal()" title="New session"><span>+</span><span>Session</span></button>
+                    <button class="btn-new" onclick="showScheduleModal()" title="New scheduler"><span>+</span><span>Sched</span></button>
+                </div>
+            </div>
+            <div class="lobby-tabs">
+                <button id="lobby-tab-sessions" class="lobby-tab active" onclick="switchLobbyTab('sessions')">Sessions</button>
+                <button id="lobby-tab-schedules" class="lobby-tab" onclick="switchLobbyTab('schedules')">Schedules</button>
             </div>
             <div id="sessions-list">
                 <p style="color:#888; text-align:center; margin-top:50px;">Loading sessions...</p>
+            </div>
+            <div id="schedules-list" style="display:none;">
+                <p style="color:#888; text-align:center; margin-top:50px;">Loading schedules...</p>
             </div>
         </div>
     </div>
@@ -194,6 +228,54 @@
         </div>
     </div>
 
+    <!-- Schedule Modal -->
+    <div id="schedule-modal-overlay" onclick="closeScheduleModal(event)" style="position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 10001; display: none; align-items: center; justify-content: center; padding: 16px;">
+        <div id="schedule-modal" onclick="event.stopPropagation()">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px;">
+                <h2 id="schedule-modal-title" style="margin:0; font-size:20px;">Schedule</h2>
+                <button class="icon-btn" onclick="closeScheduleModal()" style="color: var(--text-dim); font-size: 24px;">×</button>
+            </div>
+            <div class="form-field">
+                <label>Name</label>
+                <input id="schedule-name" type="text" placeholder="Scheduled task">
+            </div>
+            <div class="form-field">
+                <label>Tool</label>
+                <select id="schedule-tool"></select>
+            </div>
+            <div class="form-field">
+                <label>Working Directory</label>
+                <input id="schedule-cwd" type="text" placeholder="Leave empty for default directory">
+            </div>
+            <div class="form-field">
+                <label>Trigger Time</label>
+                <input id="schedule-time" type="time" value="09:00">
+            </div>
+            <div class="form-field">
+                <label>Weekdays</label>
+                <div id="schedule-weekdays" class="weekday-grid"></div>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin: 14px 0 8px;">
+                <div style="font-weight:700;">Steps</div>
+                <select id="add-step-type" style="background:rgba(255,255,255,0.08); color:#fff; border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:8px;" onchange="addScheduleStep(this.value); this.value='';">
+                    <option value="">Add step</option>
+                    <option value="sleep">Sleep</option>
+                    <option value="sendText">Send text</option>
+                    <option value="sendKey">Send key</option>
+                    <option value="keyDown">Key down</option>
+                    <option value="keyUp">Key up</option>
+                    <option value="stop">Stop</option>
+                    <option value="closeSession">Close session</option>
+                </select>
+            </div>
+            <div id="schedule-steps"></div>
+            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:16px;">
+                <button class="small-btn" onclick="closeScheduleModal()">Cancel</button>
+                <button class="small-btn primary" onclick="saveSchedule()">Save</button>
+            </div>
+        </div>
+    </div>
+
     <script defer src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
     <script defer src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
     <script src="/gitgraph.js"></script>
@@ -201,6 +283,11 @@
         let currentSocket = null, term = null, fitAddon = null, activeSessionId = null;
         let appConfig = null;
         let sessionPollTimer = null;
+        let lobbyTab = 'sessions';
+        let scheduleTools = [];
+        let editingScheduleId = null;
+        let editingSteps = [];
+        let selectedWeekdays = [1, 2, 3, 4, 5];
         const modifiers = { ctrl: false, alt: false };
 
         function log(msg) {
@@ -242,6 +329,73 @@
 
         function decodePathValue(path = '') {
             return decodeURIComponent(path);
+        }
+
+        function formatWeekdays(days = []) {
+            const labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            return days.map(day => labels[day]).filter(Boolean).join(', ') || 'No days';
+        }
+
+        function formatDateTime(value) {
+            return value ? new Date(value).toLocaleString() : 'Not scheduled';
+        }
+
+        function switchLobbyTab(tab) {
+            lobbyTab = tab;
+            document.getElementById('lobby-tab-sessions').classList.toggle('active', tab === 'sessions');
+            document.getElementById('lobby-tab-schedules').classList.toggle('active', tab === 'schedules');
+            document.getElementById('sessions-list').style.display = tab === 'sessions' ? '' : 'none';
+            document.getElementById('schedules-list').style.display = tab === 'schedules' ? '' : 'none';
+            if (tab === 'sessions') refreshSessionsNow();
+            if (tab === 'schedules') loadSchedules();
+        }
+
+        async function loadSchedules() {
+            const list = document.getElementById('schedules-list');
+            list.innerHTML = '<p style="color:#888; text-align:center; margin-top:50px;">Loading schedules...</p>';
+            try {
+                await ensureScheduleTools().catch(() => {});
+                const res = await fetchWithTimeout('/api/schedules');
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const schedules = await res.json();
+                if (!schedules.length) {
+                    list.innerHTML = '<p style="color:#888; text-align:center; margin-top:50px;">No scheduled tasks</p>';
+                    return;
+                }
+
+                let html = '';
+                schedules.forEach(job => {
+                    const encodedId = encodePathValue(job.id);
+                    const tool = scheduleTools.find(t => t.key === job.target.toolKey);
+                    const statusColor = job.lastRunStatus === 'failed' ? '#ff6b61' : job.running ? '#5ac8fa' : 'var(--text-dim)';
+                    html += `<div class="schedule-card">
+                        <div class="schedule-row">
+                            <div style="flex:1; min-width:0;">
+                                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                    <strong>${escapeHtml(job.name)}</strong>
+                                    <span style="font-size:11px; color:${job.enabled ? '#34c759' : '#8e8e93'}; border:1px solid currentColor; border-radius:10px; padding:1px 7px;">${job.enabled ? 'ON' : 'OFF'}</span>
+                                </div>
+                                <div class="schedule-meta">
+                                    ${escapeHtml(job.schedule.time)} | ${escapeHtml(formatWeekdays(job.schedule.weekdays))}<br>
+                                    ${escapeHtml(tool ? tool.displayName : job.target.toolKey)} | ${escapeHtml(job.target.workingDirectory || 'Default directory')}<br>
+                                    Next: ${escapeHtml(formatDateTime(job.nextRunAt))}<br>
+                                    <span style="color:${statusColor};">Last: ${escapeHtml(job.lastRunStatus || 'idle')}${job.lastRunMessage ? ' - ' + escapeHtml(job.lastRunMessage) : ''}</span>
+                                </div>
+                            </div>
+                            <div class="schedule-actions">
+                                <button class="small-btn primary" onclick="simulateSchedule(decodePathValue('${encodedId}'))">Test</button>
+                                <button class="small-btn" onclick="editSchedule(decodePathValue('${encodedId}'))">Edit</button>
+                                <button class="small-btn" onclick="duplicateSchedule(decodePathValue('${encodedId}'))">Copy</button>
+                                <button class="small-btn" onclick="toggleSchedule(decodePathValue('${encodedId}'), ${job.enabled ? 'false' : 'true'})">${job.enabled ? 'Disable' : 'Enable'}</button>
+                                <button class="small-btn danger" onclick="deleteSchedule(decodePathValue('${encodedId}'))">Delete</button>
+                            </div>
+                        </div>
+                    </div>`;
+                });
+                list.innerHTML = html;
+            } catch (e) {
+                list.innerHTML = `<div style="color:#ff3b30; text-align:center; margin-top:50px;"><p>Failed to load: ${escapeHtml(e.message)}</p><button class="btn-retry" onclick="loadSchedules()">Retry</button></div>`;
+            }
         }
 
         async function loadSessions() {
@@ -357,6 +511,11 @@
             clearTimeout(sessionPollTimer);
             sessionPollTimer = null;
             if (!isLobbyVisible()) return;
+            if (lobbyTab === 'schedules') {
+                await loadSchedules();
+                scheduleSessionPolling();
+                return;
+            }
             await loadSessions();
             scheduleSessionPolling();
         }
@@ -381,6 +540,248 @@
                 document.getElementById('modal-overlay').style.display = 'none';
                 refreshSessionsNow();
             } catch (e) { alert('Failed to create session'); }
+        }
+
+        async function ensureScheduleTools() {
+            if (scheduleTools.length) return;
+            const res = await fetchWithTimeout('/api/tools');
+            scheduleTools = await res.json();
+        }
+
+        function defaultSchedule() {
+            return {
+                id: null,
+                name: 'Scheduled Task',
+                enabled: true,
+                schedule: { time: '09:00', weekdays: [1, 2, 3, 4, 5] },
+                target: { toolKey: (scheduleTools[0] && scheduleTools[0].key) || 'demo', workingDirectory: '' },
+                steps: [
+                    { type: 'sleep', seconds: 60 },
+                    { type: 'sendText', text: 'hello' },
+                    { type: 'sleep', seconds: 1 },
+                    { type: 'sendKey', key: 'enter' },
+                    { type: 'sleep', seconds: 60 },
+                    { type: 'closeSession' }
+                ]
+            };
+        }
+
+        async function showScheduleModal(job = null) {
+            try {
+                await ensureScheduleTools();
+                loadAppConfig();
+            } catch (e) {
+                alert('Failed to load tools');
+                return;
+            }
+
+            const data = job || defaultSchedule();
+            editingScheduleId = data.id || null;
+            editingSteps = (data.steps || []).map(step => ({ ...step }));
+            selectedWeekdays = [...(data.schedule.weekdays || [1, 2, 3, 4, 5])];
+            document.getElementById('schedule-modal-title').textContent = editingScheduleId ? 'Edit Schedule' : 'New Schedule';
+            document.getElementById('schedule-name').value = data.name || 'Scheduled Task';
+            document.getElementById('schedule-cwd').value = data.target.workingDirectory || '';
+            document.getElementById('schedule-time').value = data.schedule.time || '09:00';
+
+            const toolSelect = document.getElementById('schedule-tool');
+            toolSelect.innerHTML = scheduleTools.map(t => `<option value="${escapeHtml(t.key)}">${escapeHtml(t.displayName)}</option>`).join('');
+            const requestedTool = data.target.toolKey || '';
+            toolSelect.value = scheduleTools.some(t => t.key === requestedTool) ? requestedTool : ((scheduleTools[0] && scheduleTools[0].key) || 'demo');
+            renderWeekdays();
+            renderScheduleSteps();
+            document.getElementById('schedule-modal-overlay').style.display = 'flex';
+        }
+
+        function closeScheduleModal(e) {
+            if (!e || e.target.id === 'schedule-modal-overlay') {
+                document.getElementById('schedule-modal-overlay').style.display = 'none';
+            }
+        }
+
+        function renderWeekdays() {
+            const labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            document.getElementById('schedule-weekdays').innerHTML = labels.map((label, day) => {
+                const active = selectedWeekdays.includes(day);
+                return `<button type="button" class="weekday-btn ${active ? 'active' : ''}" onclick="toggleWeekday(${day})">${label}</button>`;
+            }).join('');
+        }
+
+        function toggleWeekday(day) {
+            if (selectedWeekdays.includes(day)) {
+                selectedWeekdays = selectedWeekdays.filter(value => value !== day);
+            } else {
+                selectedWeekdays.push(day);
+                selectedWeekdays.sort((a, b) => a - b);
+            }
+            renderWeekdays();
+        }
+
+        function addScheduleStep(type) {
+            if (!type) return;
+            const defaults = {
+                sleep: { type: 'sleep', seconds: 1 },
+                sendText: { type: 'sendText', text: '' },
+                sendKey: { type: 'sendKey', key: 'enter' },
+                keyDown: { type: 'keyDown', key: 'ctrl' },
+                keyUp: { type: 'keyUp', key: 'ctrl' },
+                stop: { type: 'stop' },
+                closeSession: { type: 'closeSession' }
+            };
+            editingSteps.push(defaults[type] || { type });
+            renderScheduleSteps();
+        }
+
+        function updateStep(index, field, value) {
+            if (!editingSteps[index]) return;
+            if (field === 'seconds') editingSteps[index][field] = Math.max(0, Number(value) || 0);
+            else editingSteps[index][field] = value;
+        }
+
+        function moveStep(index, delta) {
+            const nextIndex = index + delta;
+            if (nextIndex < 0 || nextIndex >= editingSteps.length) return;
+            const [step] = editingSteps.splice(index, 1);
+            editingSteps.splice(nextIndex, 0, step);
+            renderScheduleSteps();
+        }
+
+        function copyStep(index) {
+            editingSteps.splice(index + 1, 0, { ...editingSteps[index] });
+            renderScheduleSteps();
+        }
+
+        function removeStep(index) {
+            editingSteps.splice(index, 1);
+            renderScheduleSteps();
+        }
+
+        function stepInputHtml(step, index) {
+            if (step.type === 'sleep') {
+                return `<input type="number" min="0" step="0.1" value="${escapeHtml(step.seconds || 0)}" onchange="updateStep(${index}, 'seconds', this.value)">`;
+            }
+            if (step.type === 'sendText') {
+                return `<textarea rows="2" placeholder="Text to send" onchange="updateStep(${index}, 'text', this.value)" oninput="updateStep(${index}, 'text', this.value)">${escapeHtml(step.text || '')}</textarea>`;
+            }
+            if (step.type === 'sendKey') {
+                return `<select onchange="updateStep(${index}, 'key', this.value)">
+                    ${['enter','tab','esc','up','down','left','right','backspace','delete','home','end','ctrl+c','ctrl+d','ctrl+l'].map(key => `<option value="${key}" ${step.key === key ? 'selected' : ''}>${key}</option>`).join('')}
+                </select>`;
+            }
+            if (step.type === 'keyDown' || step.type === 'keyUp') {
+                return `<select onchange="updateStep(${index}, 'key', this.value)">
+                    ${['ctrl','alt'].map(key => `<option value="${key}" ${step.key === key ? 'selected' : ''}>${key}</option>`).join('')}
+                </select>`;
+            }
+            if (step.type === 'closeSession') {
+                return '<span style="color:var(--text-dim); font-size:13px;">Close the session and end this run</span>';
+            }
+            return '<span style="color:var(--text-dim); font-size:13px;">End this run</span>';
+        }
+
+        function renderScheduleSteps() {
+            const container = document.getElementById('schedule-steps');
+            if (!editingSteps.length) {
+                container.innerHTML = '<p style="color:var(--text-dim);">No steps yet.</p>';
+                return;
+            }
+            container.innerHTML = editingSteps.map((step, index) => `
+                <div class="step-card">
+                    <div class="step-grid">
+                        <select onchange="editingSteps[${index}] = { type: this.value }; addDefaultStepFields(${index}); renderScheduleSteps();">
+                            ${['sleep','sendText','sendKey','keyDown','keyUp','stop','closeSession'].map(type => `<option value="${type}" ${step.type === type ? 'selected' : ''}>${type}</option>`).join('')}
+                        </select>
+                        <div>${stepInputHtml(step, index)}</div>
+                        <div style="display:flex; gap:6px; justify-content:flex-end;">
+                            <button class="small-btn" onclick="moveStep(${index}, -1)">↑</button>
+                            <button class="small-btn" onclick="moveStep(${index}, 1)">↓</button>
+                            <button class="small-btn" onclick="copyStep(${index})">Copy</button>
+                            <button class="small-btn danger" onclick="removeStep(${index})">Del</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function addDefaultStepFields(index) {
+            const type = editingSteps[index].type;
+            if (type === 'sleep') editingSteps[index].seconds = 1;
+            if (type === 'sendText') editingSteps[index].text = '';
+            if (type === 'sendKey') editingSteps[index].key = 'enter';
+            if (type === 'keyDown' || type === 'keyUp') editingSteps[index].key = 'ctrl';
+        }
+
+        function collectSchedulePayload() {
+            if (!selectedWeekdays.length) throw new Error('Select at least one weekday');
+            return {
+                name: document.getElementById('schedule-name').value.trim() || 'Scheduled Task',
+                enabled: true,
+                schedule: {
+                    time: document.getElementById('schedule-time').value || '09:00',
+                    weekdays: selectedWeekdays
+                },
+                target: {
+                    toolKey: document.getElementById('schedule-tool').value,
+                    workingDirectory: document.getElementById('schedule-cwd').value.trim()
+                },
+                steps: editingSteps
+            };
+        }
+
+        async function saveSchedule() {
+            try {
+                const payload = collectSchedulePayload();
+                const url = editingScheduleId ? `/api/schedules/${editingScheduleId}` : '/api/schedules';
+                const method = editingScheduleId ? 'PATCH' : 'POST';
+                const res = await fetchWithTimeout(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!res.ok) throw new Error((await res.json()).error || 'Save failed');
+                closeScheduleModal();
+                switchLobbyTab('schedules');
+            } catch (e) {
+                alert(e.message);
+            }
+        }
+
+        async function editSchedule(id) {
+            const res = await fetchWithTimeout(`/api/schedules/${id}`);
+            if (!res.ok) return alert('Failed to load schedule');
+            showScheduleModal(await res.json());
+        }
+
+        async function simulateSchedule(id) {
+            try {
+                const res = await fetchWithTimeout(`/api/schedules/${id}/simulate`, { method: 'POST' }, 30000);
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Test failed');
+                await loadSchedules();
+                if (data.sessionId) joinSession(data.sessionId, 'Schedule Test');
+            } catch (e) {
+                alert(e.message);
+            }
+        }
+
+        async function duplicateSchedule(id) {
+            await fetchWithTimeout(`/api/schedules/${id}/duplicate`, { method: 'POST' });
+            loadSchedules();
+        }
+
+        async function toggleSchedule(id, enabled) {
+            await fetchWithTimeout(`/api/schedules/${id}/enabled`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled })
+            });
+            loadSchedules();
+        }
+
+        async function deleteSchedule(id) {
+            if (!confirm('Delete scheduled task?')) return;
+            await fetchWithTimeout(`/api/schedules/${id}`, { method: 'DELETE' });
+            loadSchedules();
         }
 
         async function deleteSession(id, e) {
