@@ -40,11 +40,20 @@
         #nav-bar { display: flex; align-items: center; padding: 8px 14px; border-bottom: 1px solid #222; }
         #back-btn { color: var(--primary); font-size: 16px; font-weight: 500; display: flex; align-items: center; text-decoration: none; background: none; border: none; padding: 0; cursor: pointer; flex-shrink: 0; }
         #session-title { flex: 1; text-align: center; font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 10px; min-width: 0; }
-        #input-row { display: flex; align-items: flex-end; padding: 10px 14px; }
-        #cmd-input { flex: 1; min-height: 38px; max-height: 150px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 19px; color: #fff; padding: 9px 16px; font-size: 16px; outline: none; resize: none; overflow-y: auto; line-height: 20px; box-sizing: border-box; }
+        #input-row { display: flex; align-items: flex-end; padding: 10px 14px 8px 14px; }
+        #cmd-input { flex: 1; min-height: 38px; max-height: 150px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 19px; color: #fff; padding: 9px 16px; font-size: 16px; outline: none; resize: none; overflow-y: auto; line-height: 20px; box-sizing: border-box; transition: background 0.18s ease, border-color 0.18s ease; }
+        #cmd-input::placeholder { color: rgba(255,255,255,0.45); }
+        #cmd-input:focus { background: rgba(255,255,255,0.1); border-color: rgba(0,122,255,0.42); color: #fff; }
         #send-btn { width: 44px; height: 38px; margin-left: 10px; background: #007aff; border: none; border-radius: 19px; color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer; }
-        #shortcut-bar { display: flex; padding: 2px 12px 12px 12px; gap: 8px; justify-content: space-between; }
-        .key-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; height: 38px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: #ccc; font-size: 11px; font-weight: 700; text-transform: uppercase; cursor: pointer; }
+        #shortcut-rail { display: flex; gap: 28px; overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; scrollbar-width: none; scroll-snap-type: x mandatory; padding: 0 14px 12px 14px; box-sizing: border-box; scroll-padding-left: 14px; scroll-padding-right: 14px; }
+        #shortcut-rail::-webkit-scrollbar { display: none; }
+        .shortcut-group { flex: 0 0 calc(100vw - 28px); display: grid; gap: 8px; scroll-snap-align: start; }
+        .simple-shortcuts { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+        .complex-shortcuts { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+        .key-btn, .command-key { flex: 0 0 auto; min-width: 0; height: 40px; border: 1px solid rgba(255,255,255,0.11); border-radius: 12px; background: rgba(255,255,255,0.08); color: #d1d5db; font-size: 12px; font-weight: 700; letter-spacing: 0; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap; }
+        .key-btn { font-size: 11px; }
+        .shortcut-group .key-btn, .shortcut-group .command-key { width: 100%; }
+        .key-btn:active, .command-key:active { background: rgba(255,255,255,0.14); color: #fff; }
         .key-btn.active { background: rgba(0, 122, 255, 0.25); border-color: #007aff; color: #00a2ff; }
         #terminal-container { flex: 1; min-height: 0; width: 100%; background: #000; position: relative; overflow: hidden; }
         #terminal { height: 100%; width: 100%; }
@@ -141,20 +150,30 @@
                     </button>
                 </div>
             </div>
-            <div id="input-row">
-                <textarea id="cmd-input" rows="1" placeholder="Type a message..."></textarea>
-                <button id="send-btn">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-                </button>
-            </div>
-            <div id="shortcut-bar">
-                <div class="key-btn special-key" data-key="up">↑</div>
-                <div class="key-btn special-key" data-key="down">↓</div>
-                <div class="key-btn" data-key="ctrl">Ctrl</div>
-                <div class="key-btn special-key" data-key="enter">⏎</div>
-                <div class="key-btn" data-key="esc">Esc</div>
-                <div class="key-btn" data-key="tab">Tab</div>
-                <div class="key-btn" data-key="alt">Alt</div>
+            <div id="terminal-controls">
+                <div id="input-row">
+                    <textarea id="cmd-input" rows="1" placeholder="Type a message..."></textarea>
+                    <button id="send-btn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                    </button>
+                </div>
+                <div id="shortcut-rail">
+                    <div class="shortcut-group simple-shortcuts">
+                        <div class="key-btn special-key" data-key="up">↑</div>
+                        <div class="key-btn special-key" data-key="down">↓</div>
+                        <div class="key-btn" data-key="ctrl">Ctrl</div>
+                        <div class="key-btn special-key" data-key="enter">⏎</div>
+                        <div class="key-btn" data-key="esc">Esc</div>
+                        <div class="key-btn" data-key="tab">Tab</div>
+                    </div>
+                    <div class="shortcut-group complex-shortcuts">
+                        <div class="key-btn" data-key="ctrl-c">Ctrl+C</div>
+                        <div class="key-btn" data-key="ctrl-y">Ctrl+Y</div>
+                        <button class="command-key" data-command="/model" title="Send /model">/model</button>
+                        <button class="command-key" data-command="/resume" title="Send /resume">/resume</button>
+                        <button class="command-key" data-command="/stat" title="Send /stat">/stat</button>
+                    </div>
+                </div>
             </div>
         </div>
         <div id="scroll-controls">
@@ -288,7 +307,7 @@
         let editingScheduleId = null;
         let editingSteps = [];
         let selectedWeekdays = [1, 2, 3, 4, 5];
-        const modifiers = { ctrl: false, alt: false };
+        const modifiers = { ctrl: false };
 
         function log(msg) {
             const el = document.getElementById('debug-log');
@@ -825,7 +844,6 @@
                         const code = data.toLowerCase().charCodeAt(0);
                         if (code >= 97 && code <= 122) finalData = String.fromCharCode(code - 96);
                     }
-                    if (modifiers.alt) finalData = '\x1b' + finalData;
                     sendWS(finalData);
                 });
             } else { term.clear(); }
@@ -1027,11 +1045,21 @@
             if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); performSend(); } 
         });
 
-        document.getElementById('shortcut-bar').addEventListener('click', (e) => {
-            const btn = e.target.closest('.key-btn'); if (!btn) return;
-            const key = btn.dataset.key;
-            if (['ctrl', 'alt'].includes(key)) { modifiers[key] = !modifiers[key]; btn.classList.toggle('active', modifiers[key]); return; }
-            const sequences = { up: '\x1b[A', down: '\x1b[B', enter: '\r', esc: '\x1b', tab: '\t' };
+        document.getElementById('shortcut-rail').addEventListener('click', (e) => {
+            const commandBtn = e.target.closest('.command-key');
+            if (commandBtn) {
+                const command = commandBtn.dataset.command;
+                if (command) {
+                    sendWS(command);
+                    setTimeout(() => { sendWS('\r'); }, 1000);
+                }
+                return;
+            }
+
+            const keyBtn = e.target.closest('.key-btn'); if (!keyBtn) return;
+            const key = keyBtn.dataset.key;
+            if (key === 'ctrl') { modifiers[key] = !modifiers[key]; keyBtn.classList.toggle('active', modifiers[key]); return; }
+            const sequences = { up: '\x1b[A', down: '\x1b[B', enter: '\r', esc: '\x1b', tab: '\t', 'ctrl-c': '\x03', 'ctrl-y': '\x19' };
             if (sequences[key]) sendWS(sequences[key]);
         });
 
