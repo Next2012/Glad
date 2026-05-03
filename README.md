@@ -18,6 +18,16 @@ Watch how Glad brings terminal AI tools to your mobile device seamlessly:
 > [!NOTE]
 > Glad is derived from [termly-cli](https://github.com/termly-dev/termly-cli), but the current project is intentionally focused on a simpler model: local execution, local network access, and a lightweight Web UI for terminal-native AI tools.
 
+## How it works
+
+![Glad Architecture](./assets/architecture.svg)
+
+Glad's core working principle:
+1. Glad runs on your server or local machine where Claude, Codex, Aider, and other CLI tools are installed.
+2. Once started, Glad is accessible on your local machine and LAN via port 3000.
+3. If you use Tailscale or ZeroTier for intranet penetration, you can control it remotely from anywhere.
+4. All terminal tasks run locally within the Glad daemon, so your mobile device disconnecting won't affect task execution.
+
 ## Design Philosophy & Highlights
 
 Glad was created to enable **vibe coding** on mobile devices. By bringing various CLIs to the web browser, login and authorization are completely aligned with the official tools, ensuring you can fully utilize your paid monthly subscriptions anywhere.

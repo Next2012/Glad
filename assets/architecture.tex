@@ -1,0 +1,99 @@
+\documentclass[tikz,border=15pt]{standalone}
+\usepackage{tikz}
+\usepackage{lmodern}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, calc, backgrounds}
+
+% Define modern colors (Tailwind inspired)
+\definecolor{cText}{HTML}{1E293B} % slate-800
+\definecolor{cTextMuted}{HTML}{64748B} % slate-500
+\definecolor{cBg}{HTML}{FFFFFF} % white
+\definecolor{cBorder}{HTML}{E2E8F0} % slate-200
+
+\definecolor{cServerBg}{HTML}{F8FAFC} % slate-50
+\definecolor{cServerBorder}{HTML}{CBD5E1} % slate-300
+
+\definecolor{cGladBg}{HTML}{EFF6FF} % blue-50
+\definecolor{cGladBorder}{HTML}{93C5FD} % blue-300
+\definecolor{cGladText}{HTML}{1E3A8A} % blue-900
+
+\definecolor{cSessionBg}{HTML}{FFFFFF} 
+\definecolor{cSessionBorder}{HTML}{E2E8F0} % slate-200
+
+\definecolor{cOnlineBg}{HTML}{FEF2F2} % red-50
+\definecolor{cOnlineBorder}{HTML}{FECACA} % red-200
+\definecolor{cOnlineText}{HTML}{991B1B} % red-800
+
+\definecolor{cNetworkBg}{HTML}{F0FDF4} % green-50
+\definecolor{cNetworkBorder}{HTML}{BBF7D0} % green-200
+\definecolor{cNetworkText}{HTML}{166534} % green-800
+
+\definecolor{cClientBg}{HTML}{FFF7ED} % orange-50
+\definecolor{cClientBorder}{HTML}{FED7AA} % orange-200
+\definecolor{cClientText}{HTML}{9A3412} % orange-800
+
+\definecolor{cArrow}{HTML}{94A3B8} % slate-400
+
+\begin{document}
+\begin{tikzpicture}[
+    font=\sffamily\color{cText},
+    >=Stealth,
+    background rectangle/.style={fill=cBg, rounded corners=12pt, draw=cBorder, thick},
+    show background rectangle,
+    % Styles
+    box/.style={rectangle, rounded corners=8pt, draw=cBorder, thick, fill=white, minimum height=1.3cm, minimum width=4.5cm, align=center},
+    glad_box/.style={box, draw=cGladBorder, fill=cGladBg, text=cGladText},
+    simple_box/.style={rectangle, rounded corners=8pt, draw=cBorder, thick, fill=white, minimum height=1cm, minimum width=3.2cm, align=center, font=\bfseries\color{cText}},
+    session_box/.style={rectangle, rounded corners=6pt, draw=cSessionBorder, thick, fill=cSessionBg, minimum height=1.5cm, minimum width=2.6cm, align=center, font=\bfseries\color{cText}},
+    always_online_label/.style={rectangle, rounded corners=3pt, draw=cOnlineBorder, fill=cOnlineBg, text=cOnlineText, font=\tiny\bfseries, inner sep=2.5pt},
+    server_wrapper/.style={rectangle, rounded corners=10pt, draw=cServerBorder, thick, fill=cServerBg, inner sep=20pt},
+    network_wrapper/.style={rectangle, rounded corners=10pt, draw=cNetworkBorder, thick, fill=cNetworkBg, inner sep=20pt},
+    client_wrapper/.style={rectangle, rounded corners=10pt, draw=cClientBorder, thick, fill=cClientBg, inner sep=20pt},
+    arrow/.style={->, line width=1.5pt, color=cArrow}
+]
+
+% --- SERVER NODE ---
+\node[glad_box, minimum height=1.6cm] (glad) {\textbf{Glad Server}\\[2pt] \footnotesize\color{cGladText} Node.js Process (Port 3000)};
+
+% Sessions
+\node[session_box, below=1.8cm of glad, xshift=-1.5cm] (s2) {Codex};
+\node[session_box, left=0.4cm of s2] (s1) {Claude};
+\node[session_box, right=0.4cm of s2] (s3) {Gemini};
+\node[session_box, right=0.4cm of s3] (s4) {\dots};
+
+\foreach \n in {s1, s2, s3, s4} {
+    \node[always_online_label, anchor=north west, xshift=2pt, yshift=-2pt] at (\n.north west) {Always Online};
+}
+
+\node[fit=(s1)(s2)(s3)(s4), inner sep=0pt] (sessions) {};
+
+\draw[arrow] (glad.south) -- node[right, font=\footnotesize\color{cTextMuted}, align=center] {Spawns \& Manages} (sessions.north);
+
+\begin{pgfonlayer}{background}
+\node[server_wrapper, fit=(glad)(s1)(s2)(s3)(s4), label={[font=\bfseries\color{cTextMuted}, yshift=2pt]above:Server / Host Machine}] (server) {};
+\end{pgfonlayer}
+
+% --- NETWORK NODE ---
+\node[box, right=2.8cm of server, yshift=2.4cm] (local) {\textbf{Localhost / LAN}\\[2pt] \footnotesize\color{cTextMuted} Direct Access (Port 3000)};
+\node[box, right=2.8cm of server, yshift=0cm] (vpn) {\textbf{Tailscale / ZeroTier}\\[2pt] \footnotesize\color{cTextMuted} VPN IP Access (Port 3000)};
+\node[box, right=2.8cm of server, yshift=-2.4cm] (ssh) {\textbf{SSH Port Forwarding}\\[2pt] \footnotesize\color{cTextMuted} via Port 22 (Termius/ssh -L)};
+
+\begin{pgfonlayer}{background}
+\node[network_wrapper, fit=(local)(vpn)(ssh), label={[font=\bfseries\color{cNetworkText}, yshift=2pt]above:Network Routes}] (network) {};
+\end{pgfonlayer}
+
+\draw[<->, arrow] (server.east) -- (network.west);
+
+% --- CLIENTS NODE ---
+\node[simple_box, right=3.5cm of vpn, yshift=1.2cm] (pc) {PC Browser};
+\node[simple_box, right=3.5cm of vpn, yshift=0cm] (mobile) {Mobile Browser};
+\node[simple_box, right=3.5cm of vpn, yshift=-1.2cm] (pwa) {Mobile PWA};
+
+\begin{pgfonlayer}{background}
+\node[client_wrapper, fit=(pc)(mobile)(pwa), label={[font=\bfseries\color{cClientText}, yshift=2pt]above:Clients}] (clients) {};
+\end{pgfonlayer}
+
+% Combine arrows into one
+\draw[<->, arrow] (network.east) -- (clients.west);
+
+\end{tikzpicture}
+\end{document}
