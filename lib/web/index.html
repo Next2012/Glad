@@ -558,9 +558,8 @@
                 });
                 const data = await res.json();
                 if (!res.ok || !data.id) throw new Error(data.error || 'Failed to create session');
-                const { id } = data;
                 document.getElementById('modal-overlay').style.display = 'none';
-                joinSession(id, sessionName || toolKey, toolKey);
+                refreshSessionsNow();
             } catch (e) { alert('Failed to create session: ' + e.message); }
         }
 
