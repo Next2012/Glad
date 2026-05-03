@@ -18,6 +18,16 @@ Glad 是一个面向终端 AI 编码工具的本地优先 Web 界面。
 > [!NOTE]
 > Glad 基于 [termly-cli](https://github.com/termly-dev/termly-cli) 演化而来，但当前项目已经明确收敛为更简单的模型：本地执行、局域网访问、以及围绕终端 AI 工具的轻量 Web UI。
 
+## 工作原理
+
+![Glad 架构图](./assets/architecture.svg)
+
+Glad 的核心工作原理：
+1. Glad 运行在你装好 Claude、Codex、Aider 等终端工具的服务器上。
+2. 启动 Glad 后，在本机和局域网可通过 3000 端口访问。
+3. 如果使用 Tailscale 或者 ZeroTier 做了内网穿透，就可以进行远程操控。
+4. 所有终端任务在本地的 Glad 守护进程中运行，不怕手机断网影响程序执行。
+
 ## 开发目的与设计哲学
 
 Glad 的初衷是开发一款完全运行在本地的、足够简单的，且登录和授权完全对齐官方的工具，可以把各种 CLI “搬”到网页端。这样你就可以在移动设备上随时进行 **vibe coding**，不用担心包月订阅闲置，也无需担心客户端手机断联会导致电脑端的任务停止。
