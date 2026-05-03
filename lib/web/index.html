@@ -856,12 +856,16 @@
                 showLobby();
                 return;
             }
+            function isTerminalAutoResponse(data) {
+                return /^\x1b\[\?[\d;]*c$/.test(data) || /^\x1b\[>[\d;]*c$/.test(data);
+            }
             if (!term) {
                 term = new Terminal({ theme: { background: '#000', foreground: '#fff', cursor: '#0f0' }, cursorBlink: true, fontSize: 14, cursorStyle: 'bar', scrollback: 10000 });
                 fitAddon = new FitAddon.FitAddon();
                 term.loadAddon(fitAddon);
                 term.open(document.getElementById('terminal'));
                 term.onData(data => {
+                    if (isTerminalAutoResponse(data)) return;
                     let finalData = data;
                     if (modifiers.ctrl && data.length === 1) {
                         const code = data.toLowerCase().charCodeAt(0);
