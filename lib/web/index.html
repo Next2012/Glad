@@ -477,11 +477,12 @@
                 
                 let html = '';
                 tools.forEach(t => {
-                    html += `<div class="tool-item" onclick="createSession('${t.key}')">
+                    const versionLabel = t.version && t.version !== 'unknown' ? `v${t.version}` : 'version unknown';
+                    html += `<div class="tool-item" onclick='createSession(${JSON.stringify(t.key)}, ${JSON.stringify(t.displayName)})'>
                         <div class="tool-icon">${t.displayName[0]}</div>
                         <div>
                             <div style="font-weight:600">${t.displayName}</div>
-                            <div style="font-size:12px; color:#888">${t.version || 'v1.0'}</div>
+                            <div style="font-size:12px; color:#888">${versionLabel}</div>
                         </div>
                     </div>`;
                 });
@@ -547,7 +548,7 @@
             }
         }
 
-        async function createSession(toolKey) {
+        async function createSession(toolKey, sessionName) {
             try {
                 const workingDirectory = document.getElementById('cwd-field').value;
                 const res = await fetchWithTimeout('/api/sessions', { 
@@ -555,10 +556,12 @@
                     headers: { 'Content-Type': 'application/json' }, 
                     body: JSON.stringify({ toolKey, workingDirectory }) 
                 });
-                const { id } = await res.json();
+                const data = await res.json();
+                if (!res.ok || !data.id) throw new Error(data.error || 'Failed to create session');
+                const { id } = data;
                 document.getElementById('modal-overlay').style.display = 'none';
-                refreshSessionsNow();
-            } catch (e) { alert('Failed to create session'); }
+                joinSession(id, sessionName || toolKey, toolKey);
+            } catch (e) { alert('Failed to create session: ' + e.message); }
         }
 
         async function ensureScheduleTools() {
@@ -860,7 +863,6 @@
                 term.loadAddon(fitAddon);
                 term.open(document.getElementById('terminal'));
                 term.onData(data => {
-                    if (data.startsWith('\x1b[?') || data.startsWith('\x1b[>')) return;
                     let finalData = data;
                     if (modifiers.ctrl && data.length === 1) {
                         const code = data.toLowerCase().charCodeAt(0);
