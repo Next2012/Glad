@@ -168,7 +168,7 @@
                     </div>
                     <div class="shortcut-group complex-shortcuts">
                         <div class="key-btn" data-key="ctrl-c">Ctrl+C</div>
-                        <div class="key-btn" data-key="ctrl-y">Ctrl+Y</div>
+                        <div class="key-btn" data-key="ctrl-y" data-role="tool-action-shortcut" title="Send Ctrl+Y">Ctrl+Y</div>
                         <button class="command-key" data-command="/model" title="Send /model">/model</button>
                         <button class="command-key" data-command="/resume" title="Send /resume">/resume</button>
                         <button class="command-key" data-command="/stat" title="Send /stat">/stat</button>
@@ -299,7 +299,7 @@
     <script defer src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
     <script src="/gitgraph.js"></script>
     <script>
-        let currentSocket = null, term = null, fitAddon = null, activeSessionId = null;
+        let currentSocket = null, term = null, fitAddon = null, activeSessionId = null, activeToolKey = null;
         let appConfig = null;
         let sessionPollTimer = null;
         let lobbyTab = 'sessions';
@@ -441,7 +441,7 @@
                             <p title="${escapeHtml(workingDirectory)}" style="font-family: monospace; overflow-wrap: anywhere;">${escapeHtml(workingDirectory)}</p>
                         </div>
                         <div class="session-actions">
-                            <button class="btn-join" onclick="joinSession('${s.id}', decodePathValue('${encodedName}'))">Connect</button>
+                            <button class="btn-join" onclick="joinSession('${s.id}', decodePathValue('${encodedName}'), '${escapeHtml(s.toolKey || '')}')">Connect</button>
                             <button class="icon-btn btn-delete" onclick="deleteSession('${s.id}', event)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
                         </div>
                     </div>`;
@@ -777,7 +777,11 @@
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Test failed');
                 await loadSchedules();
-                if (data.sessionId) joinSession(data.sessionId, 'Schedule Test');
+                if (data.sessionId) {
+                    const jobRes = await fetchWithTimeout(`/api/schedules/${id}`).catch(() => null);
+                    const job = jobRes && jobRes.ok ? await jobRes.json() : null;
+                    joinSession(data.sessionId, 'Schedule Test', job?.target?.toolKey || null);
+                }
             } catch (e) {
                 alert(e.message);
             }
@@ -815,12 +819,30 @@
             refreshSessionsNow();
         }
 
-        function joinSession(id, sessionName) {
+        function updateToolShortcuts(toolKey) {
+            const actionBtn = document.querySelector('[data-role="tool-action-shortcut"]');
+            if (!actionBtn) return;
+
+            if (toolKey === 'codex') {
+                actionBtn.dataset.key = 'codex-app';
+                actionBtn.textContent = '/app';
+                actionBtn.title = 'Send /app';
+                return;
+            }
+
+            actionBtn.dataset.key = 'ctrl-y';
+            actionBtn.textContent = 'Ctrl+Y';
+            actionBtn.title = 'Send Ctrl+Y';
+        }
+
+        function joinSession(id, sessionName, toolKey = null) {
             activeSessionId = id;
+            activeToolKey = toolKey;
             clearTimeout(sessionPollTimer);
             sessionPollTimer = null;
             markCompletionRead(id);
             document.getElementById('session-title').innerText = sessionName;
+            updateToolShortcuts(activeToolKey);
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.getElementById('terminal-view').classList.add('active');
             initTerminal(id);
@@ -1059,6 +1081,11 @@
             const keyBtn = e.target.closest('.key-btn'); if (!keyBtn) return;
             const key = keyBtn.dataset.key;
             if (key === 'ctrl') { modifiers[key] = !modifiers[key]; keyBtn.classList.toggle('active', modifiers[key]); return; }
+            if (key === 'codex-app') {
+                sendWS('/app');
+                setTimeout(() => { sendWS('\r'); }, 1000);
+                return;
+            }
             const sequences = { up: '\x1b[A', down: '\x1b[B', enter: '\r', esc: '\x1b', tab: '\t', 'ctrl-c': '\x03', 'ctrl-y': '\x19' };
             if (sequences[key]) sendWS(sequences[key]);
         });
