@@ -29,7 +29,7 @@ Glad 的初衷是开发一款完全运行在本地的、足够简单的，且登
 - **简单但足够好用的改动检查**：内置 Git 改动预览功能。
 - **断线保护**：服务端任务不受移动端网络断开影响。
 - **开箱即用**：一条命令启动 Web UI，自动检测多种主流 AI CLI。
-- **独立二进制**：支持打包 Linux 和 Windows 独立可执行文件。
+- **独立二进制**：支持打包 Linux、macOS 和 Windows 独立可执行文件。
 
 ## 快速开始
 
@@ -61,6 +61,20 @@ chmod +x glad-linux-amd64
 
 ```cmd
 glad-windows-amd64.exe
+```
+
+**macOS Intel:**
+
+```bash
+chmod +x glad-macos-x64
+./glad-macos-x64
+```
+
+**macOS Apple Silicon:**
+
+```bash
+chmod +x glad-macos-arm64
+./glad-macos-arm64
 ```
 
 ## 使用方式
@@ -126,7 +140,19 @@ npm run build:linux
 npm run build:windows
 ```
 
-构建后会分别生成 `glad-linux-amd64` 和 `glad-windows-amd64.exe` 文件。
+在 Intel macOS runner 上构建 macOS Intel 独立二进制：
+
+```bash
+npm run build:macos:x64
+```
+
+在 Apple Silicon macOS runner 上构建 macOS Apple Silicon 独立二进制：
+
+```bash
+npm run build:macos:arm64
+```
+
+构建后会分别生成 `glad-linux-amd64`、`glad-windows-amd64.exe`、`glad-macos-x64` 和 `glad-macos-arm64` 文件。GitHub release workflow 会在 `macos-15-intel` 构建 macOS Intel 版本，并在 `macos-14` 构建 macOS Apple Silicon 版本。
 
 ## 安全模型
 

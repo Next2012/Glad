@@ -29,7 +29,7 @@ Our design philosophy is **Easy to use, Stable, and Restrained**. Glad focuses s
 - **Simple but effective change checking:** Integrated Git changes preview.
 - **Resilient execution:** Client (mobile) disconnections will not interrupt running tasks on the host machine.
 - **Simplicity:** One-command Web UI with built-in detection for many popular AI CLIs.
-- **Standalone binaries:** Linux and Windows standalone packaging available.
+- **Standalone binaries:** Linux, macOS, and Windows standalone packaging available.
 
 ## Quick Start
 
@@ -61,6 +61,20 @@ Simply double-click `glad-windows-amd64.exe` to run, or execute it in the Comman
 
 ```cmd
 glad-windows-amd64.exe
+```
+
+**macOS Intel:**
+
+```bash
+chmod +x glad-macos-x64
+./glad-macos-x64
+```
+
+**macOS Apple Silicon:**
+
+```bash
+chmod +x glad-macos-arm64
+./glad-macos-arm64
 ```
 
 ## Usage
@@ -126,7 +140,19 @@ Build a Windows standalone binary with:
 npm run build:windows
 ```
 
-After building, `glad-linux-amd64` and `glad-windows-amd64.exe` files will be generated respectively.
+Build a macOS Intel standalone binary on an Intel macOS runner with:
+
+```bash
+npm run build:macos:x64
+```
+
+Build a macOS Apple Silicon standalone binary on an Apple Silicon macOS runner with:
+
+```bash
+npm run build:macos:arm64
+```
+
+After building, `glad-linux-amd64`, `glad-windows-amd64.exe`, `glad-macos-x64`, and `glad-macos-arm64` files will be generated respectively. The GitHub release workflow builds macOS Intel on `macos-15-intel` and macOS Apple Silicon on `macos-14`.
 
 ## Security Model
 
