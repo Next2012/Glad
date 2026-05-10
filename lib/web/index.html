@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="https://unpkg.com/xterm@5.3.0/css/xterm.css" />
     <style>
         :root { --primary: #007aff; --bg: #000; --card-bg: #1c1c1e; --text: #fff; --text-dim: #8e8e93; }
-        body, html { margin: 0; padding: 0; height: 100dvh; width: 100vw; background: var(--bg); color: var(--text); overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        body, html { margin: 0; padding: 0; height: 100dvh; width: 100vw; background: var(--bg); color: var(--text); overflow: hidden; overflow-anchor: none; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
         .view { display: none; height: 100%; width: 100%; flex-direction: column; }
         .view.active { display: flex; }
         #lobby { overflow-y: auto; padding: 20px; padding-top: env(safe-area-inset-top); box-sizing: border-box; }
@@ -35,7 +35,7 @@
         .tool-item { padding: 12px; border-bottom: 1px solid #333; cursor: pointer; display: flex; align-items: center; border-radius: 8px; margin-top: 4px; }
         .tool-item:hover { background: rgba(255,255,255,0.05); }
         .tool-icon { width: 32px; height: 32px; background: #333; border-radius: 8px; margin-right: 12px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
-        #terminal-view { background: #000; }
+        #terminal-view { background: #000; overflow-anchor: none; }
         #top-ui { flex-shrink: 0; background: #121212; border-bottom: 1px solid #222; z-index: 2000; padding-top: env(safe-area-inset-top); }
         #nav-bar { display: flex; align-items: center; padding: 8px 14px; border-bottom: 1px solid #222; }
         #back-btn { color: var(--primary); font-size: 16px; font-weight: 500; display: flex; align-items: center; text-decoration: none; background: none; border: none; padding: 0; cursor: pointer; flex-shrink: 0; }
@@ -55,9 +55,10 @@
         .shortcut-group .key-btn, .shortcut-group .command-key { width: 100%; }
         .key-btn:active, .command-key:active { background: rgba(255,255,255,0.14); color: #fff; }
         .key-btn.active { background: rgba(0, 122, 255, 0.25); border-color: #007aff; color: #00a2ff; }
-        #terminal-container { flex: 1; min-height: 0; width: 100%; background: #000; position: relative; overflow: hidden; }
+        #terminal-container { flex: 1; min-height: 0; width: 100%; background: #000; position: relative; overflow: hidden; overflow-anchor: none; }
         #terminal { height: 100%; width: 100%; }
         #terminal .xterm, #terminal .xterm-viewport, #terminal .xterm-screen, #terminal .xterm-rows, #terminal .xterm-rows span { user-select: text !important; -webkit-user-select: text !important; -webkit-touch-callout: default; touch-action: pan-y; }
+        #terminal .xterm-viewport { overflow-anchor: none; }
         #terminal .xterm-helper-textarea { user-select: none !important; -webkit-user-select: none !important; -webkit-touch-callout: none; }
         #scroll-controls { position: fixed; right: 14px; top: 60%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 18px; z-index: 3000; }
         .scroll-btn { width: 56px; height: 56px; background: rgba(30, 30, 30, 0.5); backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 28px; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); cursor: pointer; }
@@ -891,10 +892,41 @@
             if (currentSocket && currentSocket.readyState === 1) currentSocket.send(JSON.stringify({ type: 'input', data })); 
         }
         
-        function syncLayout() { 
+        let layoutTimer = null;
+        let layoutKeepAtBottom = false;
+
+        function isTerminalAtBottom() {
+            if (!term || !term.buffer || !term.buffer.active) return true;
+            const active = term.buffer.active;
+            return active.viewportY >= active.baseY - 1;
+        }
+
+        function scrollTerminalViewportToBottom() {
+            if (!term) return;
+            term.scrollToBottom();
+            const viewport = document.querySelector('#terminal .xterm-viewport');
+            if (viewport) viewport.scrollTop = viewport.scrollHeight;
+        }
+
+        function restoreTerminalBottomSoon() {
+            scrollTerminalViewportToBottom();
+            requestAnimationFrame(() => {
+                scrollTerminalViewportToBottom();
+                requestAnimationFrame(scrollTerminalViewportToBottom);
+            });
+            setTimeout(scrollTerminalViewportToBottom, 120);
+        }
+
+        function syncLayout(options = {}) {
             if (!fitAddon || !currentSocket) return;
-            setTimeout(() => { 
-                fitAddon.fit(); 
+            const keepAtBottom = typeof options.keepAtBottom === 'boolean' ? options.keepAtBottom : isTerminalAtBottom();
+            layoutKeepAtBottom = layoutKeepAtBottom || keepAtBottom;
+            clearTimeout(layoutTimer);
+            layoutTimer = setTimeout(() => {
+                const shouldRestoreBottom = layoutKeepAtBottom;
+                layoutKeepAtBottom = false;
+                fitAddon.fit();
+                if (shouldRestoreBottom) restoreTerminalBottomSoon();
                 if (currentSocket.readyState === 1) currentSocket.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows })); 
             }, 50); 
         }
@@ -1049,10 +1081,20 @@
         }
 
         const inputEl = document.getElementById('cmd-input');
-        inputEl.addEventListener('input', function() { 
-            this.style.height = 'auto'; 
-            this.style.height = Math.min(this.scrollHeight, 150) + 'px'; 
-            syncLayout(); 
+        let keepTerminalBottomForNextInput = false;
+
+        function markInputEditStart() {
+            keepTerminalBottomForNextInput = keepTerminalBottomForNextInput || isTerminalAtBottom();
+        }
+
+        inputEl.addEventListener('beforeinput', markInputEditStart);
+        inputEl.addEventListener('input', function() {
+            const keepAtBottom = keepTerminalBottomForNextInput || isTerminalAtBottom();
+            keepTerminalBottomForNextInput = false;
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 150) + 'px';
+            if (keepAtBottom) restoreTerminalBottomSoon();
+            syncLayout({ keepAtBottom });
         });
         
         function performSend() {
@@ -1062,14 +1104,18 @@
                 sendWS(formattedVal);
                 inputEl.value = ''; 
                 inputEl.style.height = '38px'; 
-                syncLayout(); 
+                syncLayout({ keepAtBottom: true });
                 setTimeout(() => { sendWS('\r'); }, 1000);
             }
         }
         
         document.getElementById('send-btn').addEventListener('click', performSend);
-        inputEl.addEventListener('keydown', (e) => { 
-            if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); performSend(); } 
+        inputEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); performSend(); }
+            else if (e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete') {
+                markInputEditStart();
+                if (keepTerminalBottomForNextInput) requestAnimationFrame(restoreTerminalBottomSoon);
+            }
         });
 
         document.getElementById('shortcut-rail').addEventListener('click', (e) => {
