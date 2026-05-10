@@ -891,10 +891,27 @@
             if (currentSocket && currentSocket.readyState === 1) currentSocket.send(JSON.stringify({ type: 'input', data })); 
         }
         
-        function syncLayout() { 
+        let layoutTimer = null;
+        let layoutKeepAtBottom = false;
+
+        function isTerminalAtBottom() {
+            if (!term || !term.buffer || !term.buffer.active) return true;
+            const active = term.buffer.active;
+            return active.viewportY >= active.baseY - 1;
+        }
+
+        function syncLayout(options = {}) {
             if (!fitAddon || !currentSocket) return;
-            setTimeout(() => { 
-                fitAddon.fit(); 
+            const keepAtBottom = typeof options.keepAtBottom === 'boolean' ? options.keepAtBottom : isTerminalAtBottom();
+            layoutKeepAtBottom = layoutKeepAtBottom || keepAtBottom;
+            clearTimeout(layoutTimer);
+            layoutTimer = setTimeout(() => {
+                fitAddon.fit();
+                if (layoutKeepAtBottom) {
+                    term.scrollToBottom();
+                    requestAnimationFrame(() => term.scrollToBottom());
+                }
+                layoutKeepAtBottom = false;
                 if (currentSocket.readyState === 1) currentSocket.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows })); 
             }, 50); 
         }
@@ -1050,9 +1067,10 @@
 
         const inputEl = document.getElementById('cmd-input');
         inputEl.addEventListener('input', function() { 
+            const keepAtBottom = isTerminalAtBottom();
             this.style.height = 'auto'; 
             this.style.height = Math.min(this.scrollHeight, 150) + 'px'; 
-            syncLayout(); 
+            syncLayout({ keepAtBottom });
         });
         
         function performSend() {
@@ -1062,7 +1080,7 @@
                 sendWS(formattedVal);
                 inputEl.value = ''; 
                 inputEl.style.height = '38px'; 
-                syncLayout(); 
+                syncLayout({ keepAtBottom: true });
                 setTimeout(() => { sendWS('\r'); }, 1000);
             }
         }
