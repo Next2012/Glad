@@ -5,8 +5,9 @@
     <title>Glad - AI Sessions</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <link rel="manifest" href="/manifest.json">
-    <link rel="apple-touch-icon" href="/logo.svg">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/svg+xml" href="logo.svg">
+    <link rel="apple-touch-icon" href="logo.svg">
     <link rel="stylesheet" href="https://unpkg.com/xterm@5.3.0/css/xterm.css" />
     <style>
         :root { --primary: #007aff; --bg: #000; --card-bg: #1c1c1e; --text: #fff; --text-dim: #8e8e93; --terminal-controls-rest-height: 108px; }
@@ -118,7 +119,7 @@
     <div id="lobby-view" class="view active">
         <div id="lobby">
             <div class="header">
-                <h1><img class="header-logo" src="/logo.svg" alt="">Glad</h1>
+                <h1><img class="header-logo" src="logo.svg" alt="">Glad</h1>
                 <div style="display:flex; gap:6px;">
                     <button class="btn-new" onclick="showToolModal()" title="New session"><span>+</span><span>Session</span></button>
                     <button class="btn-new" onclick="showScheduleModal()" title="New scheduler"><span>+</span><span>Sched</span></button>
@@ -305,7 +306,7 @@
 
     <script defer src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
     <script defer src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
-    <script src="/gitgraph.js"></script>
+    <script src="gitgraph.js"></script>
     <script>
         let currentSocket = null, term = null, fitAddon = null, activeSessionId = null, activeToolKey = null;
         let appConfig = null;
