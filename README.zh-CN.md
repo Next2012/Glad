@@ -43,6 +43,19 @@ Glad 的初衷是开发一款完全运行在本地的、足够简单的，且登
 
 ## 快速开始
 
+### 通过 npm 安装
+
+要求：
+
+- Node.js `>=18`
+
+```bash
+npm install -g glad-web
+glad
+```
+
+安装时的 npm 包名是 `glad-web`，安装后的命令是 `glad`。
+
 ### 从源码运行
 
 要求：
@@ -50,7 +63,7 @@ Glad 的初衷是开发一款完全运行在本地的、足够简单的，且登
 - Node.js `>=18`
 
 ```bash
-git clone git@gitee.com:next2012/glad.git
+git clone https://github.com/Next2012/Glad.git
 cd glad
 npm install
 node bin/cli.js
@@ -179,4 +192,4 @@ Glad 面向受信任的本机或局域网环境使用。
 
 ## 开源协议
 
-本项目使用 MIT 协议，由 [next2012](https://gitee.com/next2012/glad) 维护。
+本项目使用 MIT 协议，由 [next2012](https://github.com/Next2012/Glad) 维护。
