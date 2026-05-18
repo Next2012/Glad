@@ -43,6 +43,19 @@ Our design philosophy is **Easy to use, Stable, and Restrained**. Glad focuses s
 
 ## Quick Start
 
+### Install with npm
+
+Requirements:
+
+- Node.js `>=18`
+
+```bash
+npm install -g glad-web
+glad
+```
+
+After installation, the package name is `glad-web` and the command is `glad`.
+
 ### Run from source
 
 Requirements:
@@ -50,7 +63,7 @@ Requirements:
 - Node.js `>=18`
 
 ```bash
-git clone git@gitee.com:anonymous/glad.git
+git clone https://github.com/Anonymous/Glad.git
 cd glad
 npm install
 node bin/cli.js
@@ -179,4 +192,4 @@ See [SECURITY.md](./SECURITY.md) for details.
 
 ## License
 
-MIT. Glad is maintained by [anonymous](https://gitee.com/anonymous/glad).
+MIT. Glad is maintained by [anonymous](https://github.com/Anonymous/Glad).
