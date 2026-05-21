@@ -835,9 +835,9 @@
             if (!actionBtn) return;
 
             if (toolKey === 'codex') {
-                actionBtn.dataset.key = 'codex-app';
-                actionBtn.textContent = '/app';
-                actionBtn.title = 'Send /app';
+                actionBtn.dataset.key = 'codex-perm';
+                actionBtn.textContent = '/perm';
+                actionBtn.title = 'Send /perm';
                 return;
             }
 
@@ -1139,8 +1139,8 @@
             const keyBtn = e.target.closest('.key-btn'); if (!keyBtn) return;
             const key = keyBtn.dataset.key;
             if (key === 'ctrl') { modifiers[key] = !modifiers[key]; keyBtn.classList.toggle('active', modifiers[key]); return; }
-            if (key === 'codex-app') {
-                sendWS('/app');
+            if (key === 'codex-perm') {
+                sendWS('/perm');
                 setTimeout(() => { sendWS('\r'); }, 1000);
                 return;
             }
