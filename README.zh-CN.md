@@ -122,7 +122,7 @@ glad tools detect
 
 ## 支持的工具
 
-Glad 当前会自动检测代码注册表中定义的 20 个终端 AI 工具。下面的名称严格使用 Glad 注册表里的 `displayName`：
+Glad 当前会自动检测代码注册表中定义的 21 个终端 AI 工具。下面的名称严格使用 Glad 注册表里的 `displayName`：
 
 | 工具 | 检测命令 |
 | --- | --- |
@@ -132,6 +132,7 @@ Glad 当前会自动检测代码注册表中定义的 20 个终端 AI 工具。�
 | Copilot | `copilot` |
 | Cody | `cody chat` |
 | Gemini | `gemini` |
+| Antigravity | `agy` |
 | Continue | `cn` |
 | Cursor | `cursor-agent` |
 | ChatGPT | `chatgpt` |

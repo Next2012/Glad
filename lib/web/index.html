@@ -179,7 +179,7 @@
                         <div class="key-btn" data-key="ctrl-y" data-role="tool-action-shortcut" title="Send Ctrl+Y">Ctrl+Y</div>
                         <button class="command-key" data-command="/model" title="Send /model">/model</button>
                         <button class="command-key" data-command="/resume" title="Send /resume">/resume</button>
-                        <button class="command-key" data-command="/stat" title="Send /stat">/stat</button>
+                        <button class="command-key" data-command="/stat" data-role="usage-shortcut" title="Send /stat">/stat</button>
                     </div>
                 </div>
             </div>
@@ -832,6 +832,15 @@
 
         function updateToolShortcuts(toolKey) {
             const actionBtn = document.querySelector('[data-role="tool-action-shortcut"]');
+            const usageBtn = document.querySelector('[data-role="usage-shortcut"]');
+
+            if (usageBtn) {
+                const command = toolKey === 'antigravity' ? '/usage' : '/stat';
+                usageBtn.dataset.command = command;
+                usageBtn.textContent = command;
+                usageBtn.title = `Send ${command}`;
+            }
+
             if (!actionBtn) return;
 
             if (toolKey === 'codex') {
