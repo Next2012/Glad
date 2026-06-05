@@ -174,7 +174,7 @@
                         <div class="key-btn" data-key="esc">Esc</div>
                         <div class="key-btn" data-key="tab">Tab</div>
                     </div>
-                    <div class="shortcut-group complex-shortcuts">
+                    <div class="shortcut-group complex-shortcuts" data-role="tool-shortcuts">
                         <div class="key-btn special-key" data-key="left">←</div>
                         <div class="key-btn special-key" data-key="right">→</div>
                         <div class="key-btn" data-key="ctrl-c">Ctrl+C</div>
@@ -832,15 +832,53 @@
         }
 
         function updateToolShortcuts(toolKey) {
-            const usageBtn = document.querySelector('[data-role="usage-shortcut"]');
-            const isAntigravity = toolKey === 'antigravity';
+            const usesUsageCommand = ['antigravity', 'claude-code'].includes(toolKey);
+            const usageCommand = usesUsageCommand ? '/usage' : '/stat';
+            const defaultShortcuts = [
+                { key: 'left', label: '←', special: true },
+                { key: 'right', label: '→', special: true },
+                { key: 'ctrl-c', label: 'Ctrl+C' },
+                { command: '/model' },
+                { command: '/resume' },
+                { command: usageCommand }
+            ];
+            const toolShortcuts = {
+                codex: [
+                    { key: 'ctrl-c', label: 'Ctrl+C' },
+                    { key: 'codex-perm', label: '/perm', title: 'Send /perm' },
+                    { command: '/model' },
+                    { command: '/resume' },
+                    { command: '/stat' }
+                ],
+                gemini: [
+                    { key: 'ctrl-c', label: 'Ctrl+C' },
+                    { key: 'ctrl-y', label: 'Ctrl+Y', title: 'Send Ctrl+Y' },
+                    { command: '/model' },
+                    { command: '/resume' },
+                    { command: '/stat' }
+                ]
+            };
+            const shortcuts = toolShortcuts[toolKey] || defaultShortcuts;
+            const shortcutGroup = document.querySelector('[data-role="tool-shortcuts"]');
+            if (!shortcutGroup) return;
 
-            if (usageBtn) {
-                const command = isAntigravity ? '/usage' : '/stat';
-                usageBtn.dataset.command = command;
-                usageBtn.textContent = command;
-                usageBtn.title = `Send ${command}`;
-            }
+            shortcutGroup.style.gridTemplateColumns = `repeat(${shortcuts.length}, minmax(0, 1fr))`;
+            shortcutGroup.replaceChildren(...shortcuts.map(shortcut => {
+                const button = document.createElement(shortcut.command ? 'button' : 'div');
+                button.className = shortcut.command
+                    ? 'command-key'
+                    : `key-btn${shortcut.special ? ' special-key' : ''}`;
+                if (shortcut.command) {
+                    button.dataset.command = shortcut.command;
+                    button.textContent = shortcut.command;
+                    button.title = `Send ${shortcut.command}`;
+                } else {
+                    button.dataset.key = shortcut.key;
+                    button.textContent = shortcut.label;
+                    button.title = shortcut.title || '';
+                }
+                return button;
+            }));
         }
 
         function joinSession(id, sessionName, toolKey = null) {
