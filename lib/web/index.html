@@ -52,7 +52,7 @@
         #shortcut-rail::-webkit-scrollbar { display: none; }
         .shortcut-group { flex: 0 0 calc(100vw - 28px); display: grid; gap: 8px; scroll-snap-align: start; }
         .simple-shortcuts { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-        .complex-shortcuts { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+        .complex-shortcuts { grid-template-columns: repeat(6, minmax(0, 1fr)); }
         .key-btn, .command-key { flex: 0 0 auto; min-width: 0; height: 40px; border: 1px solid rgba(255,255,255,0.11); border-radius: 12px; background: rgba(255,255,255,0.08); color: #d1d5db; font-size: 12px; font-weight: 700; letter-spacing: 0; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap; }
         .key-btn { font-size: 11px; }
         .shortcut-group .key-btn, .shortcut-group .command-key { width: 100%; }
@@ -175,8 +175,9 @@
                         <div class="key-btn" data-key="tab">Tab</div>
                     </div>
                     <div class="shortcut-group complex-shortcuts">
+                        <div class="key-btn special-key" data-key="left">←</div>
+                        <div class="key-btn special-key" data-key="right">→</div>
                         <div class="key-btn" data-key="ctrl-c">Ctrl+C</div>
-                        <div class="key-btn" data-key="ctrl-y" data-role="tool-action-shortcut" title="Send Ctrl+Y">Ctrl+Y</div>
                         <button class="command-key" data-command="/model" title="Send /model">/model</button>
                         <button class="command-key" data-command="/resume" title="Send /resume">/resume</button>
                         <button class="command-key" data-command="/stat" data-role="usage-shortcut" title="Send /stat">/stat</button>
@@ -831,28 +832,15 @@
         }
 
         function updateToolShortcuts(toolKey) {
-            const actionBtn = document.querySelector('[data-role="tool-action-shortcut"]');
             const usageBtn = document.querySelector('[data-role="usage-shortcut"]');
+            const isAntigravity = toolKey === 'antigravity';
 
             if (usageBtn) {
-                const command = toolKey === 'antigravity' ? '/usage' : '/stat';
+                const command = isAntigravity ? '/usage' : '/stat';
                 usageBtn.dataset.command = command;
                 usageBtn.textContent = command;
                 usageBtn.title = `Send ${command}`;
             }
-
-            if (!actionBtn) return;
-
-            if (toolKey === 'codex') {
-                actionBtn.dataset.key = 'codex-perm';
-                actionBtn.textContent = '/perm';
-                actionBtn.title = 'Send /perm';
-                return;
-            }
-
-            actionBtn.dataset.key = 'ctrl-y';
-            actionBtn.textContent = 'Ctrl+Y';
-            actionBtn.title = 'Send Ctrl+Y';
         }
 
         function joinSession(id, sessionName, toolKey = null) {
@@ -901,6 +889,7 @@
             currentSocket.onmessage = (e) => {
                 const msg = JSON.parse(e.data);
                 if (msg.type === 'output') term.write(msg.data);
+                if (msg.type === 'reset') term.reset();
                 if (msg.type === 'exit') showLobby();
             };
         }
@@ -1153,7 +1142,7 @@
                 setTimeout(() => { sendWS('\r'); }, 1000);
                 return;
             }
-            const sequences = { up: '\x1b[A', down: '\x1b[B', enter: '\r', esc: '\x1b', tab: '\t', 'ctrl-c': '\x03', 'ctrl-y': '\x19' };
+            const sequences = { up: '\x1b[A', down: '\x1b[B', left: '\x1b[D', right: '\x1b[C', enter: '\r', esc: '\x1b', tab: '\t', 'ctrl-c': '\x03', 'ctrl-y': '\x19' };
             if (sequences[key]) sendWS(sequences[key]);
         });
 
