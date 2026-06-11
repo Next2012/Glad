@@ -1470,7 +1470,7 @@
                     content.innerHTML = '<p style="text-align:center;color:#888;padding:20px;">No changes detected.</p>';
                     return;
                 }
-                
+
                 let statsMap = {};
                 const parseNumstat = (output) => {
                     if (!output) return;
@@ -1486,7 +1486,7 @@
                         }
                     });
                 };
-                
+
                 if (resUnstaged.ok) {
                     const unstagedData = await resUnstaged.json();
                     if (unstagedData.success) parseNumstat(unstagedData.stdout);
@@ -1502,10 +1502,13 @@
                     const escapedPath = escapeHtml(f.path);
                     let color = '#fff';
                     let label = f.status;
-                    if (label.includes('M')) { color = '#f59e0b'; } 
+                    if (label.includes('M')) { color = '#f59e0b'; }
                     else if (label.includes('A') || label === '??') { color = '#4ade80'; if(label === '??') label = 'U'; }
                     else if (label.includes('D')) { color = '#f87171'; }
-                    
+                    const isUntracked = f.status === '??';
+                    const hasStaged = !isUntracked && f.status[0] && f.status[0] !== ' ';
+                    const hasUnstaged = !isUntracked && f.status[1] && f.status[1] !== ' ';
+
                     let statHTML = '';
                     if (statsMap[f.path]) {
                         const { added, removed } = statsMap[f.path];
@@ -1515,7 +1518,7 @@
                     }
 
                     html += `<div style="margin-bottom: 8px; border: 1px solid #333; border-radius: 4px; background: #1e1e1e; overflow: hidden;">
-                        <div onclick="toggleInlineDiff('${encodedPath}', 'inline-diff-${idx}')" style="padding: 6px 10px; cursor: pointer; color: #fff; font-weight: 500; font-size: 13px; outline: none; user-select: none; display: flex; align-items: center;">
+                        <div onclick="toggleInlineDiff('${encodedPath}', 'inline-diff-${idx}', ${!!hasStaged}, ${!!hasUnstaged}, ${isUntracked})" style="padding: 6px 10px; cursor: pointer; color: #fff; font-weight: 500; font-size: 13px; outline: none; user-select: none; display: flex; align-items: center;">
                             <div style="flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">📄 ${escapedPath}${statHTML}</div>
                             <span style="color:${color}; font-weight:700; font-size:10px; border:1px solid ${color}; padding:1px 4px; border-radius:3px; opacity:0.8; flex-shrink: 0; margin-left: 8px;">${label}</span>
                         </div>
@@ -1529,7 +1532,58 @@
             }
         }
 
-        window.toggleInlineDiff = async function(encodedPath, containerId) {
+        function buildFileDiffUrl(path, staged) {
+            return `/api/sessions/${activeSessionId}/git-diff-file?path=${encodeURIComponent(path)}&staged=${staged ? 'true' : 'false'}`;
+        }
+
+        async function loadFileChangeData(path, options = {}) {
+            const hasStaged = !!options.hasStaged;
+            const hasUnstaged = !!options.hasUnstaged;
+            const isUntracked = !!options.isUntracked;
+            const diffRequests = [];
+
+            if (hasStaged) {
+                diffRequests.push({
+                    label: 'Staged changes',
+                    promise: fetchWithTimeout(buildFileDiffUrl(path, true)).catch(() => ({ok:false}))
+                });
+            }
+            if (hasUnstaged || (!hasStaged && !isUntracked)) {
+                diffRequests.push({
+                    label: 'Unstaged changes',
+                    promise: fetchWithTimeout(buildFileDiffUrl(path, false)).catch(() => ({ok:false}))
+                });
+            }
+
+            const [diffResponses, fileRes] = await Promise.all([
+                Promise.all(diffRequests.map(item => item.promise)),
+                fetchWithTimeout(`/api/sessions/${activeSessionId}/file?path=${encodeURIComponent(path)}`).catch(() => ({ok:false}))
+            ]);
+
+            const diffParts = [];
+            for (let i = 0; i < diffResponses.length; i++) {
+                const res = diffResponses[i];
+                const data = res.ok ? await res.json() : { success: false };
+                if (data.success && data.stdout) {
+                    diffParts.push({ label: diffRequests[i].label, stdout: data.stdout });
+                }
+            }
+
+            const fileData = fileRes.ok ? await fileRes.json() : { success: false };
+            const content = fileData.success ? fileData.content : '';
+            let diff = diffParts.map(part => (
+                diffParts.length > 1 ? `# ${part.label}\n${part.stdout}` : part.stdout
+            )).join('\n');
+            if (!diff && isUntracked && content) diff = 'Untracked file:\n\n' + content;
+
+            return {
+                diff,
+                content,
+                renderRawDiff: diffParts.length > 1
+            };
+        }
+
+        window.toggleInlineDiff = async function(encodedPath, containerId, hasStaged = false, hasUnstaged = true, isUntracked = false) {
             const container = document.getElementById(containerId);
             if (container.style.display === 'block') {
                 container.style.display = 'none';
@@ -1537,43 +1591,39 @@
             }
             container.style.display = 'block';
             if (container.dataset.loaded === 'true') return;
-            
+
             const path = decodePathValue(encodedPath);
             container.innerHTML = '<div style="padding: 10px; color: var(--text-dim); text-align: center; font-size: 12px;">Loading...</div>';
-            
+
             try {
-                const [diffRes, fileRes] = await Promise.all([
-                    fetchWithTimeout(`/api/sessions/${activeSessionId}/git-diff-file?path=${encodeURIComponent(path)}`).catch(()=>({ok:false})),
-                    fetchWithTimeout(`/api/sessions/${activeSessionId}/file?path=${encodeURIComponent(path)}`).catch(()=>({ok:false}))
-                ]);
-                let diffData = diffRes.ok ? await diffRes.json() : { success: false };
-                let fileData = fileRes.ok ? await fileRes.json() : { success: false };
-                let currentFileDiff = (diffData.success && diffData.stdout) ? diffData.stdout : '';
-                let currentFileContent = fileData.success ? fileData.content : '';
-                if (!currentFileDiff && currentFileContent) currentFileDiff = 'Untracked file:\n\n' + currentFileContent;
-                
+                const { diff: currentFileDiff, content: currentFileContent } = await loadFileChangeData(path, {
+                    hasStaged,
+                    hasUnstaged,
+                    isUntracked
+                });
+
                 if (!currentFileDiff && !currentFileContent) {
                     container.innerHTML = `<div style="padding: 10px; color: #f87171; font-size: 12px; text-align:center;">No diff available</div>`;
                     return;
                 }
-                
+
                 let blockContent = '';
                 currentFileDiff.split('\n').forEach(line => {
                     let color = '#ccc', bg = 'transparent', borderLeft = '2px solid transparent';
                     if (line.startsWith('+') && !line.startsWith('+++')) { color = '#4ade80'; bg = 'rgba(74, 222, 128, 0.1)'; borderLeft = '2px solid #4ade80'; }
                     else if (line.startsWith('-') && !line.startsWith('---')) { color = '#f87171'; bg = 'rgba(248, 113, 113, 0.1)'; borderLeft = '2px solid #f87171'; }
                     else if (line.startsWith('@@')) { color = '#60a5fa'; bg = 'rgba(96, 165, 250, 0.1)'; }
-                    
+
                     blockContent += `<div style="color:${color}; background:${bg}; border-left:${borderLeft}; padding:2px 8px; white-space:pre-wrap; word-break:break-all;">${escapeHtml(line) || ' '}</div>`;
                 });
-                
+
                 container.dataset.loaded = 'true';
                 container.innerHTML = `
                     <div style="background: #0d0d0d; overflow-x: auto; font-family: monospace; font-size: 12px; line-height: 1.5; padding: 4px 0; border-top: 1px solid #333; max-height: 400px;">
                         ${blockContent}
                     </div>
                     <div style="padding: 8px; background: #1a1a1a; border-top: 1px solid #333; text-align: center;">
-                        <button onclick="showFileDetails(decodePathValue('${encodedPath}'), true)" style="background: var(--primary); border: none; color: #fff; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                        <button onclick="showFileDetails(decodePathValue('${encodedPath}'), true, ${!!hasStaged}, ${!!hasUnstaged}, ${!!isUntracked})" style="background: var(--primary); border: none; color: #fff; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
                             View Full File
                         </button>
@@ -1584,7 +1634,7 @@
             }
         };
 
-        let currentFilePath = '', currentFileDiff = '', currentFileContent = '', currentFileMode = 'diff', currentFileWrap = false, currentFontSize = 12;
+        let currentFilePath = '', currentFileDiff = '', currentFileContent = '', currentFileMode = 'diff', currentFileWrap = false, currentFontSize = 12, currentFileRenderRawDiff = false;
 
         function changeFontSize(delta) {
             if (delta === 0) currentFontSize = 12;
@@ -1592,26 +1642,26 @@
             renderFileDetails();
         }
 
-        async function showFileDetails(path, isFromChanges = true) {
+        async function showFileDetails(path, isFromChanges = true, hasStaged = false, hasUnstaged = true, isUntracked = false) {
             currentFilePath = path;
             currentFileMode = isFromChanges ? 'diff' : 'file';
+            currentFileRenderRawDiff = false;
             const content = document.getElementById('git-content');
             content.innerHTML = '<p style="text-align:center;color:#888;padding:20px;">Loading details...</p>';
             try {
-                const [diffRes, fileRes] = await Promise.all([
-                    fetchWithTimeout(`/api/sessions/${activeSessionId}/git-diff-file?path=${encodeURIComponent(path)}`).catch(()=>({ok:false})),
-                    fetchWithTimeout(`/api/sessions/${activeSessionId}/file?path=${encodeURIComponent(path)}`).catch(()=>({ok:false}))
-                ]);
-                let diffData = diffRes.ok ? await diffRes.json() : { success: false };
-                let fileData = fileRes.ok ? await fileRes.json() : { success: false };
-                currentFileDiff = (diffData.success && diffData.stdout) ? diffData.stdout : '';
-                currentFileContent = fileData.success ? fileData.content : '';
-                if (!currentFileDiff && isFromChanges && currentFileContent) currentFileDiff = 'Untracked file:\n\n' + currentFileContent;
+                const detailData = await loadFileChangeData(path, {
+                    hasStaged: isFromChanges ? hasStaged : false,
+                    hasUnstaged: isFromChanges ? hasUnstaged : true,
+                    isUntracked: isFromChanges ? isUntracked : false
+                });
+                currentFileDiff = detailData.diff;
+                currentFileContent = detailData.content;
+                currentFileRenderRawDiff = detailData.renderRawDiff;
                 if (!currentFileDiff && !currentFileContent) {
                      content.innerHTML = `<p style="color:#ff3b30; padding:10px;">Failed to load details.</p>`;
                      return;
                 }
-                if (!diffData.stdout && !isFromChanges) currentFileMode = 'file';
+                if (!currentFileDiff && !isFromChanges) currentFileMode = 'file';
                 renderFileDetails();
             } catch (e) { content.innerHTML = `<p style="color:#ff3b30; padding:10px;">${e.message}</p>`; }
         }
@@ -1629,7 +1679,7 @@
                 <div style="flex:1; min-width:0; margin-right: 12px;">
                     <div style="font-weight:600; font-size:15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(currentFilePath)}">${escapeHtml(currentFilePath.split('/').pop() || currentFilePath)}</div>
                 </div>`;
-            
+
             if (currentFileDiff && currentFileContent) {
                 html += `
                 <div style="display: flex; gap: 6px; flex-shrink: 0; align-items: center;">
@@ -1658,9 +1708,9 @@
                     </button>
                 </div>`;
             }
-            
+
             html += `</div>`;
-            
+
             const wrapStyle = currentFileWrap ? 'white-space: pre-wrap; word-break: break-all;' : 'white-space: pre;';
             const innerWrapStyle = currentFileWrap ? '' : 'min-width: max-content;';
             html += `<div style="padding: 10px;">`;
@@ -1669,7 +1719,7 @@
 
             let mergedLines = [];
             const lines = currentFileContent ? currentFileContent.replace(/\r\n/g, '\n').split('\n') : [];
-            
+
             if (currentFileMode === 'diff' && currentFileDiff && !currentFileDiff.startsWith('Untracked file:')) {
                 let diffHunks = [];
                 let currentHunk = null;
@@ -1687,44 +1737,57 @@
                         currentHunk.lines.push(dl);
                     }
                 }
-                
-                let contentLineIdx = 1;
-                for (let hunk of diffHunks) {
-                    while (contentLineIdx < hunk.newStart && contentLineIdx <= lines.length) {
+
+                if (currentFileRenderRawDiff || diffHunks.length === 0) {
+                    currentFileDiff.replace(/\r\n/g, '\n').split('\n').forEach(line => {
+                        mergedLines.push({ type: 'raw', text: line });
+                    });
+                } else {
+                    let contentLineIdx = 1;
+                    for (let hunk of diffHunks) {
+                        while (contentLineIdx < hunk.newStart && contentLineIdx <= lines.length) {
+                            mergedLines.push({ type: 'normal', text: lines[contentLineIdx - 1], lineNum: contentLineIdx });
+                            contentLineIdx++;
+                        }
+                        for (let dl of hunk.lines) {
+                            if (dl.startsWith('-')) {
+                                mergedLines.push({ type: 'deleted', text: dl.substring(1) });
+                            } else if (dl.startsWith('+')) {
+                                mergedLines.push({ type: 'added', text: dl.substring(1), lineNum: contentLineIdx });
+                                contentLineIdx++;
+                            } else if (dl.startsWith(' ')) {
+                                mergedLines.push({ type: 'normal', text: dl.substring(1), lineNum: contentLineIdx });
+                                contentLineIdx++;
+                            }
+                        }
+                    }
+                    while (contentLineIdx <= lines.length) {
                         mergedLines.push({ type: 'normal', text: lines[contentLineIdx - 1], lineNum: contentLineIdx });
                         contentLineIdx++;
                     }
-                    for (let dl of hunk.lines) {
-                        if (dl.startsWith('-')) {
-                            mergedLines.push({ type: 'deleted', text: dl.substring(1) });
-                        } else if (dl.startsWith('+')) {
-                            mergedLines.push({ type: 'added', text: dl.substring(1), lineNum: contentLineIdx });
-                            contentLineIdx++;
-                        } else if (dl.startsWith(' ')) {
-                            mergedLines.push({ type: 'normal', text: dl.substring(1), lineNum: contentLineIdx });
-                            contentLineIdx++;
-                        }
-                    }
-                }
-                while (contentLineIdx <= lines.length) {
-                    mergedLines.push({ type: 'normal', text: lines[contentLineIdx - 1], lineNum: contentLineIdx });
-                    contentLineIdx++;
                 }
             } else {
                 lines.forEach((line, idx) => {
                     mergedLines.push({ type: 'normal', text: line, lineNum: idx + 1 });
                 });
             }
-            
+
             mergedLines.forEach(item => {
                 let color = '#ccc', bg = 'transparent', borderLeft = '2px solid transparent';
                 let prefix = ' ';
                 if (item.type === 'added') { color = '#4ade80'; bg = 'rgba(74, 222, 128, 0.1)'; borderLeft = '2px solid #4ade80'; prefix = '+'; }
                 else if (item.type === 'deleted') { color = '#f87171'; bg = 'rgba(248, 113, 113, 0.1)'; borderLeft = '2px solid #f87171'; prefix = '-'; }
-                
+                else if (item.type === 'raw') {
+                    if (item.text.startsWith('+') && !item.text.startsWith('+++')) { color = '#4ade80'; bg = 'rgba(74, 222, 128, 0.1)'; borderLeft = '2px solid #4ade80'; }
+                    else if (item.text.startsWith('-') && !item.text.startsWith('---')) { color = '#f87171'; bg = 'rgba(248, 113, 113, 0.1)'; borderLeft = '2px solid #f87171'; }
+                    else if (item.text.startsWith('@@')) { color = '#60a5fa'; bg = 'rgba(96, 165, 250, 0.1)'; }
+                    prefix = '';
+                }
+
+                const renderedText = item.type === 'raw' ? item.text : `${prefix} ${item.text}`;
                 html += `<div style="color:${color}; background:${bg}; border-left:${borderLeft}; padding: 0 12px 0 8px; display:flex;">`;
                 html += `<div style="color:#555; margin-right:16px; user-select:none; flex-shrink:0; width: 36px; text-align:right;">${item.lineNum || ''}</div>`;
-                html += `<div style="flex:1; min-width:0; ${wrapStyle}">${prefix} ${escapeHtml(item.text) || ' '}</div>`;
+                html += `<div style="flex:1; min-width:0; ${wrapStyle}">${escapeHtml(renderedText) || ' '}</div>`;
                 html += `</div>`;
             });
 
