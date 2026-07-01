@@ -5,7 +5,7 @@
 
 Glad is a local-first Web interface for terminal-based AI coding tools.
 
-It lets you run interactive CLI tools such as **Claude Code**, **Aider**, **GitHub Copilot CLI**, and **Gemini CLI** on your machine, then access them through a clean browser UI from desktop or mobile devices on your local network.
+It lets you run interactive CLI tools such as **Claude Code**, **Aider**, **GitHub Copilot CLI**, and **Codex** on your machine, then access them through a clean browser UI from desktop or mobile devices on your local network.
 
 ![Glad AI mobile interface](./assets/demo.jpg)
 
@@ -122,7 +122,7 @@ glad tools detect
 
 ## Supported Tools
 
-Glad currently auto-detects the 21 terminal AI tools defined in the code registry. The names below are the registry `displayName` values used by Glad:
+Glad currently auto-detects the 20 terminal AI tools defined in the code registry. The names below are the registry `displayName` values used by Glad:
 
 | Tool | Detected command |
 | --- | --- |
@@ -131,7 +131,6 @@ Glad currently auto-detects the 21 terminal AI tools defined in the code registr
 | Codex | `codex` |
 | Copilot | `copilot` |
 | Cody | `cody chat` |
-| Gemini | `gemini` |
 | Antigravity | `agy` |
 | Continue | `cn` |
 | Cursor | `cursor-agent` |
