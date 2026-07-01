@@ -5,7 +5,7 @@
 
 Glad 是一个面向终端 AI 编码工具的本地优先 Web 界面。
 
-它让你可以在自己的机器上运行 **Claude Code**、**Aider**、**GitHub Copilot CLI**、**Gemini CLI** 等交互式命令行工具，并通过一个适合桌面和移动端访问的浏览器界面来使用它们。
+它让你可以在自己的机器上运行 **Claude Code**、**Aider**、**GitHub Copilot CLI**、**Codex** 等交互式命令行工具，并通过一个适合桌面和移动端访问的浏览器界面来使用它们。
 
 ![Glad AI 移动端界面](./assets/demo.jpg)
 
@@ -122,7 +122,7 @@ glad tools detect
 
 ## 支持的工具
 
-Glad 当前会自动检测代码注册表中定义的 21 个终端 AI 工具。下面的名称严格使用 Glad 注册表里的 `displayName`：
+Glad 当前会自动检测代码注册表中定义的 20 个终端 AI 工具。下面的名称严格使用 Glad 注册表里的 `displayName`：
 
 | 工具 | 检测命令 |
 | --- | --- |
@@ -131,7 +131,6 @@ Glad 当前会自动检测代码注册表中定义的 21 个终端 AI 工具。�
 | Codex | `codex` |
 | Copilot | `copilot` |
 | Cody | `cody chat` |
-| Gemini | `gemini` |
 | Antigravity | `agy` |
 | Continue | `cn` |
 | Cursor | `cursor-agent` |

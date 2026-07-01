@@ -26,6 +26,11 @@
         .session-info { flex: 1; min-width: 0; }
         .session-info h3 { margin: 0 0 4px 0; font-size: 17px; display: flex; align-items: center; gap: 8px; }
         .session-info p { margin: 0; font-size: 13px; color: var(--text-dim); }
+        .timer-count-badge { display: inline-flex; align-items: center; gap: 3px; color: #fff; background: rgba(0,122,255,0.22); border: 1px solid rgba(0,122,255,0.34); border-radius: 999px; padding: 2px 7px; font-size: 11px; font-weight: 800; flex-shrink: 0; }
+        .session-dir-row { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+        .session-dir-row p { flex: 1; min-width: 0; font-family: monospace; overflow-wrap: anywhere; }
+        .copy-dir-btn { color: var(--text-dim); background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; width: 28px; height: 28px; padding: 0; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
+        .copy-dir-btn:active { color: #fff; background: rgba(255,255,255,0.12); }
         .session-actions { display: flex; gap: 12px; align-items: center; margin-left: 10px; }
         .btn-join { background: rgba(255,255,255,0.1); border: none; color: var(--primary); padding: 8px 14px; border-radius: 18px; font-weight: 600; font-size: 14px; cursor: pointer; }
         .icon-btn { color: var(--text-dim); background: none; border: none; padding: 4px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
@@ -47,7 +52,19 @@
         #cmd-input { flex: 1; min-height: 38px; max-height: 150px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 19px; color: #fff; padding: 9px 16px; font-size: 16px; outline: none; resize: none; overflow-y: auto; line-height: 20px; box-sizing: border-box; transition: background 0.18s ease, border-color 0.18s ease; }
         #cmd-input::placeholder { color: rgba(255,255,255,0.45); }
         #cmd-input:focus { background: rgba(255,255,255,0.1); border-color: rgba(0,122,255,0.42); color: #fff; }
+        #timer-btn { width: 38px; height: 38px; margin-left: 8px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 19px; color: #d1d5db; display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer; }
+        #timer-btn.active { color: #fff; border-color: rgba(0,122,255,0.45); background: rgba(0,122,255,0.22); }
         #send-btn { width: 44px; height: 38px; margin-left: 10px; background: #007aff; border: none; border-radius: 19px; color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer; }
+        #timed-send-panel { display: none; margin: 0 14px 10px 14px; padding: 12px; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; background: rgba(28,28,30,0.98); box-sizing: border-box; }
+        #timed-send-panel.active { display: block; }
+        .timed-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; }
+        .timed-row select { min-width: 0; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 8px; padding: 8px 9px; font-size: 13px; outline: none; box-sizing: border-box; }
+        .timed-preview { margin-top: 8px; color: #d1d5db; font-size: 12px; line-height: 1.4; }
+        .timed-editor-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+        #timed-tag-rail { position: absolute; left: 4px; top: 58px; display: flex; flex-direction: column; gap: 6px; z-index: 2400; pointer-events: none; }
+        .timed-tag { width: 54px; min-height: 34px; border: 1px solid rgba(255,255,255,0.14); border-left: 0; border-radius: 0 11px 11px 0; background: rgba(0,122,255,0.24); color: #fff; backdrop-filter: blur(12px); font-size: 12px; font-weight: 800; letter-spacing: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.08; white-space: pre-line; box-shadow: 0 8px 20px rgba(0,0,0,0.25); pointer-events: auto; }
+        .timed-tag.active { background: rgba(0,122,255,0.42); border-color: rgba(255,255,255,0.28); }
+        .timed-tag:active { transform: scale(0.96); }
         #shortcut-rail { display: flex; gap: 28px; overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; scrollbar-width: none; scroll-snap-type: x mandatory; padding: 0 14px 12px 14px; box-sizing: border-box; scroll-padding-left: 14px; scroll-padding-right: 14px; }
         #shortcut-rail::-webkit-scrollbar { display: none; }
         .shortcut-group { flex: 0 0 calc(100vw - 28px); display: grid; gap: 8px; scroll-snap-align: start; }
@@ -109,6 +126,7 @@
             .schedule-row { flex-direction: column; }
             .schedule-actions { justify-content: flex-start; }
             .step-grid { grid-template-columns: 1fr; }
+            .timed-row { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -159,11 +177,27 @@
                 </div>
             </div>
             <div id="terminal-controls">
+                <div id="timed-tag-rail"></div>
                 <div id="input-row">
                     <textarea id="cmd-input" rows="1" placeholder="Type a message..."></textarea>
+                    <button id="timer-btn" title="Schedule send">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+                    </button>
                     <button id="send-btn">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                     </button>
+                </div>
+                <div id="timed-send-panel">
+                    <div class="timed-row">
+                        <select id="timed-hours" onchange="updateTimedSendPreview()" title="Hours"></select>
+                        <select id="timed-minutes" onchange="updateTimedSendPreview()" title="Minutes"></select>
+                        <button id="timed-save-btn" class="small-btn primary" onclick="saveTimedSend()">Add Timer</button>
+                    </div>
+                    <div id="timed-preview" class="timed-preview"></div>
+                    <div class="timed-editor-actions">
+                        <button id="timed-cancel-edit-btn" class="small-btn" onclick="resetTimedEditor()" style="display:none;">Cancel Edit</button>
+                        <button id="timed-delete-btn" class="small-btn danger" onclick="deleteEditingTimedInput()" style="display:none;">Delete</button>
+                    </div>
                 </div>
                 <div id="shortcut-rail">
                     <div class="shortcut-group simple-shortcuts">
@@ -317,6 +351,9 @@
         let editingScheduleId = null;
         let editingSteps = [];
         let selectedWeekdays = [1, 2, 3, 4, 5];
+        let timedSendRefreshTimer = null;
+        let timedTagTimer = null;
+        let editingTimedInputId = null;
         const modifiers = { ctrl: false };
 
         function log(msg) {
@@ -358,6 +395,39 @@
 
         function decodePathValue(path = '') {
             return decodeURIComponent(path);
+        }
+
+        async function copyTextToClipboard(text) {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text);
+                return;
+            }
+            const el = document.createElement('textarea');
+            el.value = text;
+            el.setAttribute('readonly', '');
+            el.style.position = 'fixed';
+            el.style.opacity = '0';
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand('copy');
+            document.body.removeChild(el);
+        }
+
+        async function copySessionDirectory(directory, event) {
+            event.stopPropagation();
+            const btn = event.currentTarget;
+            try {
+                await copyTextToClipboard(directory);
+                const oldTitle = btn.title;
+                btn.title = 'Copied';
+                btn.style.color = '#fff';
+                setTimeout(() => {
+                    btn.title = oldTitle || 'Copy directory';
+                    btn.style.color = '';
+                }, 1200);
+            } catch (e) {
+                alert('Copy failed');
+            }
         }
 
         function formatWeekdays(days = []) {
@@ -443,12 +513,25 @@
                 sessions.forEach(s => {
                     const workingDirectory = s.workingDirectory || 'Unknown directory';
                     const encodedName = encodePathValue(s.name);
+                    const encodedDir = encodePathValue(workingDirectory);
+                    const timedInputCount = Number(s.timedInputCount) || 0;
+                    const timerBadge = timedInputCount > 0
+                        ? `<span class="timer-count-badge" title="${timedInputCount} scheduled timer${timedInputCount > 1 ? 's' : ''}">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+                            ${timedInputCount}
+                        </span>`
+                        : '';
                     html += `<div class="session-card">
                         <div class="session-info">
-                            <h3>${escapeHtml(s.name)}${s.hasUnreadCompletion ? '<span class="completion-dot" title="Completed"></span>' : ''} <button class="icon-btn" onclick="renameSession('${s.id}', decodePathValue('${encodedName}'), event)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button></h3>
+                            <h3>${escapeHtml(s.name)}${s.hasUnreadCompletion ? '<span class="completion-dot" title="Completed"></span>' : ''}${timerBadge} <button class="icon-btn" onclick="renameSession('${s.id}', decodePathValue('${encodedName}'), event)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button></h3>
                             <p>${escapeHtml(s.tool)}</p>
                             <p>${new Date(s.startTime).toLocaleTimeString()}</p>
-                            <p title="${escapeHtml(workingDirectory)}" style="font-family: monospace; overflow-wrap: anywhere;">${escapeHtml(workingDirectory)}</p>
+                            <div class="session-dir-row">
+                                <button class="copy-dir-btn" title="Copy directory" onclick="copySessionDirectory(decodePathValue('${encodedDir}'), event)">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                                </button>
+                                <p title="${escapeHtml(workingDirectory)}">${escapeHtml(workingDirectory)}</p>
+                            </div>
                         </div>
                         <div class="session-actions">
                             <button class="btn-join" onclick="joinSession('${s.id}', decodePathValue('${encodedName}'), '${escapeHtml(s.toolKey || '')}')">Connect</button>
@@ -826,6 +909,8 @@
 
         function showLobby() {
             if (currentSocket) { currentSocket.close(); currentSocket = null; }
+            closeTimedSendPanel();
+            stopTimedInputTimers();
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.getElementById('lobby-view').classList.add('active');
             refreshSessionsNow();
@@ -846,13 +931,6 @@
                 codex: [
                     { key: 'ctrl-c', label: 'Ctrl+C' },
                     { key: 'codex-perm', label: '/perm', title: 'Send /perm' },
-                    { command: '/model' },
-                    { command: '/resume' },
-                    { command: '/stat' }
-                ],
-                gemini: [
-                    { key: 'ctrl-c', label: 'Ctrl+C' },
-                    { key: 'ctrl-y', label: 'Ctrl+Y', title: 'Send Ctrl+Y' },
                     { command: '/model' },
                     { command: '/resume' },
                     { command: '/stat' }
@@ -882,12 +960,14 @@
         }
 
         function joinSession(id, sessionName, toolKey = null) {
+            stopTimedInputTimers();
             activeSessionId = id;
             window.activeSessionId = id;
             activeToolKey = toolKey;
             clearTimeout(sessionPollTimer);
             sessionPollTimer = null;
             markCompletionRead(id);
+            loadTimedInputs();
             document.getElementById('session-title').innerText = sessionName;
             updateToolShortcuts(activeToolKey);
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -1152,8 +1232,191 @@
                 setTimeout(() => { sendWS('\r'); }, 1000);
             }
         }
+
+        let timedInputs = [];
+
+        function initTimedDelaySelectors() {
+            const hours = document.getElementById('timed-hours');
+            const minutes = document.getElementById('timed-minutes');
+            if (hours.options.length) return;
+            for (let i = 0; i <= 23; i++) {
+                hours.add(new Option(`${i} hr`, String(i)));
+            }
+            for (let i = 0; i <= 59; i++) {
+                minutes.add(new Option(`${i} min`, String(i)));
+            }
+            hours.value = '0';
+            minutes.value = '5';
+        }
+
+        function getTimedDelayMs() {
+            const hours = Number(document.getElementById('timed-hours').value);
+            const minutes = Number(document.getElementById('timed-minutes').value);
+            const delayMs = ((hours * 60) + minutes) * 60 * 1000;
+            return Number.isFinite(delayMs) && delayMs > 0 ? delayMs : 0;
+        }
+
+        function parseSendAt() {
+            const delayMs = getTimedDelayMs();
+            return delayMs > 0 ? Date.now() + delayMs : null;
+        }
+
+        function setTimedDelayFromMs(ms) {
+            const totalMinutes = Math.max(1, Math.ceil(ms / 60000));
+            const hours = Math.min(23, Math.floor(totalMinutes / 60));
+            const minutes = Math.min(59, totalMinutes - hours * 60);
+            document.getElementById('timed-hours').value = String(hours);
+            document.getElementById('timed-minutes').value = String(minutes);
+        }
+
+        function updateTimedSendPreview() {
+            const preview = document.getElementById('timed-preview');
+            const sendAt = parseSendAt();
+            preview.textContent = sendAt
+                ? `Will run at ${new Date(sendAt).toLocaleString()}`
+                : 'Choose at least 1 minute.';
+        }
+
+        function formatCountdown(sendAt) {
+            const remaining = Math.max(0, sendAt - Date.now());
+            const totalSeconds = Math.ceil(remaining / 1000);
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+            if (hours > 0) return `${hours}h\n${String(minutes).padStart(2, '0')}m`;
+            return `${minutes}:${String(seconds).padStart(2, '0')}`;
+        }
+
+        function renderTimedTags() {
+            const rail = document.getElementById('timed-tag-rail');
+            const now = Date.now();
+            const activeItems = timedInputs.filter(item => item.sendAt > now);
+            rail.innerHTML = activeItems.map(item => {
+                const encodedId = encodePathValue(item.id);
+                return `<button class="timed-tag${item.id === editingTimedInputId ? ' active' : ''}" title="${escapeHtml(item.text)}" onclick="editTimedInput(decodePathValue('${encodedId}'))">${escapeHtml(formatCountdown(item.sendAt))}</button>`;
+            }).join('');
+        }
+
+        function closeTimedSendPanel() {
+            document.getElementById('timed-send-panel').classList.remove('active');
+            document.getElementById('timer-btn').classList.remove('active');
+            editingTimedInputId = null;
+            renderTimedTags();
+        }
+
+        function stopTimedInputTimers() {
+            clearTimeout(timedSendRefreshTimer);
+            timedSendRefreshTimer = null;
+            if (timedTagTimer) clearInterval(timedTagTimer);
+            timedTagTimer = null;
+            timedInputs = [];
+            renderTimedTags();
+        }
+
+        function resetTimedEditor(options = {}) {
+            editingTimedInputId = null;
+            document.getElementById('timed-save-btn').textContent = 'Add Timer';
+            document.getElementById('timed-cancel-edit-btn').style.display = 'none';
+            document.getElementById('timed-delete-btn').style.display = 'none';
+            if (!options.keepInput) {
+                inputEl.value = '';
+                inputEl.style.height = '38px';
+            }
+            setTimedDelayFromMs(5 * 60 * 1000);
+            updateTimedSendPreview();
+            renderTimedTags();
+        }
+
+        async function loadTimedInputs() {
+            clearTimeout(timedSendRefreshTimer);
+            timedSendRefreshTimer = null;
+            if (!activeSessionId) return;
+
+            try {
+                const res = await fetchWithTimeout(`/api/sessions/${activeSessionId}/timed-inputs`);
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+                timedInputs = data.items || [];
+                renderTimedTags();
+                if (!timedTagTimer) timedTagTimer = setInterval(renderTimedTags, 1000);
+                timedSendRefreshTimer = setTimeout(loadTimedInputs, 15000);
+            } catch (e) {
+                timedInputs = [];
+                renderTimedTags();
+            }
+        }
+
+        function editTimedInput(id) {
+            const item = timedInputs.find(value => value.id === id);
+            if (!item) return;
+            initTimedDelaySelectors();
+            editingTimedInputId = id;
+            inputEl.value = item.text || '';
+            inputEl.style.height = 'auto';
+            inputEl.style.height = Math.min(inputEl.scrollHeight, 150) + 'px';
+            setTimedDelayFromMs(item.sendAt - Date.now());
+            document.getElementById('timed-save-btn').textContent = 'Update Timer';
+            document.getElementById('timed-cancel-edit-btn').style.display = '';
+            document.getElementById('timed-delete-btn').style.display = '';
+            document.getElementById('timed-send-panel').classList.add('active');
+            document.getElementById('timer-btn').classList.add('active');
+            updateTimedSendPreview();
+            renderTimedTags();
+        }
+
+        async function saveTimedSend() {
+            if (!activeSessionId) return alert('No active session');
+            const text = inputEl.value;
+            if (!text.trim()) return alert('Type a message first');
+            const sendAt = parseSendAt();
+            if (!sendAt) return alert('Choose at least 1 minute');
+
+            try {
+                const url = editingTimedInputId
+                    ? `/api/sessions/${activeSessionId}/timed-inputs/${editingTimedInputId}`
+                    : `/api/sessions/${activeSessionId}/timed-inputs`;
+                const res = await fetchWithTimeout(url, {
+                    method: editingTimedInputId ? 'PATCH' : 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text, sendAt })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.error || 'Failed to save timer');
+                resetTimedEditor();
+                await loadTimedInputs();
+            } catch (e) {
+                alert('Save failed: ' + e.message);
+            }
+        }
+
+        async function cancelTimedInput(id) {
+            if (!activeSessionId) return;
+            try {
+                await fetchWithTimeout(`/api/sessions/${activeSessionId}/timed-inputs/${id}`, { method: 'DELETE' });
+                if (editingTimedInputId === id) resetTimedEditor();
+                loadTimedInputs();
+            } catch (e) {
+                alert('Delete failed');
+            }
+        }
+
+        function deleteEditingTimedInput() {
+            if (editingTimedInputId) cancelTimedInput(editingTimedInputId);
+        }
         
         document.getElementById('send-btn').addEventListener('click', performSend);
+        document.getElementById('timer-btn').addEventListener('click', () => {
+            const panel = document.getElementById('timed-send-panel');
+            const isOpen = panel.classList.toggle('active');
+            document.getElementById('timer-btn').classList.toggle('active', isOpen);
+            if (isOpen) {
+                initTimedDelaySelectors();
+                resetTimedEditor({ keepInput: true });
+                updateTimedSendPreview();
+                loadTimedInputs();
+            }
+            else closeTimedSendPanel();
+        });
         inputEl.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); performSend(); }
             else if (e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete') {
