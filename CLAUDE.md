@@ -26,11 +26,11 @@ node bin/cli.js . --port 3001
 # List or inspect supported tools
 node bin/cli.js tools list
 node bin/cli.js tools detect
-node bin/cli.js tools info gemini
+node bin/cli.js tools info codex
 
 # Show or update persisted Glad config
 node bin/cli.js config
-node bin/cli.js config set defaultAI gemini
+node bin/cli.js config set defaultAI codex
 
 # Debug mode
 DEBUG=1 node bin/cli.js . --port 3001
@@ -128,7 +128,7 @@ Paths are resolved under the session working directory.
 - The server listens on `0.0.0.0` and prints local network URLs.
 - WebSocket clients bind to sessions by `sessionId`.
 - Only the first connected WebSocket for a session owns PTY resize events until it disconnects.
-- PTY child processes inherit most of the parent environment, but screen-specific variables are removed to avoid false terminal detection by tools such as Gemini CLI.
+- PTY child processes inherit most of the parent environment, but screen-specific variables are removed to avoid false terminal detection by terminal tools.
 - Unix tools are launched through `bash -i -c '<tool> <args>'`; Windows uses `cmd.exe /c`.
 - `TERM` is forced to `xterm-256color` and `COLORTERM` to `truecolor`.
 - `node-pty` is required for interactive terminal semantics and cannot be replaced by plain child processes.
