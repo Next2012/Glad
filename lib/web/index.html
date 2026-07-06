@@ -77,6 +77,90 @@
         .key-btn.active { background: rgba(0, 122, 255, 0.25); border-color: #007aff; color: #00a2ff; }
         #terminal-container { flex: 1; min-height: 0; width: 100%; background: #000; position: relative; overflow: hidden; overflow-anchor: none; }
         #terminal { height: 100%; width: 100%; }
+        #claude-chat-container { display: none; flex: 1; min-height: 0; overflow-y: auto; background: #050505; padding: 12px 12px 24px 12px; box-sizing: border-box; -webkit-overflow-scrolling: touch; }
+        .claude-message { max-width: 92%; margin: 0 0 10px 0; padding: 10px 12px; border-radius: 8px; overflow-wrap: anywhere; line-height: 1.45; font-size: 14px; }
+        .claude-message.user { margin-left: auto; background: rgba(0,122,255,0.24); border: 1px solid rgba(0,122,255,0.32); color: #fff; border-radius: 12px; padding-top: 7px; padding-bottom: 7px; }
+        .claude-message.assistant { max-width: 100%; background: transparent; border: 0; color: #f5f5f7; padding: 0 4px; margin: 0 0 12px 0; }
+        .claude-message.event { max-width: 100%; background: transparent; border: 0; color: var(--text-dim); font-size: 12px; padding: 3px 2px; text-align: center; }
+        .claude-message.error { color: #ff6b61; }
+        .claude-md { white-space: normal; }
+        .claude-md > :first-child { margin-top: 0; }
+        .claude-md > :last-child { margin-bottom: 0; }
+        .claude-md p { margin: 0 0 8px 0; }
+        .claude-md h1, .claude-md h2, .claude-md h3, .claude-md h4 { margin: 12px 0 7px 0; line-height: 1.22; font-weight: 800; letter-spacing: 0; }
+        .claude-md h1 { font-size: 20px; }
+        .claude-md h2 { font-size: 18px; }
+        .claude-md h3 { font-size: 16px; }
+        .claude-md h4 { font-size: 15px; }
+        .claude-md ul, .claude-md ol { margin: 0 0 9px 0; padding-left: 20px; }
+        .claude-md li { margin: 4px 0; }
+        .claude-md code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; padding: 1px 4px; }
+        .claude-md pre { margin: 8px 0 10px 0; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.34); border-radius: 8px; overflow: auto; }
+        .claude-md pre code { display: block; padding: 11px 12px; background: transparent; border: 0; border-radius: 0; white-space: pre; line-height: 1.45; }
+        .claude-md blockquote { margin: 8px 0; padding: 2px 0 2px 10px; border-left: 3px solid rgba(255,255,255,0.22); color: #c7c7cc; }
+        .claude-md table { width: 100%; border-collapse: collapse; margin: 8px 0 10px 0; font-size: 13px; display: block; overflow-x: auto; }
+        .claude-md th, .claude-md td { border: 1px solid rgba(255,255,255,0.12); padding: 6px 8px; text-align: left; vertical-align: top; }
+        .claude-md th { background: rgba(255,255,255,0.07); color: #fff; }
+        .claude-md a { color: #64b5ff; text-decoration: none; }
+        .claude-md img { max-width: 100%; border-radius: 8px; margin: 6px 0; }
+        .claude-md hr { border: 0; border-top: 1px solid rgba(255,255,255,0.12); margin: 12px 0; }
+        .claude-command-chip { display: inline-flex; align-items: center; max-width: 100%; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.08); color: #f5f5f7; border-radius: 999px; padding: 4px 9px; font-size: 12px; font-weight: 800; }
+        .claude-tool { max-width: 100%; margin: 0 0 10px 0; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.045); border-radius: 8px; color: #d1d5db; font-size: 13px; overflow: hidden; overflow-wrap: anywhere; }
+        .claude-tool strong { color: #fff; }
+        .claude-tool-card { display: block; }
+        .claude-tool-card summary { list-style: none; cursor: pointer; }
+        .claude-tool-card summary::-webkit-details-marker { display: none; }
+        .claude-tool-header { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 7px 9px; color: #f5f5f7; }
+        .claude-tool-icon { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-dim); flex: 0 0 auto; }
+        .claude-tool-icon::before { content: attr(data-icon); font-size: 11px; font-weight: 800; line-height: 1; }
+        .claude-tool-title { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+        .claude-tool-status { color: var(--text-dim); font-size: 12px; white-space: nowrap; }
+        .claude-tool-command { flex: 1; min-width: 0; color: var(--text-dim); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .claude-tool-body { padding: 0 10px 10px 10px; }
+        .claude-tool-section { margin-top: 8px; }
+        .claude-tool-section-title { color: var(--text-dim); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 5px; }
+        .claude-tool-code { margin: 0; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.32); border-radius: 7px; padding: 9px 10px; color: #d1d5db; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.42; overflow-x: auto; }
+        .claude-tool.error { border-color: rgba(255,107,97,0.38); background: rgba(255,59,48,0.07); }
+        .claude-work-group { max-width: 100%; margin: 0 0 10px 0; border: 1px solid rgba(255,255,255,0.09); background: rgba(255,255,255,0.035); border-radius: 8px; overflow: hidden; }
+        .claude-work-group summary { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 7px 10px; cursor: pointer; color: #d1d5db; list-style: none; }
+        .claude-work-group summary::-webkit-details-marker { display: none; }
+        .claude-work-group-title { flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .claude-work-group-body { padding: 2px 8px 8px 8px; }
+        .claude-permission { border-color: rgba(255,204,0,0.4); background: rgba(255,204,0,0.08); }
+        .claude-permission-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+        .claude-status { color: var(--text-dim); font-size: 12px; text-align: center; padding: 6px 0 0 0; }
+        #claude-control-panel { display: none; padding: 0 14px 10px 14px; box-sizing: border-box; }
+        .claude-control-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
+        .claude-select, .claude-ctrl-btn { min-width: 0; height: 32px; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; background: rgba(255,255,255,0.08); color: #f5f5f7; font-size: 11px; font-weight: 800; letter-spacing: 0; padding: 0 8px; outline: none; box-sizing: border-box; }
+        .claude-select { appearance: none; -webkit-appearance: none; text-align: center; text-align-last: center; }
+        .claude-picker-wrap { min-width: 0; position: relative; }
+        .claude-picker-wrap select { display: none; }
+        .claude-picker-btn { width: 100%; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .claude-picker-btn.active { background: rgba(0,122,255,0.22); border-color: rgba(0,122,255,0.5); }
+        #claude-picker-panel { display: none; margin-top: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(28,28,30,0.99); border-radius: 12px; max-height: min(280px, 42dvh); overflow-y: auto; box-shadow: 0 16px 36px rgba(0,0,0,0.34); }
+        #claude-picker-panel.active { display: block; }
+        .claude-picker-title { padding: 9px 11px 7px 11px; color: var(--text-dim); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid rgba(255,255,255,0.06); }
+        .claude-picker-option { width: 100%; border: 0; border-bottom: 1px solid rgba(255,255,255,0.06); background: transparent; color: #f5f5f7; padding: 10px 11px; text-align: left; cursor: pointer; box-sizing: border-box; }
+        .claude-picker-option:last-child { border-bottom: 0; }
+        .claude-picker-option:active, .claude-picker-option.selected { background: rgba(0,122,255,0.18); }
+        .claude-picker-option-main { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; font-weight: 800; }
+        .claude-picker-option-value { min-width: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #d1d5db; font-size: 12px; margin-top: 3px; line-height: 1.35; }
+        .claude-ctrl-btn { cursor: pointer; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; }
+        .claude-ctrl-btn:active, .claude-select:focus { background: rgba(255,255,255,0.14); border-color: rgba(0,122,255,0.45); }
+        .claude-ctrl-btn.danger { color: #ff6b61; background: rgba(255,59,48,0.12); }
+        .claude-ctrl-btn.primary { color: #fff; background: rgba(0,122,255,0.32); border-color: rgba(0,122,255,0.45); }
+        .claude-ctrl-btn:disabled { opacity: 0.45; cursor: default; }
+        #claude-state-bar { display: flex; align-items: center; gap: 7px; min-height: 24px; margin-top: 8px; color: var(--text-dim); font-size: 11px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
+        #claude-state-bar::-webkit-scrollbar { display: none; }
+        .claude-state-pill { display: inline-flex; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.045); border-radius: 999px; padding: 3px 8px; flex: 0 0 auto; }
+        .claude-state-pill.warn { color: #ffcc00; border-color: rgba(255,204,0,0.24); background: rgba(255,204,0,0.08); }
+        #claude-resume-panel { display: none; margin-top: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(28,28,30,0.98); border-radius: 12px; max-height: 180px; overflow-y: auto; }
+        #claude-resume-panel.active { display: block; }
+        .claude-resume-item { width: 100%; text-align: left; border: 0; border-bottom: 1px solid rgba(255,255,255,0.06); background: transparent; color: #fff; padding: 10px 11px; cursor: pointer; box-sizing: border-box; }
+        .claude-resume-item:last-child { border-bottom: 0; }
+        .claude-resume-item:active { background: rgba(255,255,255,0.08); }
+        .claude-resume-title { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 800; }
+        .claude-resume-meta { color: var(--text-dim); font-size: 11px; margin-top: 3px; overflow-wrap: anywhere; }
         #terminal .xterm, #terminal .xterm-viewport, #terminal .xterm-screen, #terminal .xterm-rows, #terminal .xterm-rows span { user-select: text !important; -webkit-user-select: text !important; -webkit-touch-callout: default; touch-action: pan-y; }
         #terminal .xterm-viewport { overflow-anchor: none; }
         #terminal .xterm-helper-textarea { user-select: none !important; -webkit-user-select: none !important; -webkit-touch-callout: none; }
@@ -187,6 +271,40 @@
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                     </button>
                 </div>
+                <div id="claude-control-panel">
+                    <div class="claude-control-row">
+                        <div class="claude-picker-wrap">
+                            <select id="claude-permission-select" class="claude-select" title="Permission mode" onchange="updateClaudeSettingsFromControls()">
+                                <option value="default">P:Def</option>
+                                <option value="acceptEdits">P:Edit</option>
+                                <option value="plan">P:Plan</option>
+                                <option value="bypassPermissions">P:Byp</option>
+                            </select>
+                            <button id="claude-permission-picker-btn" class="claude-select claude-picker-btn" onclick="toggleClaudePicker('permission')" title="Permission mode">P</button>
+                        </div>
+                        <div class="claude-picker-wrap">
+                            <select id="claude-model-select" class="claude-select" title="Model" onchange="updateClaudeSettingsFromControls()">
+                                <option value="default">M:Def</option>
+                            </select>
+                            <button id="claude-model-picker-btn" class="claude-select claude-picker-btn" onclick="toggleClaudePicker('model')" title="Model">M</button>
+                        </div>
+                        <div class="claude-picker-wrap">
+                            <select id="claude-effort-select" class="claude-select" title="Effort" onchange="updateClaudeSettingsFromControls()">
+                                <option value="low">E:Low</option>
+                                <option value="medium">E:Med</option>
+                                <option value="high">E:High</option>
+                                <option value="xhigh">E:XHi</option>
+                                <option value="max">E:Max</option>
+                            </select>
+                            <button id="claude-effort-picker-btn" class="claude-select claude-picker-btn" onclick="toggleClaudePicker('effort')" title="Effort">E</button>
+                        </div>
+                        <button id="claude-abort-btn" class="claude-ctrl-btn danger" onclick="abortClaudeSession()" title="Abort current Claude turn">Abort</button>
+                        <button id="claude-resume-btn" class="claude-ctrl-btn primary" onclick="toggleClaudeResumePanel()" title="Choose a Claude session to resume">Resume</button>
+                    </div>
+                    <div id="claude-state-bar"></div>
+                    <div id="claude-picker-panel"></div>
+                    <div id="claude-resume-panel"></div>
+                </div>
                 <div id="timed-send-panel">
                     <div class="timed-row">
                         <select id="timed-hours" onchange="updateTimedSendPreview()" title="Hours"></select>
@@ -225,6 +343,7 @@
         </div>
         <div id="terminal-controls-spacer"></div>
         <div id="terminal-container"><div id="terminal"></div></div>
+        <div id="claude-chat-container"></div>
     </div>
 
     <!-- Plain Text History View -->
@@ -354,6 +473,23 @@
         let timedSendRefreshTimer = null;
         let timedTagTimer = null;
         let editingTimedInputId = null;
+        let claudeMessages = [];
+        let claudePendingPermissions = [];
+        let claudeStatus = 'idle';
+        let claudeRuntimeConfig = null;
+        let claudePickerOpen = null;
+        let claudeState = {
+            permissionMode: 'default',
+            model: 'default',
+            effort: 'medium',
+            contextRemaining: null,
+            claudeSessionId: null,
+            resumeSessionId: null,
+            canAbort: false,
+            pendingPermissionCount: 0
+        };
+        let claudeResumePanelOpen = false;
+        let claudeResumeItemsLoaded = false;
         const modifiers = { ctrl: false };
 
         function log(msg) {
@@ -641,13 +777,657 @@
             }
         }
 
+        function isClaudeSession() {
+            return activeToolKey === 'claude-code';
+        }
+
+        function setClaudeModeEnabled(enabled) {
+            document.getElementById('terminal-container').style.display = enabled ? 'none' : '';
+            document.getElementById('claude-chat-container').style.display = enabled ? 'block' : 'none';
+            document.getElementById('claude-control-panel').style.display = enabled ? 'block' : 'none';
+            document.getElementById('timer-btn').style.display = enabled ? 'none' : '';
+            if (enabled) closeTimedSendPanel();
+            document.getElementById('shortcut-rail').style.display = enabled ? 'none' : '';
+            document.getElementById('scroll-controls').style.display = enabled ? 'none' : '';
+            document.getElementById('cmd-input').placeholder = enabled ? 'Message Claude...' : 'Type a message...';
+            updateTerminalControlsHeight();
+        }
+
+        function updateTerminalControlsHeight() {
+            if (!isClaudeSession()) {
+                document.documentElement.style.setProperty('--terminal-controls-rest-height', '108px');
+                return;
+            }
+            const restHeight = claudeResumePanelOpen ? '308px' : (claudePickerOpen ? '322px' : '154px');
+            document.documentElement.style.setProperty('--terminal-controls-rest-height', restHeight);
+        }
+
+        function shortModelLabel(value, resolved) {
+            const source = String(value || 'default');
+            const target = String(resolved || source);
+            const compact = target
+                .replace(/^claude-/, '')
+                .replace(/-20\d{6,}.*$/, '')
+                .slice(0, 9);
+            if (source === 'default') return 'M:Def';
+            if (source === 'env') return `M:${compact || 'Env'}`;
+            if (source === 'sonnet') return `M:${compact || 'Son'}`;
+            if (source === 'opus') return `M:${compact || 'Opus'}`;
+            if (source === 'haiku') return `M:${compact || 'Hai'}`;
+            return `M:${compact || source.slice(0, 9)}`;
+        }
+
+        function pickerLabelFromOption(option) {
+            return option ? (option.textContent || option.value || '') : '';
+        }
+
+        function pickerFullValue(option) {
+            if (!option) return '';
+            return option.dataset.resolved || '';
+        }
+
+        function syncClaudePickerButtons() {
+            const mappings = [
+                ['permission', 'claude-permission-select', 'claude-permission-picker-btn', 'P'],
+                ['model', 'claude-model-select', 'claude-model-picker-btn', 'M'],
+                ['effort', 'claude-effort-select', 'claude-effort-picker-btn', 'E']
+            ];
+            mappings.forEach(([type, selectId, buttonId, fixedLabel]) => {
+                const select = document.getElementById(selectId);
+                const button = document.getElementById(buttonId);
+                if (!select || !button) return;
+                const option = select.selectedOptions && select.selectedOptions[0];
+                const label = pickerLabelFromOption(option);
+                const fullValue = pickerFullValue(option);
+                button.textContent = fixedLabel;
+                button.title = fullValue || label || fixedLabel;
+                button.classList.toggle('active', claudePickerOpen === type);
+            });
+        }
+
+        function closeClaudePicker() {
+            claudePickerOpen = null;
+            const panel = document.getElementById('claude-picker-panel');
+            if (panel) {
+                panel.classList.remove('active');
+                panel.innerHTML = '';
+            }
+            syncClaudePickerButtons();
+            updateTerminalControlsHeight();
+        }
+
+        function pickerTitle(type) {
+            if (type === 'permission') return 'Permission mode';
+            if (type === 'model') return 'Model';
+            if (type === 'effort') return 'Effort';
+            return 'Options';
+        }
+
+        function selectIdForPicker(type) {
+            if (type === 'permission') return 'claude-permission-select';
+            if (type === 'model') return 'claude-model-select';
+            if (type === 'effort') return 'claude-effort-select';
+            return '';
+        }
+
+        function renderClaudePicker(type) {
+            const panel = document.getElementById('claude-picker-panel');
+            const select = document.getElementById(selectIdForPicker(type));
+            if (!panel || !select) return;
+            const options = Array.from(select.options);
+            panel.innerHTML = `<div class="claude-picker-title">${escapeHtml(pickerTitle(type))}</div>${options.map(option => {
+                const selected = option.value === select.value;
+                const full = pickerFullValue(option);
+                return `<button class="claude-picker-option${selected ? ' selected' : ''}" onclick="chooseClaudePickerOption('${type}', decodePathValue('${encodePathValue(option.value)}'))">
+                    <div class="claude-picker-option-main">
+                        <span>${escapeHtml(option.textContent || option.value)}</span>
+                        ${selected ? '<span>Selected</span>' : ''}
+                    </div>
+                    ${full ? `<div class="claude-picker-option-value">${escapeHtml(full)}</div>` : ''}
+                </button>`;
+            }).join('')}`;
+            panel.classList.add('active');
+            syncClaudePickerButtons();
+            updateTerminalControlsHeight();
+        }
+
+        async function toggleClaudePicker(type) {
+            if (claudePickerOpen === type) {
+                closeClaudePicker();
+                return;
+            }
+            if (type === 'model') await refreshClaudeRuntimeConfig();
+            claudeResumePanelOpen = false;
+            const resumePanel = document.getElementById('claude-resume-panel');
+            if (resumePanel) resumePanel.classList.remove('active');
+            claudePickerOpen = type;
+            renderClaudePicker(type);
+        }
+
+        function chooseClaudePickerOption(type, value) {
+            const select = document.getElementById(selectIdForPicker(type));
+            if (!select) return;
+            select.value = value;
+            closeClaudePicker();
+            updateClaudeSettingsFromControls();
+        }
+
+        function applyClaudeRuntimeConfig(config) {
+            if (!config || !Array.isArray(config.models)) return;
+            claudeRuntimeConfig = config;
+            const modelEl = document.getElementById('claude-model-select');
+            if (modelEl) {
+                const current = modelEl.value || claudeState.model || config.defaultModel || 'default';
+                modelEl.innerHTML = '';
+                config.models.forEach(item => {
+                    const option = new Option(shortModelLabel(item.value, item.resolved), item.value);
+                    option.title = item.resolved ? `${item.label}: ${item.resolved}` : item.label;
+                    option.dataset.resolved = item.resolved || '';
+                    modelEl.add(option);
+                });
+                const next = Array.from(modelEl.options).some(option => option.value === current)
+                    ? current
+                    : (config.defaultModel || 'default');
+                modelEl.value = next;
+                claudeState.model = next;
+            }
+            if (config.defaultEffort && claudeState.effort === 'medium') {
+                claudeState.effort = config.defaultEffort;
+            }
+            syncClaudePickerButtons();
+            renderClaudeStateBar();
+        }
+
+        async function refreshClaudeRuntimeConfig() {
+            try {
+                const res = await fetchWithTimeout('/api/claude-config', {}, 10000);
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.error || 'Failed to load Claude config');
+                applyClaudeRuntimeConfig(data.config);
+                return data.config;
+            } catch (e) {
+                log('Failed to load Claude config: ' + e.message);
+                return null;
+            }
+        }
+
+        function ensureSelectOption(selectEl, value, labelPrefix) {
+            const normalized = String(value || '').trim();
+            if (!normalized) return;
+            const exists = Array.from(selectEl.options).some(option => option.value === normalized);
+            if (!exists) {
+                const label = `${labelPrefix}:${normalized.replace(/^claude-/, '').replace(/-20\d{6,}.*$/, '').slice(0, 10)}`;
+                selectEl.add(new Option(label, normalized));
+            }
+        }
+
+        function applyClaudeState(state = {}) {
+            claudeState = { ...claudeState, ...state };
+            claudeStatus = claudeState.status || claudeStatus;
+            const permissionEl = document.getElementById('claude-permission-select');
+            const modelEl = document.getElementById('claude-model-select');
+            const effortEl = document.getElementById('claude-effort-select');
+            if (permissionEl) permissionEl.value = claudeState.permissionMode || 'default';
+            if (modelEl) {
+                ensureSelectOption(modelEl, claudeState.model || 'default', 'M');
+                modelEl.value = claudeState.model || 'default';
+            }
+            if (effortEl) effortEl.value = claudeState.effort || 'medium';
+            syncClaudePickerButtons();
+            const abortBtn = document.getElementById('claude-abort-btn');
+            if (abortBtn) abortBtn.disabled = !(claudeState.canAbort || claudeStatus === 'thinking');
+            renderClaudeStateBar();
+        }
+
+        function shortValue(value, fallback = 'N/A') {
+            const text = String(value || fallback);
+            return text.length > 16 ? text.slice(0, 13) + '...' : text;
+        }
+
+        function renderClaudeStateBar() {
+            const el = document.getElementById('claude-state-bar');
+            if (!el) return;
+            const modelEl = document.getElementById('claude-model-select');
+            const modelOption = modelEl && modelEl.selectedOptions && modelEl.selectedOptions[0];
+            const modelLabel = modelOption && modelOption.dataset.resolved
+                ? modelOption.dataset.resolved
+                : (claudeState.model || 'default');
+            const context = typeof claudeState.contextRemaining === 'number'
+                ? `Ctx ${claudeState.contextRemaining}`
+                : 'Ctx N/A';
+            const pending = Number(claudeState.pendingPermissionCount || claudePendingPermissions.filter(item => item.status === 'pending').length) || 0;
+            const status = claudeStatus === 'thinking' ? 'Working' : shortValue(claudeStatus || 'Idle');
+            el.innerHTML = [
+                `<span class="claude-state-pill">${escapeHtml(shortValue(claudeState.permissionMode || 'default'))}</span>`,
+                `<span class="claude-state-pill">${escapeHtml(shortValue(modelLabel))}</span>`,
+                `<span class="claude-state-pill">Eff ${escapeHtml(shortValue(claudeState.effort || 'medium'))}</span>`,
+                `<span class="claude-state-pill">${escapeHtml(context)}</span>`,
+                `<span class="claude-state-pill${pending ? ' warn' : ''}">${pending ? `${pending} approval` : escapeHtml(status)}</span>`
+            ].join('');
+        }
+
+        async function updateClaudeSettingsFromControls() {
+            await refreshClaudeRuntimeConfig();
+            const settings = {
+                permissionMode: document.getElementById('claude-permission-select').value,
+                model: document.getElementById('claude-model-select').value,
+                effort: document.getElementById('claude-effort-select').value
+            };
+            applyClaudeState(settings);
+            if (currentSocket && currentSocket.readyState === 1) {
+                currentSocket.send(JSON.stringify({ type: 'claude-settings', settings }));
+            }
+        }
+
+        function abortClaudeSession() {
+            if (!currentSocket || currentSocket.readyState !== 1) return;
+            currentSocket.send(JSON.stringify({ type: 'claude-abort' }));
+        }
+
+        async function toggleClaudeResumePanel() {
+            claudeResumePanelOpen = !claudeResumePanelOpen;
+            if (claudeResumePanelOpen) closeClaudePicker();
+            const panel = document.getElementById('claude-resume-panel');
+            panel.classList.toggle('active', claudeResumePanelOpen);
+            updateTerminalControlsHeight();
+            if (claudeResumePanelOpen && !claudeResumeItemsLoaded) {
+                await loadClaudeResumeSessions();
+            }
+        }
+
+        async function loadClaudeResumeSessions() {
+            const panel = document.getElementById('claude-resume-panel');
+            if (!activeSessionId) return;
+            panel.innerHTML = '<div class="claude-resume-meta" style="padding:12px;">Loading sessions...</div>';
+            try {
+                const res = await fetchWithTimeout(`/api/sessions/${activeSessionId}/claude-resume-sessions`, {}, 15000);
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.error || 'Failed to load resume sessions');
+                const items = data.items || [];
+                claudeResumeItemsLoaded = true;
+                if (!items.length) {
+                    panel.innerHTML = '<div class="claude-resume-meta" style="padding:12px;">No local Claude sessions found for this folder.</div>';
+                    return;
+                }
+                panel.innerHTML = items.map(item => {
+                    const encodedId = encodePathValue(item.id);
+                    const updated = item.updatedAt ? new Date(item.updatedAt).toLocaleString() : 'Unknown';
+                    const active = item.id === claudeState.resumeSessionId || item.id === claudeState.claudeSessionId;
+                    return `<button class="claude-resume-item" onclick="selectClaudeResumeSession(decodePathValue('${encodedId}'))">
+                        <div class="claude-resume-title"><span>${escapeHtml(item.id.slice(0, 8))}${active ? ' · current' : ''}</span><span>${escapeHtml(updated)}</span></div>
+                        <div class="claude-resume-meta">${escapeHtml(item.lastText || item.firstText || item.cwd || 'No preview')}</div>
+                    </button>`;
+                }).join('');
+            } catch (e) {
+                panel.innerHTML = `<div class="claude-resume-meta" style="padding:12px; color:#ff6b61;">${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        function selectClaudeResumeSession(id) {
+            if (!id || !currentSocket || currentSocket.readyState !== 1) return;
+            currentSocket.send(JSON.stringify({ type: 'claude-resume', resumeSessionId: id }));
+            applyClaudeState({ resumeSessionId: id, claudeSessionId: id });
+            claudeResumePanelOpen = false;
+            document.getElementById('claude-resume-panel').classList.remove('active');
+            updateTerminalControlsHeight();
+        }
+
+        function textFromClaudeMessage(message) {
+            if (!message) return '';
+            if (message.text) return String(message.text);
+            if (message.summary) return String(message.summary);
+            return '';
+        }
+
+        function escapeRegExp(text) {
+            return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        function inlineMarkdown(text) {
+            let html = escapeHtml(text || '');
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+            html = html.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+            html = html.replace(/_([^_\n]+)_/g, '<em>$1</em>');
+            html = html.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img src="$2" alt="$1">');
+            html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+            return html;
+        }
+
+        function splitMarkdownBlocks(markdown) {
+            const lines = String(markdown || '').replace(/\r\n/g, '\n').split('\n');
+            const blocks = [];
+            let i = 0;
+            while (i < lines.length) {
+                if (!lines[i].trim()) {
+                    i++;
+                    continue;
+                }
+                const fence = lines[i].match(/^```(\w+)?\s*$/);
+                if (fence) {
+                    const language = fence[1] || '';
+                    const content = [];
+                    i++;
+                    while (i < lines.length && !/^```\s*$/.test(lines[i])) {
+                        content.push(lines[i]);
+                        i++;
+                    }
+                    if (i < lines.length) i++;
+                    blocks.push({ type: 'code', language, content: content.join('\n') });
+                    continue;
+                }
+                if (/^\s*[-*_]{3,}\s*$/.test(lines[i])) {
+                    blocks.push({ type: 'hr' });
+                    i++;
+                    continue;
+                }
+                if (/^\s{0,3}#{1,4}\s+/.test(lines[i])) {
+                    const match = lines[i].match(/^(\s{0,3})(#{1,4})\s+(.+)$/);
+                    blocks.push({ type: 'header', level: match[2].length, text: match[3] });
+                    i++;
+                    continue;
+                }
+                if (lines[i].includes('|') && i + 1 < lines.length && /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[i + 1])) {
+                    const rows = [lines[i]];
+                    i += 2;
+                    while (i < lines.length && lines[i].includes('|') && lines[i].trim()) {
+                        rows.push(lines[i]);
+                        i++;
+                    }
+                    blocks.push({ type: 'table', rows });
+                    continue;
+                }
+                if (/^\s*([-*+])\s+/.test(lines[i]) || /^\s*\d+\.\s+/.test(lines[i])) {
+                    const ordered = /^\s*\d+\.\s+/.test(lines[i]);
+                    const items = [];
+                    while (i < lines.length && (ordered ? /^\s*\d+\.\s+/.test(lines[i]) : /^\s*[-*+]\s+/.test(lines[i]))) {
+                        items.push(lines[i].replace(ordered ? /^\s*\d+\.\s+/ : /^\s*[-*+]\s+/, ''));
+                        i++;
+                    }
+                    blocks.push({ type: ordered ? 'ol' : 'ul', items });
+                    continue;
+                }
+                if (/^\s*>\s?/.test(lines[i])) {
+                    const quote = [];
+                    while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+                        quote.push(lines[i].replace(/^\s*>\s?/, ''));
+                        i++;
+                    }
+                    blocks.push({ type: 'quote', text: quote.join('\n') });
+                    continue;
+                }
+                const paragraph = [];
+                while (i < lines.length && lines[i].trim()) {
+                    if (/^```/.test(lines[i]) || /^\s{0,3}#{1,4}\s+/.test(lines[i]) || /^\s*([-*+])\s+/.test(lines[i]) || /^\s*\d+\.\s+/.test(lines[i])) break;
+                    paragraph.push(lines[i]);
+                    i++;
+                }
+                blocks.push({ type: 'paragraph', text: paragraph.join('\n') });
+            }
+            return blocks;
+        }
+
+        function renderMarkdown(markdown) {
+            const blocks = splitMarkdownBlocks(markdown);
+            return `<div class="claude-md">${blocks.map(block => {
+                if (block.type === 'code') {
+                    const language = block.language ? `<div class="claude-tool-section-title">${escapeHtml(block.language)}</div>` : '';
+                    return `<pre>${language}<code>${escapeHtml(block.content)}</code></pre>`;
+                }
+                if (block.type === 'hr') return '<hr>';
+                if (block.type === 'header') return `<h${block.level}>${inlineMarkdown(block.text)}</h${block.level}>`;
+                if (block.type === 'ul') return `<ul>${block.items.map(item => `<li>${inlineMarkdown(item)}</li>`).join('')}</ul>`;
+                if (block.type === 'ol') return `<ol>${block.items.map(item => `<li>${inlineMarkdown(item)}</li>`).join('')}</ol>`;
+                if (block.type === 'quote') return `<blockquote>${renderMarkdown(block.text)}</blockquote>`;
+                if (block.type === 'table') return renderMarkdownTable(block.rows);
+                return `<p>${inlineMarkdown(block.text).replace(/\n/g, '<br>')}</p>`;
+            }).join('')}</div>`;
+        }
+
+        function renderMarkdownTable(rows) {
+            const parsed = rows.map(row => row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim()));
+            if (!parsed.length) return '';
+            const [head, ...body] = parsed;
+            return `<table><thead><tr>${head.map(cell => `<th>${inlineMarkdown(cell)}</th>`).join('')}</tr></thead><tbody>${body.map(row => `<tr>${row.map(cell => `<td>${inlineMarkdown(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+        }
+
+        function parseLocalCommandMessage(text) {
+            const value = String(text || '');
+            if (/^\s*<local-command-caveat>[\s\S]*?<\/local-command-caveat>\s*$/.test(value)) return { kind: 'hidden' };
+            const stdoutMatch = value.match(/^\s*<local-command-stdout>\s*([\s\S]*?)\s*<\/local-command-stdout>\s*$/);
+            if (stdoutMatch) {
+                const stdout = stdoutMatch[1].trim();
+                if (/^Goal set:/i.test(stdout)) return { kind: 'hidden' };
+                return { kind: 'text', text: stdout };
+            }
+            const raw = value.trim().match(/^\/([a-zA-Z][\w:-]*)(?:\s+([\s\S]*?))?$/);
+            if (raw) {
+                return { kind: 'command', commandName: raw[1], args: raw[2] && raw[2].trim() };
+            }
+            const nameMatch = value.match(/<command-name>\s*\/?([^<]+?)\s*<\/command-name>/);
+            if (nameMatch) {
+                const argsMatch = value.match(/<command-args>\s*([\s\S]*?)\s*<\/command-args>/);
+                const stripped = value
+                    .replace(/<command-message>[\s\S]*?<\/command-message>/g, '')
+                    .replace(/<command-name>[\s\S]*?<\/command-name>/g, '')
+                    .replace(/<command-args>[\s\S]*?<\/command-args>/g, '')
+                    .trim();
+                if (!stripped) return { kind: 'command', commandName: nameMatch[1].trim(), args: argsMatch && argsMatch[1].trim() };
+                return { kind: 'text', text: stripped };
+            }
+            return { kind: 'text', text: value };
+        }
+
+        function toolCategory(name) {
+            if (['Bash', 'CodexBash', 'execute'].includes(name)) return 'terminal';
+            if (['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(name)) return 'edit';
+            if (['Read', 'LS'].includes(name)) return 'read';
+            if (['Grep', 'Glob'].includes(name)) return 'search';
+            if (['WebFetch', 'WebSearch'].includes(name)) return 'web';
+            if (['Task', 'Agent'].includes(name)) return 'task';
+            return 'other';
+        }
+
+        function toolIcon(category) {
+            const labels = { terminal: '$', edit: '+/-', read: 'R', search: '?', web: 'W', task: 'A', other: '*' };
+            return labels[category] || '*';
+        }
+
+        function toolCommand(tool) {
+            const input = tool && tool.input;
+            if (!input || typeof input !== 'object') return '';
+            if (typeof input.command === 'string') return input.command;
+            if (Array.isArray(input.command)) return input.command.join(' ');
+            if (typeof input.file_path === 'string') return input.file_path;
+            if (typeof input.path === 'string') return input.path;
+            if (typeof input.pattern === 'string') return input.pattern;
+            if (typeof input.prompt === 'string') return input.prompt;
+            return tool.summary || '';
+        }
+
+        function toolTitle(tool) {
+            const name = tool.name || 'Tool';
+            const input = tool.input || {};
+            if (name === 'Bash') return (tool.description || 'Terminal');
+            if (name === 'Read' && input.file_path) return input.file_path;
+            if (name === 'Edit' || name === 'MultiEdit' || name === 'Write') return input.file_path || name;
+            if (name === 'Grep') return input.pattern ? `grep(pattern: ${input.pattern})` : 'Search Content';
+            if (name === 'Glob') return input.pattern || 'Search Files';
+            if ((name === 'Task' || name === 'Agent') && input.description) return input.description;
+            if (name.startsWith('mcp__')) return name.replace(/^mcp__/, '').replace(/__/g, ': ');
+            return name;
+        }
+
+        function renderToolSection(title, value) {
+            if (value === undefined || value === null || value === '') return '';
+            const code = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+            return `<div class="claude-tool-section"><div class="claude-tool-section-title">${escapeHtml(title)}</div><pre class="claude-tool-code">${escapeHtml(code)}</pre></div>`;
+        }
+
+        function renderClaudeTool(tool) {
+            const category = toolCategory(tool.name || '');
+            const command = toolCommand(tool);
+            const hasResult = tool.resultText || tool.isError;
+            const running = claudeStatus === 'thinking' && !hasResult;
+            const status = tool.isError ? 'error' : (hasResult ? 'completed' : (running ? 'running' : 'running'));
+            const open = tool.isError || (!hasResult && !running) ? ' open' : '';
+            const compact = category === 'terminal' || category === 'search' || category === 'read';
+            return `<details class="claude-tool claude-tool-card${tool.isError ? ' error' : ''}"${open}>
+                <summary class="claude-tool-header">
+                    <span class="claude-tool-icon" data-icon="${escapeHtml(toolIcon(category))}"></span>
+                    <span class="claude-tool-title">${escapeHtml(toolTitle(tool))}</span>
+                    <span class="claude-tool-status">${escapeHtml(status)}</span>
+                    <span class="claude-tool-command">${escapeHtml(command)}</span>
+                </summary>
+                ${compact && !tool.isError ? '' : `<div class="claude-tool-body">
+                    ${renderToolSection('Input', tool.input)}
+                    ${renderToolSection(tool.isError ? 'Error' : 'Output', tool.resultText)}
+                </div>`}
+            </details>`;
+        }
+
+        function renderWorkGroup(items) {
+            const running = items.some(item => item.kind === 'tool' && !item.resultText);
+            const label = `${items.length} tool call${items.length > 1 ? 's' : ''}`;
+            return `<details class="claude-work-group"${running ? ' open' : ''}>
+                <summary><span class="claude-tool-icon" data-icon="*"></span><span class="claude-work-group-title">Worked on ${escapeHtml(label)}</span>${running ? '<span class="claude-tool-status">running</span>' : ''}</summary>
+                <div class="claude-work-group-body">${items.map(renderDisplayItem).join('')}</div>
+            </details>`;
+        }
+
+        function buildClaudeDisplayItems(messages) {
+            const items = [];
+            const byToolUseId = new Map();
+            for (const message of messages) {
+                if (!message) continue;
+                if (message.kind === 'tool') {
+                    const item = { ...message, kind: 'tool', resultText: '', isError: false };
+                    items.push(item);
+                    if (item.toolUseId) byToolUseId.set(item.toolUseId, item);
+                    continue;
+                }
+                if (message.kind === 'tool-result') {
+                    const parent = message.toolUseId && byToolUseId.get(message.toolUseId);
+                    if (parent) {
+                        parent.resultText = message.text || '';
+                        parent.isError = Boolean(message.isError);
+                    } else {
+                        items.push(message);
+                    }
+                    continue;
+                }
+                items.push(message);
+            }
+
+            const grouped = [];
+            let run = [];
+            const flush = () => {
+                if (run.length > 1) grouped.push({ kind: 'work-group', items: run });
+                else if (run.length === 1) grouped.push(run[0]);
+                run = [];
+            };
+            for (const item of items) {
+                if (item.kind === 'tool') {
+                    run.push(item);
+                    continue;
+                }
+                flush();
+                grouped.push(item);
+            }
+            flush();
+            return grouped;
+        }
+
+        function renderUserMessage(message) {
+            const parsed = parseLocalCommandMessage(textFromClaudeMessage(message));
+            if (parsed.kind === 'hidden') return '';
+            if (parsed.kind === 'command') {
+                const args = parsed.args ? `<div class="claude-message user">${renderMarkdown(parsed.args)}</div>` : '';
+                return `${args}<div class="claude-message user"><span class="claude-command-chip">/${escapeHtml(parsed.commandName)}</span></div>`;
+            }
+            return `<div class="claude-message user">${renderMarkdown(parsed.text)}</div>`;
+        }
+
+        function renderDisplayItem(message) {
+            if (!message) return '';
+            if (message.kind === 'user') return renderUserMessage(message);
+            if (message.kind === 'assistant') return `<div class="claude-message assistant">${renderMarkdown(textFromClaudeMessage(message))}</div>`;
+            if (message.kind === 'tool') return renderClaudeTool(message);
+            if (message.kind === 'tool-result') return `<div class="claude-tool${message.isError ? ' error' : ''}">${renderToolSection(message.isError ? 'Error' : 'Output', message.text || '')}</div>`;
+            if (message.kind === 'work-group') return renderWorkGroup(message.items);
+            if (message.kind === 'event') return `<div class="claude-message event${message.level === 'error' ? ' error' : ''}">${escapeHtml(message.text || '')}</div>`;
+            return '';
+        }
+
+        function renderClaudeChat() {
+            const container = document.getElementById('claude-chat-container');
+            const parts = buildClaudeDisplayItems(claudeMessages).map(renderDisplayItem);
+            for (const req of claudePendingPermissions.filter(item => item.status === 'pending')) {
+                parts.push(`<div class="claude-tool claude-permission">
+                    <div class="claude-tool-header">
+                        <span class="claude-tool-icon" data-icon="!"></span>
+                        <strong>${escapeHtml(req.title || req.toolName || 'Permission required')}</strong>
+                    </div>
+                    <div class="claude-tool-body">
+                        ${req.reason ? `<div>${escapeHtml(req.reason)}</div>` : ''}
+                        ${renderToolSection('Input', req.input || {})}
+                        <div class="claude-permission-actions">
+                            <button class="small-btn danger" onclick="respondClaudePermission('${req.id}', false)">Deny</button>
+                            <button class="small-btn primary" onclick="respondClaudePermission('${req.id}', true)">Allow</button>
+                        </div>
+                    </div>
+                </div>`);
+            }
+            if (claudeStatus === 'thinking') {
+                parts.push('<div class="claude-status">Claude is working...</div>');
+            }
+            container.innerHTML = parts.join('') || '<div class="claude-message event">Send a message to start Claude.</div>';
+            renderClaudeStateBar();
+            requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; });
+        }
+
+        function applyClaudeEvent(event) {
+            if (!event) return;
+            if (event.type === 'message' && event.message) {
+                claudeMessages.push(event.message);
+            } else if (event.type === 'status') {
+                claudeStatus = event.status || 'idle';
+            } else if (event.type === 'permission-request' && event.request) {
+                claudePendingPermissions = claudePendingPermissions.filter(item => item.id !== event.request.id);
+                claudePendingPermissions.push(event.request);
+            } else if (event.type === 'permission-updated' && event.request) {
+                claudePendingPermissions = claudePendingPermissions.map(item => item.id === event.request.id ? event.request : item);
+            } else if (event.type === 'history-reset' && Array.isArray(event.messages)) {
+                claudeMessages = event.messages;
+            } else if (event.type === 'state' && event.state) {
+                applyClaudeState(event.state);
+            }
+            if (event.type !== 'state') applyClaudeState({
+                status: claudeStatus,
+                pendingPermissionCount: claudePendingPermissions.filter(item => item.status === 'pending').length,
+                canAbort: claudeStatus === 'thinking'
+            });
+            renderClaudeChat();
+        }
+
+        function respondClaudePermission(id, approved) {
+            if (!currentSocket || currentSocket.readyState !== 1) return;
+            currentSocket.send(JSON.stringify({ type: 'claude-permission', id, approved }));
+        }
+
         async function createSession(toolKey, sessionName) {
             try {
                 const workingDirectory = document.getElementById('cwd-field').value;
+                const runtimeConfig = toolKey === 'claude-code' ? await refreshClaudeRuntimeConfig() : null;
+                const claudeOptions = runtimeConfig ? {
+                    model: runtimeConfig.defaultModel || 'default',
+                    effort: runtimeConfig.defaultEffort || 'medium'
+                } : undefined;
                 const res = await fetchWithTimeout('/api/sessions', { 
                     method: 'POST', 
                     headers: { 'Content-Type': 'application/json' }, 
-                    body: JSON.stringify({ toolKey, workingDirectory }) 
+                    body: JSON.stringify({ toolKey, workingDirectory, claudeOptions }) 
                 });
                 const data = await res.json();
                 if (!res.ok || !data.id) throw new Error(data.error || 'Failed to create session');
@@ -972,10 +1752,16 @@
             updateToolShortcuts(activeToolKey);
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.getElementById('terminal-view').classList.add('active');
+            setClaudeModeEnabled(isClaudeSession());
+            if (currentSocket) { currentSocket.close(); currentSocket = null; }
             initTerminal(id);
         }
 
         function initTerminal(sessionId) {
+            if (isClaudeSession()) {
+                initClaudeSession(sessionId);
+                return;
+            }
             if (typeof Terminal === 'undefined') {
                 alert('Terminal library not loaded yet.');
                 showLobby();
@@ -1009,6 +1795,52 @@
                 const msg = JSON.parse(e.data);
                 if (msg.type === 'output') term.write(msg.data);
                 if (msg.type === 'reset') term.reset();
+                if (msg.type === 'exit') showLobby();
+            };
+        }
+
+        async function initClaudeSession(sessionId) {
+            claudeMessages = [];
+            claudePendingPermissions = [];
+            claudeStatus = 'idle';
+            const runtimeConfig = await refreshClaudeRuntimeConfig();
+            claudeState = {
+                permissionMode: 'default',
+                model: (runtimeConfig && runtimeConfig.defaultModel) || 'default',
+                effort: (runtimeConfig && runtimeConfig.defaultEffort) || 'medium',
+                contextRemaining: null,
+                claudeSessionId: null,
+                resumeSessionId: null,
+                canAbort: false,
+                pendingPermissionCount: 0
+            };
+            claudeResumePanelOpen = false;
+            claudePickerOpen = null;
+            claudeResumeItemsLoaded = false;
+            document.getElementById('claude-resume-panel').classList.remove('active');
+            document.getElementById('claude-resume-panel').innerHTML = '';
+            closeClaudePicker();
+            updateTerminalControlsHeight();
+            applyClaudeRuntimeConfig(runtimeConfig);
+            applyClaudeState(claudeState);
+            renderClaudeChat();
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            currentSocket = new WebSocket(protocol + '//' + window.location.host + '?sessionId=' + sessionId);
+            currentSocket.onopen = () => logViewSnapshot('claude-ws-open');
+            currentSocket.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                if (msg.type === 'claude-snapshot' && msg.snapshot) {
+                    claudeMessages = msg.snapshot.messages || [];
+                    claudePendingPermissions = msg.snapshot.pendingPermissions || [];
+                    claudeStatus = msg.snapshot.status || 'idle';
+                    applyClaudeState(msg.snapshot.state || {
+                        status: claudeStatus,
+                        pendingPermissionCount: claudePendingPermissions.filter(item => item.status === 'pending').length,
+                        canAbort: claudeStatus === 'thinking'
+                    });
+                    renderClaudeChat();
+                }
+                if (msg.type === 'claude-event') applyClaudeEvent(msg.event);
                 if (msg.type === 'exit') showLobby();
             };
         }
@@ -1223,7 +2055,15 @@
         
         function performSend() {
             const val = inputEl.value;
-            if (val) { 
+            if (val && isClaudeSession()) {
+                if (currentSocket && currentSocket.readyState === 1) {
+                    currentSocket.send(JSON.stringify({ type: 'claude-input', text: val }));
+                }
+                inputEl.value = '';
+                inputEl.style.height = '38px';
+                return;
+            }
+            if (val) {
                 const formattedVal = val.replace(/\n/g, '\r');
                 sendWS(formattedVal);
                 inputEl.value = ''; 
