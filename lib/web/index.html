@@ -156,6 +156,10 @@
         #claude-state-bar::-webkit-scrollbar { display: none; }
         .claude-state-pill { display: inline-flex; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.045); border-radius: 999px; padding: 3px 8px; flex: 0 0 auto; }
         .claude-state-pill.warn { color: #ffcc00; border-color: rgba(255,204,0,0.24); background: rgba(255,204,0,0.08); }
+        .claude-state-pill.perm { margin-left: auto; }
+        .claude-state-pill.perm.acceptEdits { color: #34c759; border-color: rgba(52,199,89,0.26); background: rgba(52,199,89,0.08); }
+        .claude-state-pill.perm.bypassPermissions { color: #ff9f0a; border-color: rgba(255,159,10,0.26); background: rgba(255,159,10,0.08); }
+        .claude-state-pill.perm.plan { color: #64d2ff; border-color: rgba(100,210,255,0.26); background: rgba(100,210,255,0.08); }
         #claude-resume-panel { display: none; margin-top: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(28,28,30,0.98); border-radius: 12px; max-height: 180px; overflow-y: auto; }
         #claude-resume-panel.active { display: block; }
         .claude-resume-item { width: 100%; text-align: left; border: 0; border-bottom: 1px solid rgba(255,255,255,0.06); background: transparent; color: #fff; padding: 10px 11px; cursor: pointer; box-sizing: border-box; }
@@ -1019,23 +1023,24 @@
         function renderClaudeStateBar() {
             const el = document.getElementById('claude-state-bar');
             if (!el) return;
-            const modelEl = document.getElementById('claude-model-select');
-            const modelOption = modelEl && modelEl.selectedOptions && modelEl.selectedOptions[0];
-            const modelLabel = modelOption && modelOption.dataset.resolved
-                ? modelOption.dataset.resolved
-                : (claudeState.model || 'default');
-            const context = typeof claudeState.contextRemaining === 'number'
-                ? `Ctx ${claudeState.contextRemaining}`
-                : 'Ctx N/A';
             const pending = Number(claudeState.pendingPermissionCount || claudePendingPermissions.filter(item => item.status === 'pending').length) || 0;
-            const status = claudeStatus === 'thinking' ? 'Working' : shortValue(claudeStatus || 'Idle');
-            el.innerHTML = [
-                `<span class="claude-state-pill">${escapeHtml(permissionModeLabel(claudeState.permissionMode || 'default'))}</span>`,
-                `<span class="claude-state-pill">${escapeHtml(shortValue(modelLabel))}</span>`,
-                `<span class="claude-state-pill">Effort ${escapeHtml(effortLabel(claudeState.effort || 'medium'))}</span>`,
-                `<span class="claude-state-pill">${escapeHtml(context)}</span>`,
-                `<span class="claude-state-pill${pending ? ' warn' : ''}">${pending ? `${pending} approval` : escapeHtml(status)}</span>`
-            ].join('');
+            const mode = claudeState.permissionMode || 'default';
+            const parts = [];
+            if (pending) {
+                parts.push(`<span class="claude-state-pill warn">${pending} approval${pending > 1 ? 's' : ''}</span>`);
+            } else if (claudeStatus === 'thinking') {
+                parts.push('<span class="claude-state-pill">Working</span>');
+            } else if (claudeStatus && !['idle', 'stopped'].includes(claudeStatus)) {
+                parts.push(`<span class="claude-state-pill warn">${escapeHtml(shortValue(claudeStatus))}</span>`);
+            }
+            if (typeof claudeState.contextRemaining === 'number') {
+                parts.push(`<span class="claude-state-pill">Context ${escapeHtml(String(claudeState.contextRemaining))}</span>`);
+            }
+            if (mode !== 'default') {
+                parts.push(`<span class="claude-state-pill perm ${escapeHtml(mode)}">${escapeHtml(permissionModeLabel(mode))}</span>`);
+            }
+            el.innerHTML = parts.join('');
+            el.style.display = parts.length ? 'flex' : 'none';
         }
 
         async function updateClaudeSettingsFromControls() {
