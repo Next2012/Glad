@@ -133,6 +133,18 @@
         .claude-control-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
         .claude-select, .claude-ctrl-btn { min-width: 0; height: 32px; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; background: rgba(255,255,255,0.08); color: #f5f5f7; font-size: 11px; font-weight: 800; letter-spacing: 0; padding: 0 8px; outline: none; box-sizing: border-box; }
         .claude-select { appearance: none; -webkit-appearance: none; text-align: center; text-align-last: center; }
+        .claude-picker-wrap { min-width: 0; position: relative; }
+        .claude-picker-wrap select { display: none; }
+        .claude-picker-btn { width: 100%; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .claude-picker-btn.active { background: rgba(0,122,255,0.22); border-color: rgba(0,122,255,0.5); }
+        #claude-picker-panel { display: none; margin-top: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(28,28,30,0.99); border-radius: 12px; max-height: min(280px, 42dvh); overflow-y: auto; box-shadow: 0 16px 36px rgba(0,0,0,0.34); }
+        #claude-picker-panel.active { display: block; }
+        .claude-picker-title { padding: 9px 11px 7px 11px; color: var(--text-dim); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid rgba(255,255,255,0.06); }
+        .claude-picker-option { width: 100%; border: 0; border-bottom: 1px solid rgba(255,255,255,0.06); background: transparent; color: #f5f5f7; padding: 10px 11px; text-align: left; cursor: pointer; box-sizing: border-box; }
+        .claude-picker-option:last-child { border-bottom: 0; }
+        .claude-picker-option:active, .claude-picker-option.selected { background: rgba(0,122,255,0.18); }
+        .claude-picker-option-main { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; font-weight: 800; }
+        .claude-picker-option-value { min-width: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #d1d5db; font-size: 12px; margin-top: 3px; line-height: 1.35; }
         .claude-ctrl-btn { cursor: pointer; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; }
         .claude-ctrl-btn:active, .claude-select:focus { background: rgba(255,255,255,0.14); border-color: rgba(0,122,255,0.45); }
         .claude-ctrl-btn.danger { color: #ff6b61; background: rgba(255,59,48,0.12); }
@@ -261,28 +273,36 @@
                 </div>
                 <div id="claude-control-panel">
                     <div class="claude-control-row">
-                        <select id="claude-permission-select" class="claude-select" title="Permission mode" onchange="updateClaudeSettingsFromControls()">
-                            <option value="default">P:Def</option>
-                            <option value="acceptEdits">P:Edit</option>
-                            <option value="plan">P:Plan</option>
-                            <option value="bypassPermissions">P:Byp</option>
-                        </select>
-                        <select id="claude-model-select" class="claude-select" title="Model" onchange="updateClaudeSettingsFromControls()">
-                            <option value="sonnet">M:Son</option>
-                            <option value="opus">M:Opus</option>
-                            <option value="haiku">M:Hai</option>
-                        </select>
-                        <select id="claude-effort-select" class="claude-select" title="Effort" onchange="updateClaudeSettingsFromControls()">
-                            <option value="low">E:Low</option>
-                            <option value="medium">E:Med</option>
-                            <option value="high">E:High</option>
-                            <option value="xhigh">E:XHi</option>
-                            <option value="max">E:Max</option>
-                        </select>
+                        <div class="claude-picker-wrap">
+                            <select id="claude-permission-select" class="claude-select" title="Permission mode" onchange="updateClaudeSettingsFromControls()">
+                                <option value="default">P:Def</option>
+                                <option value="acceptEdits">P:Edit</option>
+                                <option value="plan">P:Plan</option>
+                                <option value="bypassPermissions">P:Byp</option>
+                            </select>
+                            <button id="claude-permission-picker-btn" class="claude-select claude-picker-btn" onclick="toggleClaudePicker('permission')" title="Permission mode">P</button>
+                        </div>
+                        <div class="claude-picker-wrap">
+                            <select id="claude-model-select" class="claude-select" title="Model" onchange="updateClaudeSettingsFromControls()">
+                                <option value="default">M:Def</option>
+                            </select>
+                            <button id="claude-model-picker-btn" class="claude-select claude-picker-btn" onclick="toggleClaudePicker('model')" title="Model">M</button>
+                        </div>
+                        <div class="claude-picker-wrap">
+                            <select id="claude-effort-select" class="claude-select" title="Effort" onchange="updateClaudeSettingsFromControls()">
+                                <option value="low">E:Low</option>
+                                <option value="medium">E:Med</option>
+                                <option value="high">E:High</option>
+                                <option value="xhigh">E:XHi</option>
+                                <option value="max">E:Max</option>
+                            </select>
+                            <button id="claude-effort-picker-btn" class="claude-select claude-picker-btn" onclick="toggleClaudePicker('effort')" title="Effort">E</button>
+                        </div>
                         <button id="claude-abort-btn" class="claude-ctrl-btn danger" onclick="abortClaudeSession()" title="Abort current Claude turn">Abort</button>
                         <button id="claude-resume-btn" class="claude-ctrl-btn primary" onclick="toggleClaudeResumePanel()" title="Choose a Claude session to resume">Resume</button>
                     </div>
                     <div id="claude-state-bar"></div>
+                    <div id="claude-picker-panel"></div>
                     <div id="claude-resume-panel"></div>
                 </div>
                 <div id="timed-send-panel">
@@ -456,9 +476,11 @@
         let claudeMessages = [];
         let claudePendingPermissions = [];
         let claudeStatus = 'idle';
+        let claudeRuntimeConfig = null;
+        let claudePickerOpen = null;
         let claudeState = {
             permissionMode: 'default',
-            model: 'sonnet',
+            model: 'default',
             effort: 'medium',
             contextRemaining: null,
             claudeSessionId: null,
@@ -776,7 +798,157 @@
                 document.documentElement.style.setProperty('--terminal-controls-rest-height', '108px');
                 return;
             }
-            document.documentElement.style.setProperty('--terminal-controls-rest-height', claudeResumePanelOpen ? '308px' : '154px');
+            const restHeight = claudeResumePanelOpen ? '308px' : (claudePickerOpen ? '322px' : '154px');
+            document.documentElement.style.setProperty('--terminal-controls-rest-height', restHeight);
+        }
+
+        function shortModelLabel(value, resolved) {
+            const source = String(value || 'default');
+            const target = String(resolved || source);
+            const compact = target
+                .replace(/^claude-/, '')
+                .replace(/-20\d{6,}.*$/, '')
+                .slice(0, 9);
+            if (source === 'default') return 'M:Def';
+            if (source === 'env') return `M:${compact || 'Env'}`;
+            if (source === 'sonnet') return `M:${compact || 'Son'}`;
+            if (source === 'opus') return `M:${compact || 'Opus'}`;
+            if (source === 'haiku') return `M:${compact || 'Hai'}`;
+            return `M:${compact || source.slice(0, 9)}`;
+        }
+
+        function pickerLabelFromOption(option) {
+            return option ? (option.textContent || option.value || '') : '';
+        }
+
+        function pickerFullValue(option) {
+            if (!option) return '';
+            return option.dataset.resolved || '';
+        }
+
+        function syncClaudePickerButtons() {
+            const mappings = [
+                ['permission', 'claude-permission-select', 'claude-permission-picker-btn', 'P'],
+                ['model', 'claude-model-select', 'claude-model-picker-btn', 'M'],
+                ['effort', 'claude-effort-select', 'claude-effort-picker-btn', 'E']
+            ];
+            mappings.forEach(([type, selectId, buttonId, fixedLabel]) => {
+                const select = document.getElementById(selectId);
+                const button = document.getElementById(buttonId);
+                if (!select || !button) return;
+                const option = select.selectedOptions && select.selectedOptions[0];
+                const label = pickerLabelFromOption(option);
+                const fullValue = pickerFullValue(option);
+                button.textContent = fixedLabel;
+                button.title = fullValue || label || fixedLabel;
+                button.classList.toggle('active', claudePickerOpen === type);
+            });
+        }
+
+        function closeClaudePicker() {
+            claudePickerOpen = null;
+            const panel = document.getElementById('claude-picker-panel');
+            if (panel) {
+                panel.classList.remove('active');
+                panel.innerHTML = '';
+            }
+            syncClaudePickerButtons();
+            updateTerminalControlsHeight();
+        }
+
+        function pickerTitle(type) {
+            if (type === 'permission') return 'Permission mode';
+            if (type === 'model') return 'Model';
+            if (type === 'effort') return 'Effort';
+            return 'Options';
+        }
+
+        function selectIdForPicker(type) {
+            if (type === 'permission') return 'claude-permission-select';
+            if (type === 'model') return 'claude-model-select';
+            if (type === 'effort') return 'claude-effort-select';
+            return '';
+        }
+
+        function renderClaudePicker(type) {
+            const panel = document.getElementById('claude-picker-panel');
+            const select = document.getElementById(selectIdForPicker(type));
+            if (!panel || !select) return;
+            const options = Array.from(select.options);
+            panel.innerHTML = `<div class="claude-picker-title">${escapeHtml(pickerTitle(type))}</div>${options.map(option => {
+                const selected = option.value === select.value;
+                const full = pickerFullValue(option);
+                return `<button class="claude-picker-option${selected ? ' selected' : ''}" onclick="chooseClaudePickerOption('${type}', decodePathValue('${encodePathValue(option.value)}'))">
+                    <div class="claude-picker-option-main">
+                        <span>${escapeHtml(option.textContent || option.value)}</span>
+                        ${selected ? '<span>Selected</span>' : ''}
+                    </div>
+                    ${full ? `<div class="claude-picker-option-value">${escapeHtml(full)}</div>` : ''}
+                </button>`;
+            }).join('')}`;
+            panel.classList.add('active');
+            syncClaudePickerButtons();
+            updateTerminalControlsHeight();
+        }
+
+        async function toggleClaudePicker(type) {
+            if (claudePickerOpen === type) {
+                closeClaudePicker();
+                return;
+            }
+            if (type === 'model') await refreshClaudeRuntimeConfig();
+            claudeResumePanelOpen = false;
+            const resumePanel = document.getElementById('claude-resume-panel');
+            if (resumePanel) resumePanel.classList.remove('active');
+            claudePickerOpen = type;
+            renderClaudePicker(type);
+        }
+
+        function chooseClaudePickerOption(type, value) {
+            const select = document.getElementById(selectIdForPicker(type));
+            if (!select) return;
+            select.value = value;
+            closeClaudePicker();
+            updateClaudeSettingsFromControls();
+        }
+
+        function applyClaudeRuntimeConfig(config) {
+            if (!config || !Array.isArray(config.models)) return;
+            claudeRuntimeConfig = config;
+            const modelEl = document.getElementById('claude-model-select');
+            if (modelEl) {
+                const current = modelEl.value || claudeState.model || config.defaultModel || 'default';
+                modelEl.innerHTML = '';
+                config.models.forEach(item => {
+                    const option = new Option(shortModelLabel(item.value, item.resolved), item.value);
+                    option.title = item.resolved ? `${item.label}: ${item.resolved}` : item.label;
+                    option.dataset.resolved = item.resolved || '';
+                    modelEl.add(option);
+                });
+                const next = Array.from(modelEl.options).some(option => option.value === current)
+                    ? current
+                    : (config.defaultModel || 'default');
+                modelEl.value = next;
+                claudeState.model = next;
+            }
+            if (config.defaultEffort && claudeState.effort === 'medium') {
+                claudeState.effort = config.defaultEffort;
+            }
+            syncClaudePickerButtons();
+            renderClaudeStateBar();
+        }
+
+        async function refreshClaudeRuntimeConfig() {
+            try {
+                const res = await fetchWithTimeout('/api/claude-config', {}, 10000);
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.error || 'Failed to load Claude config');
+                applyClaudeRuntimeConfig(data.config);
+                return data.config;
+            } catch (e) {
+                log('Failed to load Claude config: ' + e.message);
+                return null;
+            }
         }
 
         function ensureSelectOption(selectEl, value, labelPrefix) {
@@ -797,10 +969,11 @@
             const effortEl = document.getElementById('claude-effort-select');
             if (permissionEl) permissionEl.value = claudeState.permissionMode || 'default';
             if (modelEl) {
-                ensureSelectOption(modelEl, claudeState.model || 'sonnet', 'M');
-                modelEl.value = claudeState.model || 'sonnet';
+                ensureSelectOption(modelEl, claudeState.model || 'default', 'M');
+                modelEl.value = claudeState.model || 'default';
             }
             if (effortEl) effortEl.value = claudeState.effort || 'medium';
+            syncClaudePickerButtons();
             const abortBtn = document.getElementById('claude-abort-btn');
             if (abortBtn) abortBtn.disabled = !(claudeState.canAbort || claudeStatus === 'thinking');
             renderClaudeStateBar();
@@ -814,6 +987,11 @@
         function renderClaudeStateBar() {
             const el = document.getElementById('claude-state-bar');
             if (!el) return;
+            const modelEl = document.getElementById('claude-model-select');
+            const modelOption = modelEl && modelEl.selectedOptions && modelEl.selectedOptions[0];
+            const modelLabel = modelOption && modelOption.dataset.resolved
+                ? modelOption.dataset.resolved
+                : (claudeState.model || 'default');
             const context = typeof claudeState.contextRemaining === 'number'
                 ? `Ctx ${claudeState.contextRemaining}`
                 : 'Ctx N/A';
@@ -821,14 +999,15 @@
             const status = claudeStatus === 'thinking' ? 'Working' : shortValue(claudeStatus || 'Idle');
             el.innerHTML = [
                 `<span class="claude-state-pill">${escapeHtml(shortValue(claudeState.permissionMode || 'default'))}</span>`,
-                `<span class="claude-state-pill">${escapeHtml(shortValue(claudeState.model || 'sonnet'))}</span>`,
+                `<span class="claude-state-pill">${escapeHtml(shortValue(modelLabel))}</span>`,
                 `<span class="claude-state-pill">Eff ${escapeHtml(shortValue(claudeState.effort || 'medium'))}</span>`,
                 `<span class="claude-state-pill">${escapeHtml(context)}</span>`,
                 `<span class="claude-state-pill${pending ? ' warn' : ''}">${pending ? `${pending} approval` : escapeHtml(status)}</span>`
             ].join('');
         }
 
-        function updateClaudeSettingsFromControls() {
+        async function updateClaudeSettingsFromControls() {
+            await refreshClaudeRuntimeConfig();
             const settings = {
                 permissionMode: document.getElementById('claude-permission-select').value,
                 model: document.getElementById('claude-model-select').value,
@@ -847,6 +1026,7 @@
 
         async function toggleClaudeResumePanel() {
             claudeResumePanelOpen = !claudeResumePanelOpen;
+            if (claudeResumePanelOpen) closeClaudePicker();
             const panel = document.getElementById('claude-resume-panel');
             panel.classList.toggle('active', claudeResumePanelOpen);
             updateTerminalControlsHeight();
@@ -1239,10 +1419,15 @@
         async function createSession(toolKey, sessionName) {
             try {
                 const workingDirectory = document.getElementById('cwd-field').value;
+                const runtimeConfig = toolKey === 'claude-code' ? await refreshClaudeRuntimeConfig() : null;
+                const claudeOptions = runtimeConfig ? {
+                    model: runtimeConfig.defaultModel || 'default',
+                    effort: runtimeConfig.defaultEffort || 'medium'
+                } : undefined;
                 const res = await fetchWithTimeout('/api/sessions', { 
                     method: 'POST', 
                     headers: { 'Content-Type': 'application/json' }, 
-                    body: JSON.stringify({ toolKey, workingDirectory }) 
+                    body: JSON.stringify({ toolKey, workingDirectory, claudeOptions }) 
                 });
                 const data = await res.json();
                 if (!res.ok || !data.id) throw new Error(data.error || 'Failed to create session');
@@ -1614,14 +1799,15 @@
             };
         }
 
-        function initClaudeSession(sessionId) {
+        async function initClaudeSession(sessionId) {
             claudeMessages = [];
             claudePendingPermissions = [];
             claudeStatus = 'idle';
+            const runtimeConfig = await refreshClaudeRuntimeConfig();
             claudeState = {
                 permissionMode: 'default',
-                model: 'sonnet',
-                effort: 'medium',
+                model: (runtimeConfig && runtimeConfig.defaultModel) || 'default',
+                effort: (runtimeConfig && runtimeConfig.defaultEffort) || 'medium',
                 contextRemaining: null,
                 claudeSessionId: null,
                 resumeSessionId: null,
@@ -1629,10 +1815,13 @@
                 pendingPermissionCount: 0
             };
             claudeResumePanelOpen = false;
+            claudePickerOpen = null;
             claudeResumeItemsLoaded = false;
             document.getElementById('claude-resume-panel').classList.remove('active');
             document.getElementById('claude-resume-panel').innerHTML = '';
+            closeClaudePicker();
             updateTerminalControlsHeight();
+            applyClaudeRuntimeConfig(runtimeConfig);
             applyClaudeState(claudeState);
             renderClaudeChat();
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
