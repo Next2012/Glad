@@ -88,6 +88,26 @@
         .claude-permission { border-color: rgba(255,204,0,0.4); background: rgba(255,204,0,0.08); }
         .claude-permission-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
         .claude-status { color: var(--text-dim); font-size: 12px; text-align: center; padding: 6px 0 0 0; }
+        #claude-control-panel { display: none; padding: 0 14px 10px 14px; box-sizing: border-box; }
+        .claude-control-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
+        .claude-select, .claude-ctrl-btn { min-width: 0; height: 32px; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; background: rgba(255,255,255,0.08); color: #f5f5f7; font-size: 11px; font-weight: 800; letter-spacing: 0; padding: 0 8px; outline: none; box-sizing: border-box; }
+        .claude-select { appearance: none; -webkit-appearance: none; text-align: center; text-align-last: center; }
+        .claude-ctrl-btn { cursor: pointer; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; }
+        .claude-ctrl-btn:active, .claude-select:focus { background: rgba(255,255,255,0.14); border-color: rgba(0,122,255,0.45); }
+        .claude-ctrl-btn.danger { color: #ff6b61; background: rgba(255,59,48,0.12); }
+        .claude-ctrl-btn.primary { color: #fff; background: rgba(0,122,255,0.32); border-color: rgba(0,122,255,0.45); }
+        .claude-ctrl-btn:disabled { opacity: 0.45; cursor: default; }
+        #claude-state-bar { display: flex; align-items: center; gap: 7px; min-height: 24px; margin-top: 8px; color: var(--text-dim); font-size: 11px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
+        #claude-state-bar::-webkit-scrollbar { display: none; }
+        .claude-state-pill { display: inline-flex; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.045); border-radius: 999px; padding: 3px 8px; flex: 0 0 auto; }
+        .claude-state-pill.warn { color: #ffcc00; border-color: rgba(255,204,0,0.24); background: rgba(255,204,0,0.08); }
+        #claude-resume-panel { display: none; margin-top: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(28,28,30,0.98); border-radius: 12px; max-height: 180px; overflow-y: auto; }
+        #claude-resume-panel.active { display: block; }
+        .claude-resume-item { width: 100%; text-align: left; border: 0; border-bottom: 1px solid rgba(255,255,255,0.06); background: transparent; color: #fff; padding: 10px 11px; cursor: pointer; box-sizing: border-box; }
+        .claude-resume-item:last-child { border-bottom: 0; }
+        .claude-resume-item:active { background: rgba(255,255,255,0.08); }
+        .claude-resume-title { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 800; }
+        .claude-resume-meta { color: var(--text-dim); font-size: 11px; margin-top: 3px; overflow-wrap: anywhere; }
         #terminal .xterm, #terminal .xterm-viewport, #terminal .xterm-screen, #terminal .xterm-rows, #terminal .xterm-rows span { user-select: text !important; -webkit-user-select: text !important; -webkit-touch-callout: default; touch-action: pan-y; }
         #terminal .xterm-viewport { overflow-anchor: none; }
         #terminal .xterm-helper-textarea { user-select: none !important; -webkit-user-select: none !important; -webkit-touch-callout: none; }
@@ -197,6 +217,32 @@
                     <button id="send-btn">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                     </button>
+                </div>
+                <div id="claude-control-panel">
+                    <div class="claude-control-row">
+                        <select id="claude-permission-select" class="claude-select" title="Permission mode" onchange="updateClaudeSettingsFromControls()">
+                            <option value="default">P:Def</option>
+                            <option value="acceptEdits">P:Edit</option>
+                            <option value="plan">P:Plan</option>
+                            <option value="bypassPermissions">P:Byp</option>
+                        </select>
+                        <select id="claude-model-select" class="claude-select" title="Model" onchange="updateClaudeSettingsFromControls()">
+                            <option value="sonnet">M:Son</option>
+                            <option value="opus">M:Opus</option>
+                            <option value="haiku">M:Hai</option>
+                        </select>
+                        <select id="claude-effort-select" class="claude-select" title="Effort" onchange="updateClaudeSettingsFromControls()">
+                            <option value="low">E:Low</option>
+                            <option value="medium">E:Med</option>
+                            <option value="high">E:High</option>
+                            <option value="xhigh">E:XHi</option>
+                            <option value="max">E:Max</option>
+                        </select>
+                        <button id="claude-abort-btn" class="claude-ctrl-btn danger" onclick="abortClaudeSession()" title="Abort current Claude turn">Abort</button>
+                        <button id="claude-resume-btn" class="claude-ctrl-btn primary" onclick="toggleClaudeResumePanel()" title="Choose a Claude session to resume">Resume</button>
+                    </div>
+                    <div id="claude-state-bar"></div>
+                    <div id="claude-resume-panel"></div>
                 </div>
                 <div id="timed-send-panel">
                     <div class="timed-row">
@@ -369,6 +415,18 @@
         let claudeMessages = [];
         let claudePendingPermissions = [];
         let claudeStatus = 'idle';
+        let claudeState = {
+            permissionMode: 'default',
+            model: 'sonnet',
+            effort: 'medium',
+            contextRemaining: null,
+            claudeSessionId: null,
+            resumeSessionId: null,
+            canAbort: false,
+            pendingPermissionCount: 0
+        };
+        let claudeResumePanelOpen = false;
+        let claudeResumeItemsLoaded = false;
         const modifiers = { ctrl: false };
 
         function log(msg) {
@@ -663,9 +721,134 @@
         function setClaudeModeEnabled(enabled) {
             document.getElementById('terminal-container').style.display = enabled ? 'none' : '';
             document.getElementById('claude-chat-container').style.display = enabled ? 'block' : 'none';
+            document.getElementById('claude-control-panel').style.display = enabled ? 'block' : 'none';
+            document.getElementById('timer-btn').style.display = enabled ? 'none' : '';
+            if (enabled) closeTimedSendPanel();
             document.getElementById('shortcut-rail').style.display = enabled ? 'none' : '';
             document.getElementById('scroll-controls').style.display = enabled ? 'none' : '';
             document.getElementById('cmd-input').placeholder = enabled ? 'Message Claude...' : 'Type a message...';
+            updateTerminalControlsHeight();
+        }
+
+        function updateTerminalControlsHeight() {
+            if (!isClaudeSession()) {
+                document.documentElement.style.setProperty('--terminal-controls-rest-height', '108px');
+                return;
+            }
+            document.documentElement.style.setProperty('--terminal-controls-rest-height', claudeResumePanelOpen ? '308px' : '154px');
+        }
+
+        function ensureSelectOption(selectEl, value, labelPrefix) {
+            const normalized = String(value || '').trim();
+            if (!normalized) return;
+            const exists = Array.from(selectEl.options).some(option => option.value === normalized);
+            if (!exists) {
+                const label = `${labelPrefix}:${normalized.replace(/^claude-/, '').replace(/-20\d{6,}.*$/, '').slice(0, 10)}`;
+                selectEl.add(new Option(label, normalized));
+            }
+        }
+
+        function applyClaudeState(state = {}) {
+            claudeState = { ...claudeState, ...state };
+            claudeStatus = claudeState.status || claudeStatus;
+            const permissionEl = document.getElementById('claude-permission-select');
+            const modelEl = document.getElementById('claude-model-select');
+            const effortEl = document.getElementById('claude-effort-select');
+            if (permissionEl) permissionEl.value = claudeState.permissionMode || 'default';
+            if (modelEl) {
+                ensureSelectOption(modelEl, claudeState.model || 'sonnet', 'M');
+                modelEl.value = claudeState.model || 'sonnet';
+            }
+            if (effortEl) effortEl.value = claudeState.effort || 'medium';
+            const abortBtn = document.getElementById('claude-abort-btn');
+            if (abortBtn) abortBtn.disabled = !(claudeState.canAbort || claudeStatus === 'thinking');
+            renderClaudeStateBar();
+        }
+
+        function shortValue(value, fallback = 'N/A') {
+            const text = String(value || fallback);
+            return text.length > 16 ? text.slice(0, 13) + '...' : text;
+        }
+
+        function renderClaudeStateBar() {
+            const el = document.getElementById('claude-state-bar');
+            if (!el) return;
+            const context = typeof claudeState.contextRemaining === 'number'
+                ? `Ctx ${claudeState.contextRemaining}`
+                : 'Ctx N/A';
+            const pending = Number(claudeState.pendingPermissionCount || claudePendingPermissions.filter(item => item.status === 'pending').length) || 0;
+            const status = claudeStatus === 'thinking' ? 'Working' : shortValue(claudeStatus || 'Idle');
+            el.innerHTML = [
+                `<span class="claude-state-pill">${escapeHtml(shortValue(claudeState.permissionMode || 'default'))}</span>`,
+                `<span class="claude-state-pill">${escapeHtml(shortValue(claudeState.model || 'sonnet'))}</span>`,
+                `<span class="claude-state-pill">Eff ${escapeHtml(shortValue(claudeState.effort || 'medium'))}</span>`,
+                `<span class="claude-state-pill">${escapeHtml(context)}</span>`,
+                `<span class="claude-state-pill${pending ? ' warn' : ''}">${pending ? `${pending} approval` : escapeHtml(status)}</span>`
+            ].join('');
+        }
+
+        function updateClaudeSettingsFromControls() {
+            const settings = {
+                permissionMode: document.getElementById('claude-permission-select').value,
+                model: document.getElementById('claude-model-select').value,
+                effort: document.getElementById('claude-effort-select').value
+            };
+            applyClaudeState(settings);
+            if (currentSocket && currentSocket.readyState === 1) {
+                currentSocket.send(JSON.stringify({ type: 'claude-settings', settings }));
+            }
+        }
+
+        function abortClaudeSession() {
+            if (!currentSocket || currentSocket.readyState !== 1) return;
+            currentSocket.send(JSON.stringify({ type: 'claude-abort' }));
+        }
+
+        async function toggleClaudeResumePanel() {
+            claudeResumePanelOpen = !claudeResumePanelOpen;
+            const panel = document.getElementById('claude-resume-panel');
+            panel.classList.toggle('active', claudeResumePanelOpen);
+            updateTerminalControlsHeight();
+            if (claudeResumePanelOpen && !claudeResumeItemsLoaded) {
+                await loadClaudeResumeSessions();
+            }
+        }
+
+        async function loadClaudeResumeSessions() {
+            const panel = document.getElementById('claude-resume-panel');
+            if (!activeSessionId) return;
+            panel.innerHTML = '<div class="claude-resume-meta" style="padding:12px;">Loading sessions...</div>';
+            try {
+                const res = await fetchWithTimeout(`/api/sessions/${activeSessionId}/claude-resume-sessions`, {}, 15000);
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.error || 'Failed to load resume sessions');
+                const items = data.items || [];
+                claudeResumeItemsLoaded = true;
+                if (!items.length) {
+                    panel.innerHTML = '<div class="claude-resume-meta" style="padding:12px;">No local Claude sessions found for this folder.</div>';
+                    return;
+                }
+                panel.innerHTML = items.map(item => {
+                    const encodedId = encodePathValue(item.id);
+                    const updated = item.updatedAt ? new Date(item.updatedAt).toLocaleString() : 'Unknown';
+                    const active = item.id === claudeState.resumeSessionId || item.id === claudeState.claudeSessionId;
+                    return `<button class="claude-resume-item" onclick="selectClaudeResumeSession(decodePathValue('${encodedId}'))">
+                        <div class="claude-resume-title"><span>${escapeHtml(item.id.slice(0, 8))}${active ? ' · current' : ''}</span><span>${escapeHtml(updated)}</span></div>
+                        <div class="claude-resume-meta">${escapeHtml(item.lastText || item.firstText || item.cwd || 'No preview')}</div>
+                    </button>`;
+                }).join('');
+            } catch (e) {
+                panel.innerHTML = `<div class="claude-resume-meta" style="padding:12px; color:#ff6b61;">${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        function selectClaudeResumeSession(id) {
+            if (!id || !currentSocket || currentSocket.readyState !== 1) return;
+            currentSocket.send(JSON.stringify({ type: 'claude-resume', resumeSessionId: id }));
+            applyClaudeState({ resumeSessionId: id, claudeSessionId: id });
+            claudeResumePanelOpen = false;
+            document.getElementById('claude-resume-panel').classList.remove('active');
+            updateTerminalControlsHeight();
         }
 
         function textFromClaudeMessage(message) {
@@ -706,6 +889,7 @@
                 parts.push('<div class="claude-status">Claude is working...</div>');
             }
             container.innerHTML = parts.join('') || '<div class="claude-message event">Send a message to start Claude.</div>';
+            renderClaudeStateBar();
             requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; });
         }
 
@@ -720,7 +904,16 @@
                 claudePendingPermissions.push(event.request);
             } else if (event.type === 'permission-updated' && event.request) {
                 claudePendingPermissions = claudePendingPermissions.map(item => item.id === event.request.id ? event.request : item);
+            } else if (event.type === 'history-reset' && Array.isArray(event.messages)) {
+                claudeMessages = event.messages;
+            } else if (event.type === 'state' && event.state) {
+                applyClaudeState(event.state);
             }
+            if (event.type !== 'state') applyClaudeState({
+                status: claudeStatus,
+                pendingPermissionCount: claudePendingPermissions.filter(item => item.status === 'pending').length,
+                canAbort: claudeStatus === 'thinking'
+            });
             renderClaudeChat();
         }
 
@@ -1111,6 +1304,22 @@
             claudeMessages = [];
             claudePendingPermissions = [];
             claudeStatus = 'idle';
+            claudeState = {
+                permissionMode: 'default',
+                model: 'sonnet',
+                effort: 'medium',
+                contextRemaining: null,
+                claudeSessionId: null,
+                resumeSessionId: null,
+                canAbort: false,
+                pendingPermissionCount: 0
+            };
+            claudeResumePanelOpen = false;
+            claudeResumeItemsLoaded = false;
+            document.getElementById('claude-resume-panel').classList.remove('active');
+            document.getElementById('claude-resume-panel').innerHTML = '';
+            updateTerminalControlsHeight();
+            applyClaudeState(claudeState);
             renderClaudeChat();
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             currentSocket = new WebSocket(protocol + '//' + window.location.host + '?sessionId=' + sessionId);
@@ -1121,6 +1330,11 @@
                     claudeMessages = msg.snapshot.messages || [];
                     claudePendingPermissions = msg.snapshot.pendingPermissions || [];
                     claudeStatus = msg.snapshot.status || 'idle';
+                    applyClaudeState(msg.snapshot.state || {
+                        status: claudeStatus,
+                        pendingPermissionCount: claudePendingPermissions.filter(item => item.status === 'pending').length,
+                        canAbort: claudeStatus === 'thinking'
+                    });
                     renderClaudeChat();
                 }
                 if (msg.type === 'claude-event') applyClaudeEvent(msg.event);
