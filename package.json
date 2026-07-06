@@ -1,6 +1,6 @@
 {
   "name": "glad-web",
-  "version": "1.0.19",
+  "version": "1.0.20",
   "description": "Glad transforms terminal-based AI coding tools into a polished, mobile-friendly local Web interface.",
   "main": "index.js",
   "bin": {
@@ -45,6 +45,7 @@
     "README.md"
   ],
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.201",
     "chalk": "^4.1.2",
     "commander": "^11.0.0",
     "conf": "^10.2.0",
