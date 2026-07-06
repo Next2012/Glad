@@ -78,13 +78,54 @@
         #terminal-container { flex: 1; min-height: 0; width: 100%; background: #000; position: relative; overflow: hidden; overflow-anchor: none; }
         #terminal { height: 100%; width: 100%; }
         #claude-chat-container { display: none; flex: 1; min-height: 0; overflow-y: auto; background: #050505; padding: 12px 12px 24px 12px; box-sizing: border-box; -webkit-overflow-scrolling: touch; }
-        .claude-message { max-width: 92%; margin: 0 0 10px 0; padding: 10px 12px; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; font-size: 14px; }
-        .claude-message.user { margin-left: auto; background: rgba(0,122,255,0.24); border: 1px solid rgba(0,122,255,0.32); color: #fff; }
-        .claude-message.assistant { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.08); color: #f5f5f7; }
+        .claude-message { max-width: 92%; margin: 0 0 10px 0; padding: 10px 12px; border-radius: 8px; overflow-wrap: anywhere; line-height: 1.45; font-size: 14px; }
+        .claude-message.user { margin-left: auto; background: rgba(0,122,255,0.24); border: 1px solid rgba(0,122,255,0.32); color: #fff; border-radius: 12px; padding-top: 7px; padding-bottom: 7px; }
+        .claude-message.assistant { max-width: 100%; background: transparent; border: 0; color: #f5f5f7; padding: 0 4px; margin: 0 0 12px 0; }
         .claude-message.event { max-width: 100%; background: transparent; border: 0; color: var(--text-dim); font-size: 12px; padding: 3px 2px; text-align: center; }
         .claude-message.error { color: #ff6b61; }
-        .claude-tool { max-width: 100%; margin: 0 0 10px 0; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.045); border-radius: 8px; padding: 10px 12px; color: #d1d5db; font-size: 13px; overflow-wrap: anywhere; }
+        .claude-md { white-space: normal; }
+        .claude-md > :first-child { margin-top: 0; }
+        .claude-md > :last-child { margin-bottom: 0; }
+        .claude-md p { margin: 0 0 8px 0; }
+        .claude-md h1, .claude-md h2, .claude-md h3, .claude-md h4 { margin: 12px 0 7px 0; line-height: 1.22; font-weight: 800; letter-spacing: 0; }
+        .claude-md h1 { font-size: 20px; }
+        .claude-md h2 { font-size: 18px; }
+        .claude-md h3 { font-size: 16px; }
+        .claude-md h4 { font-size: 15px; }
+        .claude-md ul, .claude-md ol { margin: 0 0 9px 0; padding-left: 20px; }
+        .claude-md li { margin: 4px 0; }
+        .claude-md code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; padding: 1px 4px; }
+        .claude-md pre { margin: 8px 0 10px 0; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.34); border-radius: 8px; overflow: auto; }
+        .claude-md pre code { display: block; padding: 11px 12px; background: transparent; border: 0; border-radius: 0; white-space: pre; line-height: 1.45; }
+        .claude-md blockquote { margin: 8px 0; padding: 2px 0 2px 10px; border-left: 3px solid rgba(255,255,255,0.22); color: #c7c7cc; }
+        .claude-md table { width: 100%; border-collapse: collapse; margin: 8px 0 10px 0; font-size: 13px; display: block; overflow-x: auto; }
+        .claude-md th, .claude-md td { border: 1px solid rgba(255,255,255,0.12); padding: 6px 8px; text-align: left; vertical-align: top; }
+        .claude-md th { background: rgba(255,255,255,0.07); color: #fff; }
+        .claude-md a { color: #64b5ff; text-decoration: none; }
+        .claude-md img { max-width: 100%; border-radius: 8px; margin: 6px 0; }
+        .claude-md hr { border: 0; border-top: 1px solid rgba(255,255,255,0.12); margin: 12px 0; }
+        .claude-command-chip { display: inline-flex; align-items: center; max-width: 100%; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.08); color: #f5f5f7; border-radius: 999px; padding: 4px 9px; font-size: 12px; font-weight: 800; }
+        .claude-tool { max-width: 100%; margin: 0 0 10px 0; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.045); border-radius: 8px; color: #d1d5db; font-size: 13px; overflow: hidden; overflow-wrap: anywhere; }
         .claude-tool strong { color: #fff; }
+        .claude-tool-card { display: block; }
+        .claude-tool-card summary { list-style: none; cursor: pointer; }
+        .claude-tool-card summary::-webkit-details-marker { display: none; }
+        .claude-tool-header { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 7px 9px; color: #f5f5f7; }
+        .claude-tool-icon { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-dim); flex: 0 0 auto; }
+        .claude-tool-icon::before { content: attr(data-icon); font-size: 11px; font-weight: 800; line-height: 1; }
+        .claude-tool-title { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+        .claude-tool-status { color: var(--text-dim); font-size: 12px; white-space: nowrap; }
+        .claude-tool-command { flex: 1; min-width: 0; color: var(--text-dim); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .claude-tool-body { padding: 0 10px 10px 10px; }
+        .claude-tool-section { margin-top: 8px; }
+        .claude-tool-section-title { color: var(--text-dim); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 5px; }
+        .claude-tool-code { margin: 0; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.32); border-radius: 7px; padding: 9px 10px; color: #d1d5db; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.42; overflow-x: auto; }
+        .claude-tool.error { border-color: rgba(255,107,97,0.38); background: rgba(255,59,48,0.07); }
+        .claude-work-group { max-width: 100%; margin: 0 0 10px 0; border: 1px solid rgba(255,255,255,0.09); background: rgba(255,255,255,0.035); border-radius: 8px; overflow: hidden; }
+        .claude-work-group summary { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 7px 10px; cursor: pointer; color: #d1d5db; list-style: none; }
+        .claude-work-group summary::-webkit-details-marker { display: none; }
+        .claude-work-group-title { flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .claude-work-group-body { padding: 2px 8px 8px 8px; }
         .claude-permission { border-color: rgba(255,204,0,0.4); background: rgba(255,204,0,0.08); }
         .claude-permission-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
         .claude-status { color: var(--text-dim); font-size: 12px; text-align: center; padding: 6px 0 0 0; }
@@ -858,30 +899,303 @@
             return '';
         }
 
+        function escapeRegExp(text) {
+            return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        function inlineMarkdown(text) {
+            let html = escapeHtml(text || '');
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+            html = html.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+            html = html.replace(/_([^_\n]+)_/g, '<em>$1</em>');
+            html = html.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img src="$2" alt="$1">');
+            html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+            return html;
+        }
+
+        function splitMarkdownBlocks(markdown) {
+            const lines = String(markdown || '').replace(/\r\n/g, '\n').split('\n');
+            const blocks = [];
+            let i = 0;
+            while (i < lines.length) {
+                if (!lines[i].trim()) {
+                    i++;
+                    continue;
+                }
+                const fence = lines[i].match(/^```(\w+)?\s*$/);
+                if (fence) {
+                    const language = fence[1] || '';
+                    const content = [];
+                    i++;
+                    while (i < lines.length && !/^```\s*$/.test(lines[i])) {
+                        content.push(lines[i]);
+                        i++;
+                    }
+                    if (i < lines.length) i++;
+                    blocks.push({ type: 'code', language, content: content.join('\n') });
+                    continue;
+                }
+                if (/^\s*[-*_]{3,}\s*$/.test(lines[i])) {
+                    blocks.push({ type: 'hr' });
+                    i++;
+                    continue;
+                }
+                if (/^\s{0,3}#{1,4}\s+/.test(lines[i])) {
+                    const match = lines[i].match(/^(\s{0,3})(#{1,4})\s+(.+)$/);
+                    blocks.push({ type: 'header', level: match[2].length, text: match[3] });
+                    i++;
+                    continue;
+                }
+                if (lines[i].includes('|') && i + 1 < lines.length && /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[i + 1])) {
+                    const rows = [lines[i]];
+                    i += 2;
+                    while (i < lines.length && lines[i].includes('|') && lines[i].trim()) {
+                        rows.push(lines[i]);
+                        i++;
+                    }
+                    blocks.push({ type: 'table', rows });
+                    continue;
+                }
+                if (/^\s*([-*+])\s+/.test(lines[i]) || /^\s*\d+\.\s+/.test(lines[i])) {
+                    const ordered = /^\s*\d+\.\s+/.test(lines[i]);
+                    const items = [];
+                    while (i < lines.length && (ordered ? /^\s*\d+\.\s+/.test(lines[i]) : /^\s*[-*+]\s+/.test(lines[i]))) {
+                        items.push(lines[i].replace(ordered ? /^\s*\d+\.\s+/ : /^\s*[-*+]\s+/, ''));
+                        i++;
+                    }
+                    blocks.push({ type: ordered ? 'ol' : 'ul', items });
+                    continue;
+                }
+                if (/^\s*>\s?/.test(lines[i])) {
+                    const quote = [];
+                    while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+                        quote.push(lines[i].replace(/^\s*>\s?/, ''));
+                        i++;
+                    }
+                    blocks.push({ type: 'quote', text: quote.join('\n') });
+                    continue;
+                }
+                const paragraph = [];
+                while (i < lines.length && lines[i].trim()) {
+                    if (/^```/.test(lines[i]) || /^\s{0,3}#{1,4}\s+/.test(lines[i]) || /^\s*([-*+])\s+/.test(lines[i]) || /^\s*\d+\.\s+/.test(lines[i])) break;
+                    paragraph.push(lines[i]);
+                    i++;
+                }
+                blocks.push({ type: 'paragraph', text: paragraph.join('\n') });
+            }
+            return blocks;
+        }
+
+        function renderMarkdown(markdown) {
+            const blocks = splitMarkdownBlocks(markdown);
+            return `<div class="claude-md">${blocks.map(block => {
+                if (block.type === 'code') {
+                    const language = block.language ? `<div class="claude-tool-section-title">${escapeHtml(block.language)}</div>` : '';
+                    return `<pre>${language}<code>${escapeHtml(block.content)}</code></pre>`;
+                }
+                if (block.type === 'hr') return '<hr>';
+                if (block.type === 'header') return `<h${block.level}>${inlineMarkdown(block.text)}</h${block.level}>`;
+                if (block.type === 'ul') return `<ul>${block.items.map(item => `<li>${inlineMarkdown(item)}</li>`).join('')}</ul>`;
+                if (block.type === 'ol') return `<ol>${block.items.map(item => `<li>${inlineMarkdown(item)}</li>`).join('')}</ol>`;
+                if (block.type === 'quote') return `<blockquote>${renderMarkdown(block.text)}</blockquote>`;
+                if (block.type === 'table') return renderMarkdownTable(block.rows);
+                return `<p>${inlineMarkdown(block.text).replace(/\n/g, '<br>')}</p>`;
+            }).join('')}</div>`;
+        }
+
+        function renderMarkdownTable(rows) {
+            const parsed = rows.map(row => row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim()));
+            if (!parsed.length) return '';
+            const [head, ...body] = parsed;
+            return `<table><thead><tr>${head.map(cell => `<th>${inlineMarkdown(cell)}</th>`).join('')}</tr></thead><tbody>${body.map(row => `<tr>${row.map(cell => `<td>${inlineMarkdown(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+        }
+
+        function parseLocalCommandMessage(text) {
+            const value = String(text || '');
+            if (/^\s*<local-command-caveat>[\s\S]*?<\/local-command-caveat>\s*$/.test(value)) return { kind: 'hidden' };
+            const stdoutMatch = value.match(/^\s*<local-command-stdout>\s*([\s\S]*?)\s*<\/local-command-stdout>\s*$/);
+            if (stdoutMatch) {
+                const stdout = stdoutMatch[1].trim();
+                if (/^Goal set:/i.test(stdout)) return { kind: 'hidden' };
+                return { kind: 'text', text: stdout };
+            }
+            const raw = value.trim().match(/^\/([a-zA-Z][\w:-]*)(?:\s+([\s\S]*?))?$/);
+            if (raw) {
+                return { kind: 'command', commandName: raw[1], args: raw[2] && raw[2].trim() };
+            }
+            const nameMatch = value.match(/<command-name>\s*\/?([^<]+?)\s*<\/command-name>/);
+            if (nameMatch) {
+                const argsMatch = value.match(/<command-args>\s*([\s\S]*?)\s*<\/command-args>/);
+                const stripped = value
+                    .replace(/<command-message>[\s\S]*?<\/command-message>/g, '')
+                    .replace(/<command-name>[\s\S]*?<\/command-name>/g, '')
+                    .replace(/<command-args>[\s\S]*?<\/command-args>/g, '')
+                    .trim();
+                if (!stripped) return { kind: 'command', commandName: nameMatch[1].trim(), args: argsMatch && argsMatch[1].trim() };
+                return { kind: 'text', text: stripped };
+            }
+            return { kind: 'text', text: value };
+        }
+
+        function toolCategory(name) {
+            if (['Bash', 'CodexBash', 'execute'].includes(name)) return 'terminal';
+            if (['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(name)) return 'edit';
+            if (['Read', 'LS'].includes(name)) return 'read';
+            if (['Grep', 'Glob'].includes(name)) return 'search';
+            if (['WebFetch', 'WebSearch'].includes(name)) return 'web';
+            if (['Task', 'Agent'].includes(name)) return 'task';
+            return 'other';
+        }
+
+        function toolIcon(category) {
+            const labels = { terminal: '$', edit: '+/-', read: 'R', search: '?', web: 'W', task: 'A', other: '*' };
+            return labels[category] || '*';
+        }
+
+        function toolCommand(tool) {
+            const input = tool && tool.input;
+            if (!input || typeof input !== 'object') return '';
+            if (typeof input.command === 'string') return input.command;
+            if (Array.isArray(input.command)) return input.command.join(' ');
+            if (typeof input.file_path === 'string') return input.file_path;
+            if (typeof input.path === 'string') return input.path;
+            if (typeof input.pattern === 'string') return input.pattern;
+            if (typeof input.prompt === 'string') return input.prompt;
+            return tool.summary || '';
+        }
+
+        function toolTitle(tool) {
+            const name = tool.name || 'Tool';
+            const input = tool.input || {};
+            if (name === 'Bash') return (tool.description || 'Terminal');
+            if (name === 'Read' && input.file_path) return input.file_path;
+            if (name === 'Edit' || name === 'MultiEdit' || name === 'Write') return input.file_path || name;
+            if (name === 'Grep') return input.pattern ? `grep(pattern: ${input.pattern})` : 'Search Content';
+            if (name === 'Glob') return input.pattern || 'Search Files';
+            if ((name === 'Task' || name === 'Agent') && input.description) return input.description;
+            if (name.startsWith('mcp__')) return name.replace(/^mcp__/, '').replace(/__/g, ': ');
+            return name;
+        }
+
+        function renderToolSection(title, value) {
+            if (value === undefined || value === null || value === '') return '';
+            const code = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+            return `<div class="claude-tool-section"><div class="claude-tool-section-title">${escapeHtml(title)}</div><pre class="claude-tool-code">${escapeHtml(code)}</pre></div>`;
+        }
+
+        function renderClaudeTool(tool) {
+            const category = toolCategory(tool.name || '');
+            const command = toolCommand(tool);
+            const hasResult = tool.resultText || tool.isError;
+            const running = claudeStatus === 'thinking' && !hasResult;
+            const status = tool.isError ? 'error' : (hasResult ? 'completed' : (running ? 'running' : 'running'));
+            const open = tool.isError || (!hasResult && !running) ? ' open' : '';
+            const compact = category === 'terminal' || category === 'search' || category === 'read';
+            return `<details class="claude-tool claude-tool-card${tool.isError ? ' error' : ''}"${open}>
+                <summary class="claude-tool-header">
+                    <span class="claude-tool-icon" data-icon="${escapeHtml(toolIcon(category))}"></span>
+                    <span class="claude-tool-title">${escapeHtml(toolTitle(tool))}</span>
+                    <span class="claude-tool-status">${escapeHtml(status)}</span>
+                    <span class="claude-tool-command">${escapeHtml(command)}</span>
+                </summary>
+                ${compact && !tool.isError ? '' : `<div class="claude-tool-body">
+                    ${renderToolSection('Input', tool.input)}
+                    ${renderToolSection(tool.isError ? 'Error' : 'Output', tool.resultText)}
+                </div>`}
+            </details>`;
+        }
+
+        function renderWorkGroup(items) {
+            const running = items.some(item => item.kind === 'tool' && !item.resultText);
+            const label = `${items.length} tool call${items.length > 1 ? 's' : ''}`;
+            return `<details class="claude-work-group"${running ? ' open' : ''}>
+                <summary><span class="claude-tool-icon" data-icon="*"></span><span class="claude-work-group-title">Worked on ${escapeHtml(label)}</span>${running ? '<span class="claude-tool-status">running</span>' : ''}</summary>
+                <div class="claude-work-group-body">${items.map(renderDisplayItem).join('')}</div>
+            </details>`;
+        }
+
+        function buildClaudeDisplayItems(messages) {
+            const items = [];
+            const byToolUseId = new Map();
+            for (const message of messages) {
+                if (!message) continue;
+                if (message.kind === 'tool') {
+                    const item = { ...message, kind: 'tool', resultText: '', isError: false };
+                    items.push(item);
+                    if (item.toolUseId) byToolUseId.set(item.toolUseId, item);
+                    continue;
+                }
+                if (message.kind === 'tool-result') {
+                    const parent = message.toolUseId && byToolUseId.get(message.toolUseId);
+                    if (parent) {
+                        parent.resultText = message.text || '';
+                        parent.isError = Boolean(message.isError);
+                    } else {
+                        items.push(message);
+                    }
+                    continue;
+                }
+                items.push(message);
+            }
+
+            const grouped = [];
+            let run = [];
+            const flush = () => {
+                if (run.length > 1) grouped.push({ kind: 'work-group', items: run });
+                else if (run.length === 1) grouped.push(run[0]);
+                run = [];
+            };
+            for (const item of items) {
+                if (item.kind === 'tool') {
+                    run.push(item);
+                    continue;
+                }
+                flush();
+                grouped.push(item);
+            }
+            flush();
+            return grouped;
+        }
+
+        function renderUserMessage(message) {
+            const parsed = parseLocalCommandMessage(textFromClaudeMessage(message));
+            if (parsed.kind === 'hidden') return '';
+            if (parsed.kind === 'command') {
+                const args = parsed.args ? `<div class="claude-message user">${renderMarkdown(parsed.args)}</div>` : '';
+                return `${args}<div class="claude-message user"><span class="claude-command-chip">/${escapeHtml(parsed.commandName)}</span></div>`;
+            }
+            return `<div class="claude-message user">${renderMarkdown(parsed.text)}</div>`;
+        }
+
+        function renderDisplayItem(message) {
+            if (!message) return '';
+            if (message.kind === 'user') return renderUserMessage(message);
+            if (message.kind === 'assistant') return `<div class="claude-message assistant">${renderMarkdown(textFromClaudeMessage(message))}</div>`;
+            if (message.kind === 'tool') return renderClaudeTool(message);
+            if (message.kind === 'tool-result') return `<div class="claude-tool${message.isError ? ' error' : ''}">${renderToolSection(message.isError ? 'Error' : 'Output', message.text || '')}</div>`;
+            if (message.kind === 'work-group') return renderWorkGroup(message.items);
+            if (message.kind === 'event') return `<div class="claude-message event${message.level === 'error' ? ' error' : ''}">${escapeHtml(message.text || '')}</div>`;
+            return '';
+        }
+
         function renderClaudeChat() {
             const container = document.getElementById('claude-chat-container');
-            const parts = [];
-            for (const message of claudeMessages) {
-                if (message.kind === 'user') {
-                    parts.push(`<div class="claude-message user">${escapeHtml(textFromClaudeMessage(message))}</div>`);
-                } else if (message.kind === 'assistant') {
-                    parts.push(`<div class="claude-message assistant">${escapeHtml(textFromClaudeMessage(message))}</div>`);
-                } else if (message.kind === 'tool') {
-                    parts.push(`<div class="claude-tool"><strong>${escapeHtml(message.name || 'Tool')}</strong><br>${escapeHtml(message.summary || '')}</div>`);
-                } else if (message.kind === 'tool-result') {
-                    parts.push(`<div class="claude-tool${message.isError ? ' error' : ''}"><strong>Tool result</strong><br>${escapeHtml(message.text || '')}</div>`);
-                } else if (message.kind === 'event') {
-                    parts.push(`<div class="claude-message event${message.level === 'error' ? ' error' : ''}">${escapeHtml(message.text || '')}</div>`);
-                }
-            }
+            const parts = buildClaudeDisplayItems(claudeMessages).map(renderDisplayItem);
             for (const req of claudePendingPermissions.filter(item => item.status === 'pending')) {
                 parts.push(`<div class="claude-tool claude-permission">
-                    <strong>${escapeHtml(req.title || req.toolName || 'Permission required')}</strong>
-                    ${req.reason ? `<div>${escapeHtml(req.reason)}</div>` : ''}
-                    <pre style="white-space:pre-wrap; overflow-wrap:anywhere; margin:8px 0 0 0;">${escapeHtml(JSON.stringify(req.input || {}, null, 2))}</pre>
-                    <div class="claude-permission-actions">
-                        <button class="small-btn danger" onclick="respondClaudePermission('${req.id}', false)">Deny</button>
-                        <button class="small-btn primary" onclick="respondClaudePermission('${req.id}', true)">Allow</button>
+                    <div class="claude-tool-header">
+                        <span class="claude-tool-icon" data-icon="!"></span>
+                        <strong>${escapeHtml(req.title || req.toolName || 'Permission required')}</strong>
+                    </div>
+                    <div class="claude-tool-body">
+                        ${req.reason ? `<div>${escapeHtml(req.reason)}</div>` : ''}
+                        ${renderToolSection('Input', req.input || {})}
+                        <div class="claude-permission-actions">
+                            <button class="small-btn danger" onclick="respondClaudePermission('${req.id}', false)">Deny</button>
+                            <button class="small-btn primary" onclick="respondClaudePermission('${req.id}', true)">Allow</button>
+                        </div>
                     </div>
                 </div>`);
             }
