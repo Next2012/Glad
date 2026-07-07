@@ -804,8 +804,7 @@
             document.getElementById('terminal-container').style.display = enabled ? 'none' : '';
             document.getElementById('claude-chat-container').style.display = enabled ? 'block' : 'none';
             document.getElementById('claude-control-panel').style.display = enabled ? 'block' : 'none';
-            document.getElementById('timer-btn').style.display = enabled ? 'none' : '';
-            if (enabled) closeTimedSendPanel();
+            document.getElementById('timer-btn').style.display = '';
             document.getElementById('shortcut-rail').style.display = enabled ? 'none' : '';
             document.getElementById('scroll-controls').style.display = enabled ? 'none' : '';
             document.getElementById('cmd-input').placeholder = enabled ? 'Message Claude...' : 'Type a message...';
@@ -813,12 +812,13 @@
         }
 
         function updateTerminalControlsHeight() {
+            const timedOpen = document.getElementById('timed-send-panel')?.classList.contains('active');
             if (!isClaudeSession()) {
-                document.documentElement.style.setProperty('--terminal-controls-rest-height', '108px');
+                document.documentElement.style.setProperty('--terminal-controls-rest-height', timedOpen ? '252px' : '108px');
                 return;
             }
-            const restHeight = claudeResumePanelOpen ? '308px' : ((claudePickerOpen || claudeUsagePanelOpen) ? '322px' : '154px');
-            document.documentElement.style.setProperty('--terminal-controls-rest-height', restHeight);
+            const baseHeight = claudeResumePanelOpen ? 308 : ((claudePickerOpen || claudeUsagePanelOpen) ? 322 : 154);
+            document.documentElement.style.setProperty('--terminal-controls-rest-height', `${baseHeight + (timedOpen ? 144 : 0)}px`);
         }
 
         function shortModelLabel(value, resolved) {
@@ -2307,6 +2307,7 @@
             document.getElementById('timer-btn').classList.remove('active');
             editingTimedInputId = null;
             renderTimedTags();
+            updateTerminalControlsHeight();
         }
 
         function stopTimedInputTimers() {
@@ -2367,6 +2368,7 @@
             document.getElementById('timer-btn').classList.add('active');
             updateTimedSendPreview();
             renderTimedTags();
+            updateTerminalControlsHeight();
         }
 
         async function saveTimedSend() {
@@ -2415,12 +2417,19 @@
             const isOpen = panel.classList.toggle('active');
             document.getElementById('timer-btn').classList.toggle('active', isOpen);
             if (isOpen) {
+                if (isClaudeSession()) {
+                    closeClaudePicker();
+                    closeClaudeUsagePanel();
+                    claudeResumePanelOpen = false;
+                    document.getElementById('claude-resume-panel').classList.remove('active');
+                }
                 initTimedDelaySelectors();
                 resetTimedEditor({ keepInput: true });
                 updateTimedSendPreview();
                 loadTimedInputs();
             }
             else closeTimedSendPanel();
+            updateTerminalControlsHeight();
         });
         inputEl.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); performSend(); }
