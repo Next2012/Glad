@@ -79,13 +79,43 @@
         #terminal { height: 100%; width: 100%; }
         #claude-chat-container { display: none; flex: 1; min-height: 0; overflow-y: auto; background: #050505; padding: 12px 12px 24px 12px; box-sizing: border-box; -webkit-overflow-scrolling: touch; }
         #codex-chat-container { display: none; flex: 1; min-height: 0; overflow-y: auto; background: #050505; padding: 12px 12px 24px 12px; box-sizing: border-box; -webkit-overflow-scrolling: touch; }
+        .codex-conversation { width: min(100%, 900px); margin: 0 auto; }
         .codex-message { max-width: 100%; margin: 0 0 12px; color: #f5f5f7; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
         .codex-message.user { max-width: 92%; margin-left: auto; padding: 8px 12px; border: 1px solid rgba(0,122,255,.32); border-radius: 12px; background: rgba(0,122,255,.24); }
-        .codex-message.reasoning { color: #a9a9b0; font-size: 13px; border-left: 2px solid rgba(255,255,255,.18); padding-left: 10px; }
         .codex-message.event { color: var(--text-dim); text-align: center; font-size: 12px; }
-        .codex-tool { border: 1px solid rgba(255,255,255,.1); border-radius: 8px; background: rgba(255,255,255,.045); overflow: hidden; margin: 8px 0; }
-        .codex-tool summary { cursor: pointer; padding: 8px 10px; color: #f5f5f7; font-weight: 700; }
-        .codex-tool pre { margin: 0; padding: 10px; border-top: 1px solid rgba(255,255,255,.08); overflow: auto; color: #c7c7cc; font-size: 12px; }
+        .codex-tool { border: 1px solid rgba(255,255,255,.1); border-radius: 8px; background: rgba(255,255,255,.045); overflow: hidden; margin: 8px 0; color: #d1d5db; }
+        .codex-tool summary { list-style: none; cursor: pointer; }
+        .codex-tool summary::-webkit-details-marker { display: none; }
+        .codex-tool-header { display: flex; align-items: center; min-width: 0; gap: 8px; min-height: 34px; padding: 6px 9px; }
+        .codex-tool-icon { width: 19px; flex: 0 0 19px; color: #c7c7cc; font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
+        .codex-tool-title { flex: 0 1 auto; min-width: 0; color: #f5f5f7; font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .codex-tool-command { flex: 1; min-width: 0; color: #a9a9b0; font: 12px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .codex-tool-state { flex: 0 0 auto; color: #8e8e93; font-size: 11px; }
+        .codex-tool-state.running::before { content: ''; display: inline-block; width: 9px; height: 9px; margin-right: 5px; border: 1.5px solid #8e8e93; border-top-color: transparent; border-radius: 50%; animation: codex-spin .8s linear infinite; vertical-align: -1px; }
+        .codex-tool.error { border-color: rgba(255,59,48,.38); background: rgba(255,59,48,.07); }
+        .codex-tool-body { border-top: 1px solid rgba(255,255,255,.08); padding: 9px 10px; }
+        .codex-tool-code { margin: 0; max-height: 320px; overflow: auto; color: #c7c7cc; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.42 ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .codex-work-group { margin: 8px 0; border-left: 1px solid rgba(255,255,255,.12); padding-left: 8px; }
+        .codex-work-group > summary { list-style: none; display: flex; align-items: center; gap: 7px; min-height: 30px; color: #a9a9b0; cursor: pointer; font-size: 12px; }
+        .codex-work-group > summary::-webkit-details-marker { display: none; }
+        .codex-work-group > summary::before { content: '›'; width: 12px; color: #8e8e93; font-size: 17px; transform-origin: center; }
+        .codex-work-group[open] > summary::before { transform: rotate(90deg); }
+        .codex-work-group-body { padding-left: 2px; }
+        .codex-patch-file { border-top: 1px solid rgba(255,255,255,.08); }
+        .codex-patch-file:first-child { border-top: 0; }
+        .codex-patch-file > summary { display: flex; align-items: center; gap: 8px; padding: 8px 10px; color: #d1d5db; font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .codex-patch-file .path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .codex-patch-kind { color: #8e8e93; font-family: system-ui, sans-serif; }
+        .codex-diff { overflow-x: auto; border-top: 1px solid rgba(255,255,255,.08); background: rgba(0,0,0,.24); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .codex-diff-line { min-width: max-content; padding: 0 10px; white-space: pre; color: #c7c7cc; }
+        .codex-diff-line.add { color: #b7e4c7; background: rgba(52,199,89,.1); }
+        .codex-diff-line.del { color: #ffb3ad; background: rgba(255,59,48,.1); }
+        .codex-diff-line.hunk { color: #64b5f6; background: rgba(0,122,255,.08); }
+        .codex-permission-result { color: #a9a9b0; font-size: 12px; margin-top: 7px; }
+        .codex-inline-permission { border-top: 1px solid rgba(255,204,0,.28); padding: 9px 10px 10px; background: rgba(255,204,0,.055); }
+        .codex-inline-permission-title { color: #f5f5f7; font-size: 12px; font-weight: 700; }
+        .codex-inline-permission .claude-permission-actions { margin-top: 8px; }
+        @keyframes codex-spin { to { transform: rotate(360deg); } }
         #codex-control-panel { display: none; padding: 8px 14px 10px; border-bottom: 1px solid #222; background: #121212; }
         .codex-control-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; align-items: center; }
         .codex-select { appearance: none; max-width: 116px; min-width: 0; height: 32px; padding: 0 8px; border: 1px solid rgba(255,255,255,.12); border-radius: 7px; background: rgba(255,255,255,.08); color: #f5f5f7; font-weight: 700; font-size: 12px; }
@@ -1961,19 +1991,109 @@
         }
 
         function codexText(text) { return escapeHtml(text || '').replace(/\n/g, '<br>'); }
+        function codexJson(value) {
+            if (typeof value === 'string') return value;
+            try { return JSON.stringify(value || {}, null, 2); } catch (_) { return String(value || ''); }
+        }
+        function codexToolStatus(item) {
+            const status = item.toolStatus || 'running';
+            if (status === 'inProgress') return 'running';
+            if (status === 'failed' || status === 'declined') return status;
+            if (status === 'completed') return item.exitCode && item.exitCode !== 0 ? 'failed' : 'completed';
+            return status;
+        }
+        function renderCodexDiff(diff) {
+            return `<div class="codex-diff">${String(diff || '').split('\n').map(line => {
+                const type = line.startsWith('+++') || line.startsWith('---') ? 'hunk' : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : line.startsWith('@@') ? 'hunk' : '';
+                return `<div class="codex-diff-line ${type}">${escapeHtml(line || ' ')}</div>`;
+            }).join('')}</div>`;
+        }
+        function normalizeCodexChanges(changes) {
+            if (Array.isArray(changes)) return changes.filter(Boolean).map(change => [change.path || 'File', change]);
+            if (changes && typeof changes === 'object') return Object.entries(changes);
+            return [];
+        }
+        function codexChangeDiff(change = {}) {
+            if (typeof change.diff === 'string') return change.diff;
+            if (typeof change.unified_diff === 'string') return change.unified_diff;
+            const kind = change.kind && typeof change.kind === 'object' ? change.kind : {};
+            const type = change.type || kind.type || '';
+            const oldText = change.modify?.old_content ?? change.old_content ?? change.oldContent ?? (type === 'delete' ? change.content : change.delete?.content) ?? '';
+            const newText = change.modify?.new_content ?? change.new_content ?? change.newContent ?? (type === 'add' ? change.content : change.add?.content) ?? '';
+            if (!oldText && !newText) return '';
+            return `${String(oldText).split('\n').map(line => `-${line}`).join('\n')}\n${String(newText).split('\n').map(line => `+${line}`).join('\n')}`;
+        }
+        function renderCodexPatch(item) {
+            const entries = normalizeCodexChanges(item.changes || item.input?.changes);
+            if (!entries.length) return `<div class="codex-tool-body"><pre class="codex-tool-code">${escapeHtml(codexJson(item.input))}</pre></div>`;
+            return entries.map(([path, change]) => {
+                const kind = change?.type || change?.kind?.type || 'edit';
+                const move = change?.move_path || change?.kind?.move_path;
+                const diff = codexChangeDiff(change);
+                return `<details class="codex-patch-file"><summary><span class="path">${escapeHtml(path)}${move ? ` → ${escapeHtml(move)}` : ''}</span><span class="codex-patch-kind">${escapeHtml(kind)}</span></summary>${diff ? renderCodexDiff(diff) : ''}</details>`;
+            }).join('');
+        }
+        function renderCodexPermission(request, inline = false) {
+            if (!request) return '';
+            const pending = request.status === 'pending';
+            const labels = { approved: 'Allowed once', approved_for_session: 'Allowed for session', denied: 'Denied', abort: 'Stopped' };
+            const detail = request.reason || (request.input && Object.keys(request.input).length ? codexJson(request.input) : '');
+            const content = `${inline ? `<div class="codex-inline-permission-title">${escapeHtml(request.title || 'Permission required')}</div>` : ''}${detail ? `<div>${codexText(detail)}</div>` : ''}${pending ? `<div class="claude-permission-actions"><button class="small-btn primary" onclick="respondCodexPermission('${escapeHtml(request.id)}', 'approved')">Yes</button><button class="small-btn" onclick="respondCodexPermission('${escapeHtml(request.id)}', 'approved_for_session')">Yes, for session</button><button class="small-btn danger" onclick="respondCodexPermission('${escapeHtml(request.id)}', 'abort')">Stop and explain</button></div>` : `<div class="codex-permission-result">${escapeHtml(labels[request.decision] || request.status)}</div>`}`;
+            if (inline) return `<div class="codex-inline-permission">${content}</div>`;
+            return `<div class="claude-tool claude-permission"><div class="claude-tool-header"><strong>${escapeHtml(request.title || 'Permission required')}</strong></div><div class="claude-tool-body">${content}</div></div>`;
+        }
+        function renderCodexTool(item, permission = null) {
+            const status = codexToolStatus(item);
+            const isError = status === 'failed' || Boolean(item.error) || (item.exitCode != null && item.exitCode !== 0);
+            const runningClass = status === 'running' ? ' running' : '';
+            if (item.name === 'CodexPatch') {
+                return `<div class="codex-tool${isError ? ' error' : ''}">${renderCodexPatch(item)}${permission ? renderCodexPermission(permission, true) : ''}</div>`;
+            }
+            const command = item.name === 'CodexBash' ? item.command : item.title || item.tool || '';
+            const icon = item.name === 'CodexBash' ? '>_' : item.name === 'McpTool' ? 'MCP' : item.name === 'Agent' ? 'A' : '•';
+            const title = item.name === 'CodexBash' ? 'Command' : item.title || item.name || 'Tool';
+            const result = item.result || (item.name === 'McpTool' || item.name === 'Agent' ? codexJson(item.input) : '');
+            return `<details class="codex-tool${isError ? ' error' : ''}"><summary class="codex-tool-header"><span class="codex-tool-icon">${escapeHtml(icon)}</span><span class="codex-tool-title">${escapeHtml(title)}</span>${command && command !== title ? `<span class="codex-tool-command">${escapeHtml(command)}</span>` : '<span class="codex-tool-command"></span>'}<span class="codex-tool-state${runningClass}">${escapeHtml(status === 'completed' ? '' : status)}</span></summary>${result ? `<div class="codex-tool-body"><pre class="codex-tool-code">${escapeHtml(result)}</pre></div>` : ''}${permission ? renderCodexPermission(permission, true) : ''}</details>`;
+        }
+        function renderCodexToolGroup(items, permissionById, usedPermissions) {
+            const running = items.some(item => codexToolStatus(item) === 'running');
+            const failed = items.some(item => codexToolStatus(item) === 'failed' || item.error);
+            const startedAt = Math.min(...items.map(item => Number(item.createdAt || Date.now())));
+            const seconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+            const tools = items.map(item => {
+                const permission = permissionById.get(String(item.providerId || ''));
+                if (permission) usedPermissions.add(permission.id);
+                return renderCodexTool(item, permission);
+            }).join('');
+            return `<details class="codex-work-group"${running ? ' open' : ''}><summary>${running ? 'Working' : failed ? 'Work finished with errors' : `Worked for ${seconds}s`} · ${items.length} tools</summary><div class="codex-work-group-body">${tools}</div></details>`;
+        }
         function renderCodexChat() {
             const container = document.getElementById('codex-chat-container');
             if (!container) return;
-            const parts = codexMessages.map(item => {
-                if (item.kind === 'tool') return `<details class="codex-tool"><summary>${escapeHtml(item.name || 'Tool')} ${escapeHtml(item.summary || '')}</summary><pre>${escapeHtml(item.result || item.input || '')}</pre></details>`;
-                if (item.kind === 'reasoning') return `<div class="codex-message reasoning claude-md">${renderMarkdown(item.text || '')}</div>`;
-                if (item.kind === 'assistant') return `<div class="codex-message assistant claude-md">${renderMarkdown(item.text || '')}</div>`;
-                return `<div class="codex-message ${escapeHtml(item.kind || 'event')}">${codexText(item.text)}</div>`;
-            });
-            for (const request of codexPendingPermissions.filter(item => item.status === 'pending')) {
-                parts.push(`<div class="claude-tool claude-permission"><div class="claude-tool-header"><strong>${escapeHtml(request.title || 'Permission required')}</strong></div><div class="claude-tool-body">${request.reason ? `<div>${escapeHtml(request.reason)}</div>` : ''}<div class="claude-permission-actions"><button class="small-btn primary" onclick="respondCodexPermission('${escapeHtml(request.id)}', true)">Allow</button><button class="small-btn danger" onclick="respondCodexPermission('${escapeHtml(request.id)}', false)">Deny</button></div></div></div>`);
+            const parts = [];
+            const permissionById = new Map(codexPendingPermissions.map(item => [String(item.id), item]));
+            const usedPermissions = new Set();
+            const visible = codexMessages.filter(item => !['reasoning', 'turn-start', 'turn-end'].includes(item.kind));
+            for (let i = 0; i < visible.length;) {
+                const item = visible[i];
+                if (item.kind === 'tool') {
+                    const tools = [];
+                    while (i < visible.length && visible[i].kind === 'tool') tools.push(visible[i++]);
+                    if (tools.length > 1) parts.push(renderCodexToolGroup(tools, permissionById, usedPermissions));
+                    else {
+                        const permission = permissionById.get(String(tools[0].providerId || ''));
+                        if (permission) usedPermissions.add(permission.id);
+                        parts.push(renderCodexTool(tools[0], permission));
+                    }
+                    continue;
+                }
+                if (item.kind === 'assistant') parts.push(`<div class="codex-message assistant claude-md">${renderMarkdown(item.text || '')}</div>`);
+                else if (item.kind === 'user') parts.push(`<div class="codex-message user claude-md">${renderMarkdown(item.text || '')}</div>`);
+                else parts.push(`<div class="codex-message ${escapeHtml(item.level === 'error' ? 'event error' : item.kind || 'event')}">${codexText(item.text)}</div>`);
+                i += 1;
             }
-            container.innerHTML = parts.join('') || '<div class="codex-message event">Send a message to start Codex.</div>';
+            for (const request of codexPendingPermissions) if (!usedPermissions.has(request.id)) parts.push(renderCodexPermission(request));
+            container.innerHTML = `<div class="codex-conversation">${parts.join('') || '<div class="codex-message event">Send a message to start Codex.</div>'}</div>`;
             requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; });
         }
 
@@ -2047,7 +2167,7 @@
         function sendCodexSettings(settings) { if (currentSocket?.readyState === 1) currentSocket.send(JSON.stringify({ type: 'codex-settings', settings })); }
         function updateCodexSettingsFromControls() { const permissionMode = document.getElementById('codex-permission-select').value; applyCodexState({ permissionMode }); sendCodexSettings({ permissionMode }); }
         function abortCodexSession() { if (currentSocket?.readyState === 1) currentSocket.send(JSON.stringify({ type: 'codex-abort' })); }
-        function respondCodexPermission(id, approved) { if (currentSocket?.readyState === 1) currentSocket.send(JSON.stringify({ type: 'codex-permission', id, approved })); }
+        function respondCodexPermission(id, decision) { if (currentSocket?.readyState === 1) currentSocket.send(JSON.stringify({ type: 'codex-permission', id, decision })); }
         async function toggleCodexResumePanel() {
             codexResumePanelOpen = !codexResumePanelOpen;
             codexModelPanelOpen = false;
