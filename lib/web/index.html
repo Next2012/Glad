@@ -117,8 +117,12 @@
         .codex-inline-permission .claude-permission-actions { margin-top: 8px; }
         @keyframes codex-spin { to { transform: rotate(360deg); } }
         #codex-control-panel { display: none; width: min(100%, var(--control-content-max)); margin: 0 auto; padding: 8px 14px 10px; border-bottom: 1px solid #222; background: #121212; box-sizing: border-box; }
-        .codex-control-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; align-items: center; }
-        .codex-select { appearance: none; max-width: 116px; min-width: 0; height: 32px; padding: 0 8px; border: 1px solid rgba(255,255,255,.12); border-radius: 7px; background: rgba(255,255,255,.08); color: #f5f5f7; font-weight: 700; font-size: 12px; }
+        .codex-control-row { display: grid; grid-template-columns: repeat(5, minmax(0, 116px)); justify-content: center; gap: 7px; align-items: center; }
+        .codex-control-row > * { width: 100%; }
+        .codex-select-control { position: relative; display: block; min-width: 0; height: 32px; }
+        .codex-select-label { display: flex; width: 100%; height: 100%; align-items: center; justify-content: center; box-sizing: border-box; border: 1px solid rgba(255,255,255,.1); border-radius: 16px; background: rgba(255,255,255,.08); color: #f5f5f7; font-size: 11px; font-weight: 800; white-space: nowrap; }
+        .codex-select-control:focus-within .codex-select-label { background: rgba(255,255,255,.14); border-color: rgba(0,122,255,.45); }
+        .codex-select { appearance: none; position: absolute; inset: 0; width: 100%; min-width: 0; height: 100%; opacity: 0; cursor: pointer; }
         .codex-select option { background: #1c1c1e; color: #fff; }
         #codex-model-panel, #codex-resume-panel { display: none; margin-top: 8px; border: 1px solid rgba(255,255,255,.1); background: rgba(28,28,30,.99); border-radius: 8px; box-shadow: 0 16px 36px rgba(0,0,0,.34); overflow: hidden; }
         #codex-model-panel.active, #codex-resume-panel.active { display: block; }
@@ -128,7 +132,8 @@
         .codex-picker-column + .codex-picker-column { border-left: 1px solid rgba(255,255,255,.08); }
         .codex-picker-option { display: block; width: 100%; min-height: 38px; padding: 8px 10px; border: 0; border-bottom: 1px solid rgba(255,255,255,.06); background: transparent; color: #f5f5f7; text-align: left; font-size: 12px; font-weight: 700; overflow-wrap: anywhere; }
         .codex-picker-option.selected { background: rgba(0,122,255,.18); color: #fff; }
-        #codex-state-bar { display: none; align-items: center; gap: 7px; min-height: 24px; margin-top: 8px; color: var(--text-dim); font-size: 11px; }
+        #codex-state-bar { display: flex; align-items: center; gap: 7px; min-height: 24px; margin-top: 8px; color: var(--text-dim); font-size: 11px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
+        #codex-state-bar::-webkit-scrollbar { display: none; }
         #codex-resume-panel { max-height: min(280px, 38dvh); overflow-y: auto; }
         .claude-context-size-badge { position: sticky; top: 0; z-index: 2; width: max-content; max-width: 100%; margin: 0 0 8px auto; border: 1px solid rgba(255,255,255,0.1); background: rgba(28,28,30,0.94); border-radius: 999px; padding: 4px 9px; color: #d1d5db; font-size: 11px; font-weight: 800; box-shadow: 0 8px 18px rgba(0,0,0,0.24); }
         .claude-message { max-width: 92%; margin: 0 0 10px 0; padding: 10px 12px; border-radius: 8px; overflow-wrap: anywhere; line-height: 1.45; font-size: 14px; }
@@ -287,8 +292,10 @@
             #nav-bar > div:last-child { gap: 5px !important; }
             #nav-bar > div:last-child .icon-btn { min-width: 34px; min-height: 30px; padding: 5px 7px !important; }
             #input-row { padding-left: 10px; padding-right: 10px; }
-            #codex-control-panel { padding-left: 10px; padding-right: 10px; }
-            .codex-control-row { gap: 6px; }
+            #codex-control-panel { padding-left: 8px; padding-right: 8px; }
+            .codex-control-row { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
+            .codex-control-row .claude-ctrl-btn { height: 36px; padding-left: 4px; padding-right: 4px; }
+            .codex-select-control { height: 36px; }
             #codex-chat-container { padding: 10px 10px calc(22px + env(safe-area-inset-bottom)); }
             .codex-message.user { max-width: 94%; }
             .claude-permission-actions { justify-content: flex-start; }
@@ -405,9 +412,18 @@
                 </div>
                 <div id="codex-control-panel">
                     <div class="codex-control-row">
-                        <select id="codex-permission-select" class="codex-select" title="Permission mode" onchange="updateCodexSettingsFromControls()">
-                            <option value="untrusted">Untrusted</option><option value="on-request">On request</option><option value="never">Never ask</option>
-                        </select>
+                        <label class="codex-select-control" title="Sandbox mode">
+                            <span class="codex-select-label" aria-hidden="true">Sandbox</span>
+                            <select id="codex-sandbox-select" class="codex-select" aria-label="Sandbox mode" onchange="updateCodexSettingsFromControls()">
+                                <option value="default">Default</option><option value="read-only">Read only</option><option value="workspace-write">Workspace write</option><option value="danger-full-access">Full access</option>
+                            </select>
+                        </label>
+                        <label class="codex-select-control" title="Approval policy">
+                            <span class="codex-select-label" aria-hidden="true">Ask</span>
+                            <select id="codex-permission-select" class="codex-select" aria-label="Approval policy" onchange="updateCodexSettingsFromControls()">
+                                <option value="default">Default</option><option value="untrusted">Untrusted</option><option value="on-request">On request</option><option value="never">Never ask</option>
+                            </select>
+                        </label>
                         <button id="codex-model-btn" class="claude-ctrl-btn" onclick="toggleCodexModelPanel()" title="Model and effort">Model</button>
                         <button id="codex-abort-btn" class="claude-ctrl-btn danger" onclick="abortCodexSession()" title="Abort current Codex turn">Abort</button>
                         <button id="codex-resume-btn" class="claude-ctrl-btn primary" onclick="toggleCodexResumePanel()" title="Resume a Codex thread">Resume</button>
@@ -607,7 +623,7 @@
         let claudeResumeItemsLoaded = false;
         let codexMessages = [];
         let codexPendingPermissions = [];
-        let codexState = { permissionMode: 'on-request', model: null, effort: null, status: 'idle', threadId: null, presentation: 'structured', models: [], canAbort: false, canSwitchToTerminal: false, canSwitchToStructured: false };
+        let codexState = { permissionMode: 'default', sandboxMode: 'default', effectivePermissionMode: null, effectiveSandboxMode: null, model: null, effort: null, status: 'idle', threadId: null, presentation: 'structured', models: [], canAbort: false, canSwitchToTerminal: false, canSwitchToStructured: false };
         let codexModelPanelOpen = false;
         let codexModelCandidate = null;
         let codexResumePanelOpen = false;
@@ -2113,23 +2129,43 @@
                 i += 1;
             }
             for (const request of codexPendingPermissions) if (!usedPermissions.has(request.id)) parts.push(renderCodexPermission(request));
+            if (codexState.status === 'running') {
+                parts.push('<div class="claude-status">Codex is working...</div>');
+            }
             container.innerHTML = `<div class="codex-conversation">${parts.join('') || '<div class="codex-message event">Send a message to start Codex.</div>'}</div>`;
             requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; });
         }
 
         function applyCodexState(state = {}) {
+            const presentationChanged = state.presentation !== undefined && state.presentation !== codexState.presentation;
             codexState = { ...codexState, ...state };
             const permission = document.getElementById('codex-permission-select');
-            if (permission) permission.value = codexState.permissionMode || 'on-request';
+            if (permission) {
+                const defaultOption = permission.querySelector('option[value="default"]');
+                const labels = { untrusted: 'Untrusted', 'on-request': 'On request', never: 'Never ask' };
+                if (defaultOption) defaultOption.textContent = codexState.effectivePermissionMode
+                    ? `Default (${labels[codexState.effectivePermissionMode] || codexState.effectivePermissionMode})`
+                    : 'Default';
+                permission.value = codexState.permissionMode || 'default';
+            }
+            const sandbox = document.getElementById('codex-sandbox-select');
+            if (sandbox) {
+                const defaultOption = sandbox.querySelector('option[value="default"]');
+                const labels = { 'read-only': 'Read only', 'workspace-write': 'Workspace write', 'danger-full-access': 'Full access' };
+                if (defaultOption) defaultOption.textContent = codexState.effectiveSandboxMode
+                    ? `Default (${labels[codexState.effectiveSandboxMode] || codexState.effectiveSandboxMode})`
+                    : 'Default';
+                sandbox.value = codexState.sandboxMode || 'default';
+            }
             const modelButton = document.getElementById('codex-model-btn');
-            if (modelButton) modelButton.textContent = codexState.model ? codexState.model.replace(/^gpt-/, '').slice(0, 10) : 'Model';
+            if (modelButton) modelButton.textContent = 'Model';
             const abort = document.getElementById('codex-abort-btn');
             if (abort) abort.disabled = !codexState.canAbort;
             const terminal = document.getElementById('codex-terminal-switch');
             if (terminal) { terminal.textContent = codexState.presentation === 'terminal' ? 'CHAT' : 'TERM'; terminal.disabled = codexState.presentation === 'structured' && !codexState.canSwitchToTerminal; terminal.title = codexState.presentation === 'terminal' ? 'Return to Codex chat' : 'Switch to Codex terminal'; }
             renderCodexStateBar();
             renderCodexModelPanel();
-            setClaudeModeEnabled(isClaudeSession());
+            if (presentationChanged) setClaudeModeEnabled(isClaudeSession());
             renderCodexChat();
         }
 
@@ -2185,7 +2221,12 @@
         }
 
         function sendCodexSettings(settings) { if (currentSocket?.readyState === 1) currentSocket.send(JSON.stringify({ type: 'codex-settings', settings })); }
-        function updateCodexSettingsFromControls() { const permissionMode = document.getElementById('codex-permission-select').value; applyCodexState({ permissionMode }); sendCodexSettings({ permissionMode }); }
+        function updateCodexSettingsFromControls() {
+            const permissionMode = document.getElementById('codex-permission-select').value;
+            const sandboxMode = document.getElementById('codex-sandbox-select').value;
+            applyCodexState({ permissionMode, sandboxMode });
+            sendCodexSettings({ permissionMode, sandboxMode });
+        }
         function abortCodexSession() { if (currentSocket?.readyState === 1) currentSocket.send(JSON.stringify({ type: 'codex-abort' })); }
         function respondCodexPermission(id, decision) { if (currentSocket?.readyState === 1) currentSocket.send(JSON.stringify({ type: 'codex-permission', id, decision })); }
         async function toggleCodexResumePanel() {
@@ -2345,7 +2386,7 @@
             codexResumePanelOpen = false;
             document.getElementById('codex-model-panel').classList.remove('active');
             document.getElementById('codex-resume-panel').classList.remove('active');
-            codexState = { permissionMode: 'on-request', model: null, effort: null, status: 'idle', threadId: null, presentation: 'structured', models: [], canAbort: false, canSwitchToTerminal: false, canSwitchToStructured: false };
+            codexState = { permissionMode: 'default', sandboxMode: 'default', effectivePermissionMode: null, effectiveSandboxMode: null, model: null, effort: null, status: 'idle', threadId: null, presentation: 'structured', models: [], canAbort: false, canSwitchToTerminal: false, canSwitchToStructured: false };
             setClaudeModeEnabled(false);
             applyCodexState(codexState);
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
