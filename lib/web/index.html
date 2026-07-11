@@ -10,7 +10,7 @@
     <link rel="apple-touch-icon" href="logo.svg">
     <link rel="stylesheet" href="https://unpkg.com/xterm@5.3.0/css/xterm.css" />
     <style>
-        :root { --primary: #007aff; --bg: #000; --card-bg: #1c1c1e; --text: #fff; --text-dim: #8e8e93; --terminal-controls-rest-height: 108px; }
+        :root { --primary: #007aff; --bg: #000; --card-bg: #1c1c1e; --text: #fff; --text-dim: #8e8e93; --terminal-controls-rest-height: 108px; --chat-content-max: 900px; --control-content-max: 1100px; }
         body, html { margin: 0; padding: 0; height: 100dvh; width: 100vw; background: var(--bg); color: var(--text); overflow: hidden; overflow-anchor: none; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
         .view { display: none; height: 100%; width: 100%; flex-direction: column; }
         .view.active { display: flex; }
@@ -48,7 +48,7 @@
         #session-title { flex: 1; text-align: center; font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 10px; min-width: 0; }
         #terminal-controls { position: absolute; top: 100%; left: 0; right: 0; z-index: 2200; background: linear-gradient(180deg, rgba(18,18,18,0.98) 0%, rgba(18,18,18,0.92) 78%, rgba(18,18,18,0) 100%); border-bottom: 1px solid rgba(255,255,255,0.06); }
         #terminal-controls-spacer { flex: 0 0 var(--terminal-controls-rest-height); height: var(--terminal-controls-rest-height); background: #000; }
-        #input-row { display: flex; align-items: flex-end; padding: 10px 14px 8px 14px; }
+        #input-row { display: flex; align-items: flex-end; width: min(100%, var(--control-content-max)); margin: 0 auto; padding: 10px 14px 8px 14px; box-sizing: border-box; }
         #cmd-input { flex: 1; min-height: 38px; max-height: 150px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 19px; color: #fff; padding: 9px 16px; font-size: 16px; outline: none; resize: none; overflow-y: auto; line-height: 20px; box-sizing: border-box; transition: background 0.18s ease, border-color 0.18s ease; }
         #cmd-input::placeholder { color: rgba(255,255,255,0.45); }
         #cmd-input:focus { background: rgba(255,255,255,0.1); border-color: rgba(0,122,255,0.42); color: #fff; }
@@ -78,6 +78,58 @@
         #terminal-container { flex: 1; min-height: 0; width: 100%; background: #000; position: relative; overflow: hidden; overflow-anchor: none; }
         #terminal { height: 100%; width: 100%; }
         #claude-chat-container { display: none; flex: 1; min-height: 0; overflow-y: auto; background: #050505; padding: 12px 12px 24px 12px; box-sizing: border-box; -webkit-overflow-scrolling: touch; }
+        #codex-chat-container { display: none; flex: 1; min-height: 0; overflow-y: auto; background: #050505; padding: 12px 12px 24px 12px; box-sizing: border-box; -webkit-overflow-scrolling: touch; }
+        .codex-conversation { width: min(100%, var(--chat-content-max)); margin: 0 auto; }
+        .codex-message { max-width: 100%; margin: 0 0 12px; color: #f5f5f7; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+        .codex-message.user { max-width: 92%; margin-left: auto; padding: 8px 12px; border: 1px solid rgba(0,122,255,.32); border-radius: 12px; background: rgba(0,122,255,.24); }
+        .codex-message.event { color: var(--text-dim); text-align: center; font-size: 12px; }
+        .codex-tool { border: 1px solid rgba(255,255,255,.1); border-radius: 8px; background: rgba(255,255,255,.045); overflow: hidden; margin: 8px 0; color: #d1d5db; }
+        .codex-tool summary { list-style: none; cursor: pointer; }
+        .codex-tool summary::-webkit-details-marker { display: none; }
+        .codex-tool-header { display: flex; align-items: center; min-width: 0; gap: 8px; min-height: 34px; padding: 6px 9px; }
+        .codex-tool-icon { width: 19px; flex: 0 0 19px; color: #c7c7cc; font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
+        .codex-tool-title { flex: 0 1 auto; min-width: 0; color: #f5f5f7; font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .codex-tool-command { flex: 1; min-width: 0; color: #a9a9b0; font: 12px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .codex-tool-state { flex: 0 0 auto; color: #8e8e93; font-size: 11px; }
+        .codex-tool-state.running::before { content: ''; display: inline-block; width: 9px; height: 9px; margin-right: 5px; border: 1.5px solid #8e8e93; border-top-color: transparent; border-radius: 50%; animation: codex-spin .8s linear infinite; vertical-align: -1px; }
+        .codex-tool.error { border-color: rgba(255,59,48,.38); background: rgba(255,59,48,.07); }
+        .codex-tool-body { border-top: 1px solid rgba(255,255,255,.08); padding: 9px 10px; }
+        .codex-tool-code { margin: 0; max-height: 320px; overflow: auto; color: #c7c7cc; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.42 ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .codex-work-group { margin: 8px 0; border-left: 1px solid rgba(255,255,255,.12); padding-left: 8px; }
+        .codex-work-group > summary { list-style: none; display: flex; align-items: center; gap: 7px; min-height: 30px; color: #a9a9b0; cursor: pointer; font-size: 12px; }
+        .codex-work-group > summary::-webkit-details-marker { display: none; }
+        .codex-work-group > summary::before { content: '›'; width: 12px; color: #8e8e93; font-size: 17px; transform-origin: center; }
+        .codex-work-group[open] > summary::before { transform: rotate(90deg); }
+        .codex-work-group-body { padding-left: 2px; }
+        .codex-patch-file { border-top: 1px solid rgba(255,255,255,.08); }
+        .codex-patch-file:first-child { border-top: 0; }
+        .codex-patch-file > summary { display: flex; align-items: center; gap: 8px; padding: 8px 10px; color: #d1d5db; font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .codex-patch-file .path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .codex-patch-kind { color: #8e8e93; font-family: system-ui, sans-serif; }
+        .codex-diff { overflow-x: auto; border-top: 1px solid rgba(255,255,255,.08); background: rgba(0,0,0,.24); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .codex-diff-line { min-width: max-content; padding: 0 10px; white-space: pre; color: #c7c7cc; }
+        .codex-diff-line.add { color: #b7e4c7; background: rgba(52,199,89,.1); }
+        .codex-diff-line.del { color: #ffb3ad; background: rgba(255,59,48,.1); }
+        .codex-diff-line.hunk { color: #64b5f6; background: rgba(0,122,255,.08); }
+        .codex-permission-result { color: #a9a9b0; font-size: 12px; margin-top: 7px; }
+        .codex-inline-permission { border-top: 1px solid rgba(255,204,0,.28); padding: 9px 10px 10px; background: rgba(255,204,0,.055); }
+        .codex-inline-permission-title { color: #f5f5f7; font-size: 12px; font-weight: 700; }
+        .codex-inline-permission .claude-permission-actions { margin-top: 8px; }
+        @keyframes codex-spin { to { transform: rotate(360deg); } }
+        #codex-control-panel { display: none; width: min(100%, var(--control-content-max)); margin: 0 auto; padding: 8px 14px 10px; border-bottom: 1px solid #222; background: #121212; box-sizing: border-box; }
+        .codex-control-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; align-items: center; }
+        .codex-select { appearance: none; max-width: 116px; min-width: 0; height: 32px; padding: 0 8px; border: 1px solid rgba(255,255,255,.12); border-radius: 7px; background: rgba(255,255,255,.08); color: #f5f5f7; font-weight: 700; font-size: 12px; }
+        .codex-select option { background: #1c1c1e; color: #fff; }
+        #codex-model-panel, #codex-resume-panel { display: none; margin-top: 8px; border: 1px solid rgba(255,255,255,.1); background: rgba(28,28,30,.99); border-radius: 8px; box-shadow: 0 16px 36px rgba(0,0,0,.34); overflow: hidden; }
+        #codex-model-panel.active, #codex-resume-panel.active { display: block; }
+        #codex-model-panel { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); max-height: min(300px, 42dvh); }
+        #codex-model-panel.active { display: grid; }
+        .codex-picker-column { min-width: 0; overflow-y: auto; }
+        .codex-picker-column + .codex-picker-column { border-left: 1px solid rgba(255,255,255,.08); }
+        .codex-picker-option { display: block; width: 100%; min-height: 38px; padding: 8px 10px; border: 0; border-bottom: 1px solid rgba(255,255,255,.06); background: transparent; color: #f5f5f7; text-align: left; font-size: 12px; font-weight: 700; overflow-wrap: anywhere; }
+        .codex-picker-option.selected { background: rgba(0,122,255,.18); color: #fff; }
+        #codex-state-bar { display: none; align-items: center; gap: 7px; min-height: 24px; margin-top: 8px; color: var(--text-dim); font-size: 11px; }
+        #codex-resume-panel { max-height: min(280px, 38dvh); overflow-y: auto; }
         .claude-context-size-badge { position: sticky; top: 0; z-index: 2; width: max-content; max-width: 100%; margin: 0 0 8px auto; border: 1px solid rgba(255,255,255,0.1); background: rgba(28,28,30,0.94); border-radius: 999px; padding: 4px 9px; color: #d1d5db; font-size: 11px; font-weight: 800; box-shadow: 0 8px 18px rgba(0,0,0,0.24); }
         .claude-message { max-width: 92%; margin: 0 0 10px 0; padding: 10px 12px; border-radius: 8px; overflow-wrap: anywhere; line-height: 1.45; font-size: 14px; }
         .claude-message.user { margin-left: auto; background: rgba(0,122,255,0.24); border: 1px solid rgba(0,122,255,0.32); color: #fff; border-radius: 12px; padding-top: 7px; padding-bottom: 7px; }
@@ -226,6 +278,35 @@
             .step-grid { grid-template-columns: 1fr; }
             .timed-row { grid-template-columns: 1fr; }
         }
+        @media (max-width: 480px) {
+            :root { --chat-content-max: 100%; --control-content-max: 100%; }
+            #nav-bar { padding: 8px 10px; }
+            #back-btn { font-size: 15px; }
+            #back-btn svg { width: 22px; height: 22px; }
+            #session-title { font-size: 15px; padding: 0 7px; }
+            #nav-bar > div:last-child { gap: 5px !important; }
+            #nav-bar > div:last-child .icon-btn { min-width: 34px; min-height: 30px; padding: 5px 7px !important; }
+            #input-row { padding-left: 10px; padding-right: 10px; }
+            #codex-control-panel { padding-left: 10px; padding-right: 10px; }
+            .codex-control-row { gap: 6px; }
+            #codex-chat-container { padding: 10px 10px calc(22px + env(safe-area-inset-bottom)); }
+            .codex-message.user { max-width: 94%; }
+            .claude-permission-actions { justify-content: flex-start; }
+        }
+        @media (max-width: 430px) {
+            #nav-bar > div:last-child .icon-btn:not(#codex-terminal-switch) { width: 34px; font-size: 0 !important; gap: 0 !important; }
+            #nav-bar > div:last-child .icon-btn:not(#codex-terminal-switch) svg { width: 16px; height: 16px; }
+            #codex-terminal-switch { padding-left: 8px !important; padding-right: 8px !important; }
+        }
+        @media (min-width: 768px) and (max-width: 1199px) {
+            :root { --chat-content-max: 780px; --control-content-max: 920px; }
+            #codex-chat-container { padding: 16px 18px 30px; }
+            #input-row, #codex-control-panel { padding-left: 18px; padding-right: 18px; }
+        }
+        @media (min-width: 1200px) {
+            :root { --chat-content-max: 960px; --control-content-max: 1100px; }
+            #codex-chat-container { padding: 18px 22px 34px; }
+        }
     </style>
 </head>
 <body>
@@ -264,6 +345,7 @@
                 </button>
                 <div id="session-title">Terminal</div>
                 <div style="display: flex; align-items: center; gap: 8px;">
+                    <button id="codex-terminal-switch" class="icon-btn" onclick="toggleCodexPresentation()" title="Switch Codex interface" style="display:none; color: var(--primary); font-size: 12px; font-weight: 700; background: rgba(0, 122, 255, 0.1); padding: 5px 9px; border-radius: 15px; gap: 4px;">TERM</button>
                     <button class="icon-btn" onclick="showHistory()" title="History" style="color: var(--primary); font-size: 12px; font-weight: 700; background: rgba(0, 122, 255, 0.1); padding: 5px 9px; border-radius: 15px; gap: 4px;">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"></path><polyline points="3 3 3 9 9 9"></polyline><path d="M12 7v5l3 2"></path></svg>
                         HIS
@@ -321,6 +403,19 @@
                     <div id="claude-usage-panel"></div>
                     <div id="claude-resume-panel"></div>
                 </div>
+                <div id="codex-control-panel">
+                    <div class="codex-control-row">
+                        <select id="codex-permission-select" class="codex-select" title="Permission mode" onchange="updateCodexSettingsFromControls()">
+                            <option value="untrusted">Untrusted</option><option value="on-request">On request</option><option value="never">Never ask</option>
+                        </select>
+                        <button id="codex-model-btn" class="claude-ctrl-btn" onclick="toggleCodexModelPanel()" title="Model and effort">Model</button>
+                        <button id="codex-abort-btn" class="claude-ctrl-btn danger" onclick="abortCodexSession()" title="Abort current Codex turn">Abort</button>
+                        <button id="codex-resume-btn" class="claude-ctrl-btn primary" onclick="toggleCodexResumePanel()" title="Resume a Codex thread">Resume</button>
+                    </div>
+                    <div id="codex-state-bar"></div>
+                    <div id="codex-model-panel"></div>
+                    <div id="codex-resume-panel"></div>
+                </div>
                 <div id="timed-send-panel">
                     <div class="timed-row">
                         <select id="timed-hours" onchange="updateTimedSendPreview()" title="Hours"></select>
@@ -360,6 +455,7 @@
         <div id="terminal-controls-spacer"></div>
         <div id="terminal-container"><div id="terminal"></div></div>
         <div id="claude-chat-container"></div>
+        <div id="codex-chat-container"></div>
     </div>
 
     <!-- Plain Text History View -->
@@ -509,6 +605,12 @@
         };
         let claudeResumePanelOpen = false;
         let claudeResumeItemsLoaded = false;
+        let codexMessages = [];
+        let codexPendingPermissions = [];
+        let codexState = { permissionMode: 'on-request', model: null, effort: null, status: 'idle', threadId: null, presentation: 'structured', models: [], canAbort: false, canSwitchToTerminal: false, canSwitchToStructured: false };
+        let codexModelPanelOpen = false;
+        let codexModelCandidate = null;
+        let codexResumePanelOpen = false;
         const modifiers = { ctrl: false };
 
         function log(msg) {
@@ -800,25 +902,30 @@
             return activeToolKey === 'claude-code';
         }
 
+        function isCodexSession() {
+            return activeToolKey === 'codex';
+        }
+
         function setClaudeModeEnabled(enabled) {
-            document.getElementById('terminal-container').style.display = enabled ? 'none' : '';
+            const codexChat = isCodexSession() && codexState.presentation === 'structured';
+            const structured = enabled || codexChat;
+            document.getElementById('terminal-container').style.display = structured ? 'none' : '';
             document.getElementById('claude-chat-container').style.display = enabled ? 'block' : 'none';
+            document.getElementById('codex-chat-container').style.display = codexChat ? 'block' : 'none';
             document.getElementById('claude-control-panel').style.display = enabled ? 'block' : 'none';
+            document.getElementById('codex-control-panel').style.display = codexChat ? 'block' : 'none';
+            document.getElementById('codex-terminal-switch').style.display = isCodexSession() ? '' : 'none';
             document.getElementById('timer-btn').style.display = '';
-            document.getElementById('shortcut-rail').style.display = enabled ? 'none' : '';
-            document.getElementById('scroll-controls').style.display = enabled ? 'none' : '';
-            document.getElementById('cmd-input').placeholder = enabled ? 'Message Claude...' : 'Type a message...';
+            document.getElementById('shortcut-rail').style.display = structured ? 'none' : '';
+            document.getElementById('scroll-controls').style.display = structured ? 'none' : '';
+            document.getElementById('cmd-input').placeholder = enabled ? 'Message Claude...' : codexChat ? 'Message Codex...' : 'Type a message...';
             updateTerminalControlsHeight();
         }
 
         function updateTerminalControlsHeight() {
-            const timedOpen = document.getElementById('timed-send-panel')?.classList.contains('active');
-            if (!isClaudeSession()) {
-                document.documentElement.style.setProperty('--terminal-controls-rest-height', timedOpen ? '252px' : '108px');
-                return;
-            }
-            const baseHeight = claudeResumePanelOpen ? 308 : ((claudePickerOpen || claudeUsagePanelOpen) ? 322 : 154);
-            document.documentElement.style.setProperty('--terminal-controls-rest-height', `${baseHeight + (timedOpen ? 144 : 0)}px`);
+            const controls = document.getElementById('terminal-controls');
+            const measuredHeight = controls ? Math.ceil(controls.getBoundingClientRect().height) : 0;
+            document.documentElement.style.setProperty('--terminal-controls-rest-height', `${Math.max(0, measuredHeight)}px`);
         }
 
         function shortModelLabel(value, resolved) {
@@ -1903,6 +2010,214 @@
             }));
         }
 
+        function codexText(text) { return escapeHtml(text || '').replace(/\n/g, '<br>'); }
+        function codexJson(value) {
+            if (typeof value === 'string') return value;
+            try { return JSON.stringify(value || {}, null, 2); } catch (_) { return String(value || ''); }
+        }
+        function codexToolStatus(item) {
+            const status = item.toolStatus || 'running';
+            if (status === 'inProgress') return 'running';
+            if (status === 'failed' || status === 'declined') return status;
+            if (status === 'completed') return item.exitCode && item.exitCode !== 0 ? 'failed' : 'completed';
+            return status;
+        }
+        function renderCodexDiff(diff) {
+            return `<div class="codex-diff">${String(diff || '').split('\n').map(line => {
+                const type = line.startsWith('+++') || line.startsWith('---') ? 'hunk' : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : line.startsWith('@@') ? 'hunk' : '';
+                return `<div class="codex-diff-line ${type}">${escapeHtml(line || ' ')}</div>`;
+            }).join('')}</div>`;
+        }
+        function normalizeCodexChanges(changes) {
+            if (Array.isArray(changes)) return changes.filter(Boolean).map(change => [change.path || 'File', change]);
+            if (changes && typeof changes === 'object') return Object.entries(changes);
+            return [];
+        }
+        function codexChangeDiff(change = {}) {
+            if (typeof change.diff === 'string') return change.diff;
+            if (typeof change.unified_diff === 'string') return change.unified_diff;
+            const kind = change.kind && typeof change.kind === 'object' ? change.kind : {};
+            const type = change.type || kind.type || '';
+            const oldText = change.modify?.old_content ?? change.old_content ?? change.oldContent ?? (type === 'delete' ? change.content : change.delete?.content) ?? '';
+            const newText = change.modify?.new_content ?? change.new_content ?? change.newContent ?? (type === 'add' ? change.content : change.add?.content) ?? '';
+            if (!oldText && !newText) return '';
+            return `${String(oldText).split('\n').map(line => `-${line}`).join('\n')}\n${String(newText).split('\n').map(line => `+${line}`).join('\n')}`;
+        }
+        function renderCodexPatch(item) {
+            const entries = normalizeCodexChanges(item.changes || item.input?.changes);
+            if (!entries.length) return `<div class="codex-tool-body"><pre class="codex-tool-code">${escapeHtml(codexJson(item.input))}</pre></div>`;
+            return entries.map(([path, change]) => {
+                const kind = change?.type || change?.kind?.type || 'edit';
+                const move = change?.move_path || change?.kind?.move_path;
+                const diff = codexChangeDiff(change);
+                return `<details class="codex-patch-file"><summary><span class="path">${escapeHtml(path)}${move ? ` → ${escapeHtml(move)}` : ''}</span><span class="codex-patch-kind">${escapeHtml(kind)}</span></summary>${diff ? renderCodexDiff(diff) : ''}</details>`;
+            }).join('');
+        }
+        function renderCodexPermission(request, inline = false) {
+            if (!request) return '';
+            const pending = request.status === 'pending';
+            const labels = { approved: 'Allowed once', approved_for_session: 'Allowed for session', denied: 'Denied', abort: 'Stopped' };
+            const detail = request.reason || (request.input && Object.keys(request.input).length ? codexJson(request.input) : '');
+            const content = `${inline ? `<div class="codex-inline-permission-title">${escapeHtml(request.title || 'Permission required')}</div>` : ''}${detail ? `<div>${codexText(detail)}</div>` : ''}${pending ? `<div class="claude-permission-actions"><button class="small-btn primary" onclick="respondCodexPermission('${escapeHtml(request.id)}', 'approved')">Yes</button><button class="small-btn" onclick="respondCodexPermission('${escapeHtml(request.id)}', 'approved_for_session')">Yes, for session</button><button class="small-btn danger" onclick="respondCodexPermission('${escapeHtml(request.id)}', 'abort')">Stop and explain</button></div>` : `<div class="codex-permission-result">${escapeHtml(labels[request.decision] || request.status)}</div>`}`;
+            if (inline) return `<div class="codex-inline-permission">${content}</div>`;
+            return `<div class="claude-tool claude-permission"><div class="claude-tool-header"><strong>${escapeHtml(request.title || 'Permission required')}</strong></div><div class="claude-tool-body">${content}</div></div>`;
+        }
+        function renderCodexTool(item, permission = null) {
+            const status = codexToolStatus(item);
+            const isError = status === 'failed' || Boolean(item.error) || (item.exitCode != null && item.exitCode !== 0);
+            const runningClass = status === 'running' ? ' running' : '';
+            if (item.name === 'CodexPatch') {
+                return `<div class="codex-tool${isError ? ' error' : ''}">${renderCodexPatch(item)}${permission ? renderCodexPermission(permission, true) : ''}</div>`;
+            }
+            const command = item.name === 'CodexBash' ? item.command : item.title || item.tool || '';
+            const icon = item.name === 'CodexBash' ? '>_' : item.name === 'McpTool' ? 'MCP' : item.name === 'Agent' ? 'A' : '•';
+            const title = item.name === 'CodexBash' ? 'Command' : item.title || item.name || 'Tool';
+            const result = item.result || (item.name === 'McpTool' || item.name === 'Agent' ? codexJson(item.input) : '');
+            return `<details class="codex-tool${isError ? ' error' : ''}"><summary class="codex-tool-header"><span class="codex-tool-icon">${escapeHtml(icon)}</span><span class="codex-tool-title">${escapeHtml(title)}</span>${command && command !== title ? `<span class="codex-tool-command">${escapeHtml(command)}</span>` : '<span class="codex-tool-command"></span>'}<span class="codex-tool-state${runningClass}">${escapeHtml(status === 'completed' ? '' : status)}</span></summary>${result ? `<div class="codex-tool-body"><pre class="codex-tool-code">${escapeHtml(result)}</pre></div>` : ''}${permission ? renderCodexPermission(permission, true) : ''}</details>`;
+        }
+        function renderCodexToolGroup(items, permissionById, usedPermissions) {
+            const running = items.some(item => codexToolStatus(item) === 'running');
+            const failed = items.some(item => codexToolStatus(item) === 'failed' || item.error);
+            const startedAt = Math.min(...items.map(item => Number(item.createdAt || Date.now())));
+            const seconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+            const tools = items.map(item => {
+                const permission = permissionById.get(String(item.providerId || ''));
+                if (permission) usedPermissions.add(permission.id);
+                return renderCodexTool(item, permission);
+            }).join('');
+            return `<details class="codex-work-group"${running ? ' open' : ''}><summary>${running ? 'Working' : failed ? 'Work finished with errors' : `Worked for ${seconds}s`} · ${items.length} tools</summary><div class="codex-work-group-body">${tools}</div></details>`;
+        }
+        function renderCodexChat() {
+            const container = document.getElementById('codex-chat-container');
+            if (!container) return;
+            const parts = [];
+            const permissionById = new Map(codexPendingPermissions.map(item => [String(item.id), item]));
+            const usedPermissions = new Set();
+            const visible = codexMessages.filter(item => !['reasoning', 'turn-start', 'turn-end'].includes(item.kind));
+            for (let i = 0; i < visible.length;) {
+                const item = visible[i];
+                if (item.kind === 'tool') {
+                    const tools = [];
+                    while (i < visible.length && visible[i].kind === 'tool') tools.push(visible[i++]);
+                    if (tools.length > 1) parts.push(renderCodexToolGroup(tools, permissionById, usedPermissions));
+                    else {
+                        const permission = permissionById.get(String(tools[0].providerId || ''));
+                        if (permission) usedPermissions.add(permission.id);
+                        parts.push(renderCodexTool(tools[0], permission));
+                    }
+                    continue;
+                }
+                if (item.kind === 'assistant') parts.push(`<div class="codex-message assistant claude-md">${renderMarkdown(item.text || '')}</div>`);
+                else if (item.kind === 'user') parts.push(`<div class="codex-message user claude-md">${renderMarkdown(item.text || '')}</div>`);
+                else parts.push(`<div class="codex-message ${escapeHtml(item.level === 'error' ? 'event error' : item.kind || 'event')}">${codexText(item.text)}</div>`);
+                i += 1;
+            }
+            for (const request of codexPendingPermissions) if (!usedPermissions.has(request.id)) parts.push(renderCodexPermission(request));
+            container.innerHTML = `<div class="codex-conversation">${parts.join('') || '<div class="codex-message event">Send a message to start Codex.</div>'}</div>`;
+            requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; });
+        }
+
+        function applyCodexState(state = {}) {
+            codexState = { ...codexState, ...state };
+            const permission = document.getElementById('codex-permission-select');
+            if (permission) permission.value = codexState.permissionMode || 'on-request';
+            const modelButton = document.getElementById('codex-model-btn');
+            if (modelButton) modelButton.textContent = codexState.model ? codexState.model.replace(/^gpt-/, '').slice(0, 10) : 'Model';
+            const abort = document.getElementById('codex-abort-btn');
+            if (abort) abort.disabled = !codexState.canAbort;
+            const terminal = document.getElementById('codex-terminal-switch');
+            if (terminal) { terminal.textContent = codexState.presentation === 'terminal' ? 'CHAT' : 'TERM'; terminal.disabled = codexState.presentation === 'structured' && !codexState.canSwitchToTerminal; terminal.title = codexState.presentation === 'terminal' ? 'Return to Codex chat' : 'Switch to Codex terminal'; }
+            renderCodexStateBar();
+            renderCodexModelPanel();
+            setClaudeModeEnabled(isClaudeSession());
+            renderCodexChat();
+        }
+
+        function renderCodexStateBar() {
+            const el = document.getElementById('codex-state-bar');
+            if (!el) return;
+            const pending = Number(codexState.pendingPermissionCount || codexPendingPermissions.filter(item => item.status === 'pending').length) || 0;
+            const parts = [];
+            if (pending || codexState.status === 'waiting_approval') parts.push(`<span class="claude-state-pill warn">${pending || 1} approval${pending === 1 ? '' : 's'}</span>`);
+            else if (codexState.status === 'running') parts.push('<span class="claude-state-pill">Working</span>');
+            el.innerHTML = parts.join('');
+            el.style.display = parts.length ? 'flex' : 'none';
+        }
+
+        function toggleCodexModelPanel() {
+            codexModelPanelOpen = !codexModelPanelOpen;
+            codexResumePanelOpen = false;
+            codexModelCandidate = codexState.model || codexState.models?.[0]?.id || null;
+            document.getElementById('codex-resume-panel').classList.remove('active');
+            renderCodexModelPanel();
+            updateTerminalControlsHeight();
+        }
+
+        function renderCodexModelPanel() {
+            const panel = document.getElementById('codex-model-panel');
+            if (!panel) return;
+            panel.classList.toggle('active', codexModelPanelOpen);
+            if (!codexModelPanelOpen) { panel.innerHTML = ''; return; }
+            const models = codexState.models || [];
+            const candidate = models.find(item => item.id === codexModelCandidate) || models.find(item => item.id === codexState.model) || models[0];
+            if (!candidate) { panel.innerHTML = '<div class="claude-resume-meta" style="padding:12px;">Loading models...</div>'; return; }
+            codexModelCandidate = candidate.id;
+            const efforts = candidate.efforts?.length ? candidate.efforts : [candidate.defaultEffort || 'medium'];
+            panel.innerHTML = `<div class="codex-picker-column">${models.map(item => `<button class="codex-picker-option${item.id === candidate.id ? ' selected' : ''}" onclick="selectCodexModelCandidate(decodePathValue('${encodePathValue(item.id)}'))">${escapeHtml(item.label || item.id)}</button>`).join('')}</div><div class="codex-picker-column">${efforts.map(effort => `<button class="codex-picker-option${candidate.id === codexState.model && effort === codexState.effort ? ' selected' : ''}" onclick="chooseCodexModelEffort(decodePathValue('${encodePathValue(candidate.id)}'), decodePathValue('${encodePathValue(effort)}'))">${escapeHtml(effort)}</button>`).join('')}</div>`;
+        }
+
+        function selectCodexModelCandidate(model) { codexModelCandidate = model; renderCodexModelPanel(); }
+        function chooseCodexModelEffort(model, effort) {
+            codexModelPanelOpen = false;
+            applyCodexState({ model, effort });
+            sendCodexSettings({ model, effort });
+            updateTerminalControlsHeight();
+        }
+
+        function applyCodexEvent(event) {
+            if (!event) return;
+            if (event.type === 'message' && event.message) codexMessages.push(event.message);
+            else if (event.type === 'message-updated' && event.message) { const i = codexMessages.findIndex(item => item.id === event.message.id); if (i >= 0) codexMessages[i] = event.message; else codexMessages.push(event.message); }
+            else if (event.type === 'history-reset') codexMessages = event.messages || [];
+            else if (event.type === 'permission-request' && event.request) { codexPendingPermissions = [...codexPendingPermissions.filter(item => item.id !== event.request.id), event.request]; }
+            else if (event.type === 'permission-updated' && event.request) codexPendingPermissions = codexPendingPermissions.map(item => item.id === event.request.id ? event.request : item);
+            if (event.state) applyCodexState(event.state); else renderCodexChat();
+        }
+
+        function sendCodexSettings(settings) { if (currentSocket?.readyState === 1) currentSocket.send(JSON.stringify({ type: 'codex-settings', settings })); }
+        function updateCodexSettingsFromControls() { const permissionMode = document.getElementById('codex-permission-select').value; applyCodexState({ permissionMode }); sendCodexSettings({ permissionMode }); }
+        function abortCodexSession() { if (currentSocket?.readyState === 1) currentSocket.send(JSON.stringify({ type: 'codex-abort' })); }
+        function respondCodexPermission(id, decision) { if (currentSocket?.readyState === 1) currentSocket.send(JSON.stringify({ type: 'codex-permission', id, decision })); }
+        async function toggleCodexResumePanel() {
+            codexResumePanelOpen = !codexResumePanelOpen;
+            codexModelPanelOpen = false;
+            document.getElementById('codex-model-panel').classList.remove('active');
+            const panel = document.getElementById('codex-resume-panel');
+            panel.classList.toggle('active', codexResumePanelOpen);
+            updateTerminalControlsHeight();
+            if (!codexResumePanelOpen) return;
+            panel.innerHTML = '<div class="claude-resume-meta" style="padding:12px;">Loading sessions...</div>';
+            try {
+                const res = await fetchWithTimeout(`/api/sessions/${activeSessionId}/codex-resume-threads`, {}, 30000);
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.error || 'Failed to load Codex sessions');
+                const items = data.items || [];
+                panel.innerHTML = items.length ? items.map(item => `<button class="claude-resume-item" onclick="selectCodexResumeThread(decodePathValue('${encodePathValue(item.id)}'))"><div class="claude-resume-title"><span>${escapeHtml((item.preview || 'Codex session').slice(0, 48))}${item.current ? ' · current' : ''}</span><span>${escapeHtml(item.updatedAt ? new Date(item.updatedAt).toLocaleString() : '')}</span></div><div class="claude-resume-meta">${escapeHtml(item.id.slice(0, 12))}</div></button>`).join('') : '<div class="claude-resume-meta" style="padding:12px;">No Codex sessions found for this folder.</div>';
+            } catch (e) { panel.innerHTML = `<div class="claude-resume-meta" style="padding:12px;color:#ff6b61;">${escapeHtml(e.message)}</div>`; }
+        }
+        async function selectCodexResumeThread(threadId) {
+            const res = await fetchWithTimeout(`/api/sessions/${activeSessionId}/codex-resume`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ threadId }) }, 30000);
+            if (!res.ok) { alert((await res.json()).error || 'Unable to resume Codex thread'); return; }
+            codexResumePanelOpen = false;
+            document.getElementById('codex-resume-panel').classList.remove('active');
+            updateTerminalControlsHeight();
+        }
+        async function toggleCodexPresentation() {
+            const presentation = codexState.presentation === 'terminal' ? 'structured' : 'terminal';
+            const res = await fetchWithTimeout(`/api/sessions/${activeSessionId}/codex-presentation`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ presentation }) }, 30000);
+            if (!res.ok) alert((await res.json()).error || 'Unable to switch Codex interface');
+        }
+
         function joinSession(id, sessionName, toolKey = null) {
             stopTimedInputTimers();
             activeSessionId = id;
@@ -1924,6 +2239,10 @@
         function initTerminal(sessionId) {
             if (isClaudeSession()) {
                 initClaudeSession(sessionId);
+                return;
+            }
+            if (isCodexSession() && codexState.presentation === 'structured') {
+                initCodexSession(sessionId);
                 return;
             }
             if (typeof Terminal === 'undefined') {
@@ -1959,6 +2278,14 @@
                 const msg = JSON.parse(e.data);
                 if (msg.type === 'output') term.write(msg.data);
                 if (msg.type === 'reset') term.reset();
+                if (msg.type === 'codex-event' && isCodexSession()) {
+                    applyCodexEvent(msg.event);
+                    if (msg.event?.type === 'presentation' && msg.event.presentation === 'structured') {
+                        currentSocket.close();
+                        currentSocket = null;
+                        initCodexSession(sessionId);
+                    }
+                }
                 if (msg.type === 'exit') showLobby();
             };
         }
@@ -2006,6 +2333,38 @@
                     renderClaudeChat();
                 }
                 if (msg.type === 'claude-event') applyClaudeEvent(msg.event);
+                if (msg.type === 'exit') showLobby();
+            };
+        }
+
+        function initCodexSession(sessionId) {
+            codexMessages = [];
+            codexPendingPermissions = [];
+            codexModelPanelOpen = false;
+            codexModelCandidate = null;
+            codexResumePanelOpen = false;
+            document.getElementById('codex-model-panel').classList.remove('active');
+            document.getElementById('codex-resume-panel').classList.remove('active');
+            codexState = { permissionMode: 'on-request', model: null, effort: null, status: 'idle', threadId: null, presentation: 'structured', models: [], canAbort: false, canSwitchToTerminal: false, canSwitchToStructured: false };
+            setClaudeModeEnabled(false);
+            applyCodexState(codexState);
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            currentSocket = new WebSocket(protocol + '//' + window.location.host + '?sessionId=' + sessionId);
+            currentSocket.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                if (msg.type === 'codex-snapshot' && msg.snapshot) {
+                    codexMessages = msg.snapshot.messages || [];
+                    codexPendingPermissions = msg.snapshot.pendingPermissions || [];
+                    applyCodexState(msg.snapshot.state || {});
+                }
+                if (msg.type === 'codex-event') {
+                    applyCodexEvent(msg.event);
+                    if (msg.event?.type === 'presentation' && msg.event.presentation === 'terminal') {
+                        currentSocket.close();
+                        currentSocket = null;
+                        initTerminal(sessionId);
+                    }
+                }
                 if (msg.type === 'exit') showLobby();
             };
         }
@@ -2224,6 +2583,12 @@
                 if (currentSocket && currentSocket.readyState === 1) {
                     currentSocket.send(JSON.stringify({ type: 'claude-input', text: val }));
                 }
+                inputEl.value = '';
+                inputEl.style.height = '38px';
+                return;
+            }
+            if (val && isCodexSession() && codexState.presentation === 'structured') {
+                if (currentSocket && currentSocket.readyState === 1) currentSocket.send(JSON.stringify({ type: 'codex-input', text: val }));
                 inputEl.value = '';
                 inputEl.style.height = '38px';
                 return;
