@@ -78,6 +78,28 @@
         #terminal-container { flex: 1; min-height: 0; width: 100%; background: #000; position: relative; overflow: hidden; overflow-anchor: none; }
         #terminal { height: 100%; width: 100%; }
         #claude-chat-container { display: none; flex: 1; min-height: 0; overflow-y: auto; background: #050505; padding: 12px 12px 24px 12px; box-sizing: border-box; -webkit-overflow-scrolling: touch; }
+        #codex-chat-container { display: none; flex: 1; min-height: 0; overflow-y: auto; background: #050505; padding: 12px 12px 24px 12px; box-sizing: border-box; -webkit-overflow-scrolling: touch; }
+        .codex-message { max-width: 100%; margin: 0 0 12px; color: #f5f5f7; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+        .codex-message.user { max-width: 92%; margin-left: auto; padding: 8px 12px; border: 1px solid rgba(0,122,255,.32); border-radius: 12px; background: rgba(0,122,255,.24); }
+        .codex-message.reasoning { color: #a9a9b0; font-size: 13px; border-left: 2px solid rgba(255,255,255,.18); padding-left: 10px; }
+        .codex-message.event { color: var(--text-dim); text-align: center; font-size: 12px; }
+        .codex-tool { border: 1px solid rgba(255,255,255,.1); border-radius: 8px; background: rgba(255,255,255,.045); overflow: hidden; margin: 8px 0; }
+        .codex-tool summary { cursor: pointer; padding: 8px 10px; color: #f5f5f7; font-weight: 700; }
+        .codex-tool pre { margin: 0; padding: 10px; border-top: 1px solid rgba(255,255,255,.08); overflow: auto; color: #c7c7cc; font-size: 12px; }
+        #codex-control-panel { display: none; padding: 8px 14px 10px; border-bottom: 1px solid #222; background: #121212; }
+        .codex-control-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; align-items: center; }
+        .codex-select { appearance: none; max-width: 116px; min-width: 0; height: 32px; padding: 0 8px; border: 1px solid rgba(255,255,255,.12); border-radius: 7px; background: rgba(255,255,255,.08); color: #f5f5f7; font-weight: 700; font-size: 12px; }
+        .codex-select option { background: #1c1c1e; color: #fff; }
+        #codex-model-panel, #codex-resume-panel { display: none; margin-top: 8px; border: 1px solid rgba(255,255,255,.1); background: rgba(28,28,30,.99); border-radius: 8px; box-shadow: 0 16px 36px rgba(0,0,0,.34); overflow: hidden; }
+        #codex-model-panel.active, #codex-resume-panel.active { display: block; }
+        #codex-model-panel { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); max-height: min(300px, 42dvh); }
+        #codex-model-panel.active { display: grid; }
+        .codex-picker-column { min-width: 0; overflow-y: auto; }
+        .codex-picker-column + .codex-picker-column { border-left: 1px solid rgba(255,255,255,.08); }
+        .codex-picker-option { display: block; width: 100%; min-height: 38px; padding: 8px 10px; border: 0; border-bottom: 1px solid rgba(255,255,255,.06); background: transparent; color: #f5f5f7; text-align: left; font-size: 12px; font-weight: 700; overflow-wrap: anywhere; }
+        .codex-picker-option.selected { background: rgba(0,122,255,.18); color: #fff; }
+        #codex-state-bar { display: none; align-items: center; gap: 7px; min-height: 24px; margin-top: 8px; color: var(--text-dim); font-size: 11px; }
+        #codex-resume-panel { max-height: min(280px, 38dvh); overflow-y: auto; }
         .claude-context-size-badge { position: sticky; top: 0; z-index: 2; width: max-content; max-width: 100%; margin: 0 0 8px auto; border: 1px solid rgba(255,255,255,0.1); background: rgba(28,28,30,0.94); border-radius: 999px; padding: 4px 9px; color: #d1d5db; font-size: 11px; font-weight: 800; box-shadow: 0 8px 18px rgba(0,0,0,0.24); }
         .claude-message { max-width: 92%; margin: 0 0 10px 0; padding: 10px 12px; border-radius: 8px; overflow-wrap: anywhere; line-height: 1.45; font-size: 14px; }
         .claude-message.user { margin-left: auto; background: rgba(0,122,255,0.24); border: 1px solid rgba(0,122,255,0.32); color: #fff; border-radius: 12px; padding-top: 7px; padding-bottom: 7px; }
@@ -264,6 +286,7 @@
                 </button>
                 <div id="session-title">Terminal</div>
                 <div style="display: flex; align-items: center; gap: 8px;">
+                    <button id="codex-terminal-switch" class="icon-btn" onclick="toggleCodexPresentation()" title="Switch Codex interface" style="display:none; color: var(--primary); font-size: 12px; font-weight: 700; background: rgba(0, 122, 255, 0.1); padding: 5px 9px; border-radius: 15px; gap: 4px;">TERM</button>
                     <button class="icon-btn" onclick="showHistory()" title="History" style="color: var(--primary); font-size: 12px; font-weight: 700; background: rgba(0, 122, 255, 0.1); padding: 5px 9px; border-radius: 15px; gap: 4px;">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"></path><polyline points="3 3 3 9 9 9"></polyline><path d="M12 7v5l3 2"></path></svg>
                         HIS
@@ -321,6 +344,19 @@
                     <div id="claude-usage-panel"></div>
                     <div id="claude-resume-panel"></div>
                 </div>
+                <div id="codex-control-panel">
+                    <div class="codex-control-row">
+                        <select id="codex-permission-select" class="codex-select" title="Permission mode" onchange="updateCodexSettingsFromControls()">
+                            <option value="untrusted">Untrusted</option><option value="on-request">On request</option><option value="never">Never ask</option>
+                        </select>
+                        <button id="codex-model-btn" class="claude-ctrl-btn" onclick="toggleCodexModelPanel()" title="Model and effort">Model</button>
+                        <button id="codex-abort-btn" class="claude-ctrl-btn danger" onclick="abortCodexSession()" title="Abort current Codex turn">Abort</button>
+                        <button id="codex-resume-btn" class="claude-ctrl-btn primary" onclick="toggleCodexResumePanel()" title="Resume a Codex thread">Resume</button>
+                    </div>
+                    <div id="codex-state-bar"></div>
+                    <div id="codex-model-panel"></div>
+                    <div id="codex-resume-panel"></div>
+                </div>
                 <div id="timed-send-panel">
                     <div class="timed-row">
                         <select id="timed-hours" onchange="updateTimedSendPreview()" title="Hours"></select>
@@ -360,6 +396,7 @@
         <div id="terminal-controls-spacer"></div>
         <div id="terminal-container"><div id="terminal"></div></div>
         <div id="claude-chat-container"></div>
+        <div id="codex-chat-container"></div>
     </div>
 
     <!-- Plain Text History View -->
@@ -509,6 +546,12 @@
         };
         let claudeResumePanelOpen = false;
         let claudeResumeItemsLoaded = false;
+        let codexMessages = [];
+        let codexPendingPermissions = [];
+        let codexState = { permissionMode: 'on-request', model: null, effort: null, status: 'idle', threadId: null, presentation: 'structured', models: [], canAbort: false, canSwitchToTerminal: false, canSwitchToStructured: false };
+        let codexModelPanelOpen = false;
+        let codexModelCandidate = null;
+        let codexResumePanelOpen = false;
         const modifiers = { ctrl: false };
 
         function log(msg) {
@@ -800,21 +843,35 @@
             return activeToolKey === 'claude-code';
         }
 
+        function isCodexSession() {
+            return activeToolKey === 'codex';
+        }
+
         function setClaudeModeEnabled(enabled) {
-            document.getElementById('terminal-container').style.display = enabled ? 'none' : '';
+            const codexChat = isCodexSession() && codexState.presentation === 'structured';
+            const structured = enabled || codexChat;
+            document.getElementById('terminal-container').style.display = structured ? 'none' : '';
             document.getElementById('claude-chat-container').style.display = enabled ? 'block' : 'none';
+            document.getElementById('codex-chat-container').style.display = codexChat ? 'block' : 'none';
             document.getElementById('claude-control-panel').style.display = enabled ? 'block' : 'none';
+            document.getElementById('codex-control-panel').style.display = codexChat ? 'block' : 'none';
+            document.getElementById('codex-terminal-switch').style.display = isCodexSession() ? '' : 'none';
             document.getElementById('timer-btn').style.display = '';
-            document.getElementById('shortcut-rail').style.display = enabled ? 'none' : '';
-            document.getElementById('scroll-controls').style.display = enabled ? 'none' : '';
-            document.getElementById('cmd-input').placeholder = enabled ? 'Message Claude...' : 'Type a message...';
+            document.getElementById('shortcut-rail').style.display = structured ? 'none' : '';
+            document.getElementById('scroll-controls').style.display = structured ? 'none' : '';
+            document.getElementById('cmd-input').placeholder = enabled ? 'Message Claude...' : codexChat ? 'Message Codex...' : 'Type a message...';
             updateTerminalControlsHeight();
         }
 
         function updateTerminalControlsHeight() {
             const timedOpen = document.getElementById('timed-send-panel')?.classList.contains('active');
-            if (!isClaudeSession()) {
+            if (!isClaudeSession() && !isCodexSession()) {
                 document.documentElement.style.setProperty('--terminal-controls-rest-height', timedOpen ? '252px' : '108px');
+                return;
+            }
+            if (isCodexSession()) {
+                const codexPanelOpen = codexModelPanelOpen || codexResumePanelOpen;
+                document.documentElement.style.setProperty('--terminal-controls-rest-height', `${154 + (codexPanelOpen ? 288 : 0) + (timedOpen ? 144 : 0)}px`);
                 return;
             }
             const baseHeight = claudeResumePanelOpen ? 308 : ((claudePickerOpen || claudeUsagePanelOpen) ? 322 : 154);
@@ -1903,6 +1960,124 @@
             }));
         }
 
+        function codexText(text) { return escapeHtml(text || '').replace(/\n/g, '<br>'); }
+        function renderCodexChat() {
+            const container = document.getElementById('codex-chat-container');
+            if (!container) return;
+            const parts = codexMessages.map(item => {
+                if (item.kind === 'tool') return `<details class="codex-tool"><summary>${escapeHtml(item.name || 'Tool')} ${escapeHtml(item.summary || '')}</summary><pre>${escapeHtml(item.result || item.input || '')}</pre></details>`;
+                if (item.kind === 'reasoning') return `<div class="codex-message reasoning claude-md">${renderMarkdown(item.text || '')}</div>`;
+                if (item.kind === 'assistant') return `<div class="codex-message assistant claude-md">${renderMarkdown(item.text || '')}</div>`;
+                return `<div class="codex-message ${escapeHtml(item.kind || 'event')}">${codexText(item.text)}</div>`;
+            });
+            for (const request of codexPendingPermissions.filter(item => item.status === 'pending')) {
+                parts.push(`<div class="claude-tool claude-permission"><div class="claude-tool-header"><strong>${escapeHtml(request.title || 'Permission required')}</strong></div><div class="claude-tool-body">${request.reason ? `<div>${escapeHtml(request.reason)}</div>` : ''}<div class="claude-permission-actions"><button class="small-btn primary" onclick="respondCodexPermission('${escapeHtml(request.id)}', true)">Allow</button><button class="small-btn danger" onclick="respondCodexPermission('${escapeHtml(request.id)}', false)">Deny</button></div></div></div>`);
+            }
+            container.innerHTML = parts.join('') || '<div class="codex-message event">Send a message to start Codex.</div>';
+            requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; });
+        }
+
+        function applyCodexState(state = {}) {
+            codexState = { ...codexState, ...state };
+            const permission = document.getElementById('codex-permission-select');
+            if (permission) permission.value = codexState.permissionMode || 'on-request';
+            const modelButton = document.getElementById('codex-model-btn');
+            if (modelButton) modelButton.textContent = codexState.model ? codexState.model.replace(/^gpt-/, '').slice(0, 10) : 'Model';
+            const abort = document.getElementById('codex-abort-btn');
+            if (abort) abort.disabled = !codexState.canAbort;
+            const terminal = document.getElementById('codex-terminal-switch');
+            if (terminal) { terminal.textContent = codexState.presentation === 'terminal' ? 'CHAT' : 'TERM'; terminal.disabled = codexState.presentation === 'structured' && !codexState.canSwitchToTerminal; terminal.title = codexState.presentation === 'terminal' ? 'Return to Codex chat' : 'Switch to Codex terminal'; }
+            renderCodexStateBar();
+            renderCodexModelPanel();
+            setClaudeModeEnabled(isClaudeSession());
+            renderCodexChat();
+        }
+
+        function renderCodexStateBar() {
+            const el = document.getElementById('codex-state-bar');
+            if (!el) return;
+            const pending = Number(codexState.pendingPermissionCount || codexPendingPermissions.filter(item => item.status === 'pending').length) || 0;
+            const parts = [];
+            if (pending || codexState.status === 'waiting_approval') parts.push(`<span class="claude-state-pill warn">${pending || 1} approval${pending === 1 ? '' : 's'}</span>`);
+            else if (codexState.status === 'running') parts.push('<span class="claude-state-pill">Working</span>');
+            el.innerHTML = parts.join('');
+            el.style.display = parts.length ? 'flex' : 'none';
+        }
+
+        function toggleCodexModelPanel() {
+            codexModelPanelOpen = !codexModelPanelOpen;
+            codexResumePanelOpen = false;
+            codexModelCandidate = codexState.model || codexState.models?.[0]?.id || null;
+            document.getElementById('codex-resume-panel').classList.remove('active');
+            renderCodexModelPanel();
+            updateTerminalControlsHeight();
+        }
+
+        function renderCodexModelPanel() {
+            const panel = document.getElementById('codex-model-panel');
+            if (!panel) return;
+            panel.classList.toggle('active', codexModelPanelOpen);
+            if (!codexModelPanelOpen) { panel.innerHTML = ''; return; }
+            const models = codexState.models || [];
+            const candidate = models.find(item => item.id === codexModelCandidate) || models.find(item => item.id === codexState.model) || models[0];
+            if (!candidate) { panel.innerHTML = '<div class="claude-resume-meta" style="padding:12px;">Loading models...</div>'; return; }
+            codexModelCandidate = candidate.id;
+            const efforts = candidate.efforts?.length ? candidate.efforts : [candidate.defaultEffort || 'medium'];
+            panel.innerHTML = `<div class="codex-picker-column">${models.map(item => `<button class="codex-picker-option${item.id === candidate.id ? ' selected' : ''}" onclick="selectCodexModelCandidate(decodePathValue('${encodePathValue(item.id)}'))">${escapeHtml(item.label || item.id)}</button>`).join('')}</div><div class="codex-picker-column">${efforts.map(effort => `<button class="codex-picker-option${candidate.id === codexState.model && effort === codexState.effort ? ' selected' : ''}" onclick="chooseCodexModelEffort(decodePathValue('${encodePathValue(candidate.id)}'), decodePathValue('${encodePathValue(effort)}'))">${escapeHtml(effort)}</button>`).join('')}</div>`;
+        }
+
+        function selectCodexModelCandidate(model) { codexModelCandidate = model; renderCodexModelPanel(); }
+        function chooseCodexModelEffort(model, effort) {
+            codexModelPanelOpen = false;
+            applyCodexState({ model, effort });
+            sendCodexSettings({ model, effort });
+            updateTerminalControlsHeight();
+        }
+
+        function applyCodexEvent(event) {
+            if (!event) return;
+            if (event.type === 'message' && event.message) codexMessages.push(event.message);
+            else if (event.type === 'message-updated' && event.message) { const i = codexMessages.findIndex(item => item.id === event.message.id); if (i >= 0) codexMessages[i] = event.message; else codexMessages.push(event.message); }
+            else if (event.type === 'history-reset') codexMessages = event.messages || [];
+            else if (event.type === 'permission-request' && event.request) { codexPendingPermissions = [...codexPendingPermissions.filter(item => item.id !== event.request.id), event.request]; }
+            else if (event.type === 'permission-updated' && event.request) codexPendingPermissions = codexPendingPermissions.map(item => item.id === event.request.id ? event.request : item);
+            if (event.state) applyCodexState(event.state); else renderCodexChat();
+        }
+
+        function sendCodexSettings(settings) { if (currentSocket?.readyState === 1) currentSocket.send(JSON.stringify({ type: 'codex-settings', settings })); }
+        function updateCodexSettingsFromControls() { const permissionMode = document.getElementById('codex-permission-select').value; applyCodexState({ permissionMode }); sendCodexSettings({ permissionMode }); }
+        function abortCodexSession() { if (currentSocket?.readyState === 1) currentSocket.send(JSON.stringify({ type: 'codex-abort' })); }
+        function respondCodexPermission(id, approved) { if (currentSocket?.readyState === 1) currentSocket.send(JSON.stringify({ type: 'codex-permission', id, approved })); }
+        async function toggleCodexResumePanel() {
+            codexResumePanelOpen = !codexResumePanelOpen;
+            codexModelPanelOpen = false;
+            document.getElementById('codex-model-panel').classList.remove('active');
+            const panel = document.getElementById('codex-resume-panel');
+            panel.classList.toggle('active', codexResumePanelOpen);
+            updateTerminalControlsHeight();
+            if (!codexResumePanelOpen) return;
+            panel.innerHTML = '<div class="claude-resume-meta" style="padding:12px;">Loading sessions...</div>';
+            try {
+                const res = await fetchWithTimeout(`/api/sessions/${activeSessionId}/codex-resume-threads`, {}, 30000);
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.error || 'Failed to load Codex sessions');
+                const items = data.items || [];
+                panel.innerHTML = items.length ? items.map(item => `<button class="claude-resume-item" onclick="selectCodexResumeThread(decodePathValue('${encodePathValue(item.id)}'))"><div class="claude-resume-title"><span>${escapeHtml((item.preview || 'Codex session').slice(0, 48))}${item.current ? ' · current' : ''}</span><span>${escapeHtml(item.updatedAt ? new Date(item.updatedAt).toLocaleString() : '')}</span></div><div class="claude-resume-meta">${escapeHtml(item.id.slice(0, 12))}</div></button>`).join('') : '<div class="claude-resume-meta" style="padding:12px;">No Codex sessions found for this folder.</div>';
+            } catch (e) { panel.innerHTML = `<div class="claude-resume-meta" style="padding:12px;color:#ff6b61;">${escapeHtml(e.message)}</div>`; }
+        }
+        async function selectCodexResumeThread(threadId) {
+            const res = await fetchWithTimeout(`/api/sessions/${activeSessionId}/codex-resume`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ threadId }) }, 30000);
+            if (!res.ok) { alert((await res.json()).error || 'Unable to resume Codex thread'); return; }
+            codexResumePanelOpen = false;
+            document.getElementById('codex-resume-panel').classList.remove('active');
+            updateTerminalControlsHeight();
+        }
+        async function toggleCodexPresentation() {
+            const presentation = codexState.presentation === 'terminal' ? 'structured' : 'terminal';
+            const res = await fetchWithTimeout(`/api/sessions/${activeSessionId}/codex-presentation`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ presentation }) }, 30000);
+            if (!res.ok) alert((await res.json()).error || 'Unable to switch Codex interface');
+        }
+
         function joinSession(id, sessionName, toolKey = null) {
             stopTimedInputTimers();
             activeSessionId = id;
@@ -1924,6 +2099,10 @@
         function initTerminal(sessionId) {
             if (isClaudeSession()) {
                 initClaudeSession(sessionId);
+                return;
+            }
+            if (isCodexSession() && codexState.presentation === 'structured') {
+                initCodexSession(sessionId);
                 return;
             }
             if (typeof Terminal === 'undefined') {
@@ -1959,6 +2138,14 @@
                 const msg = JSON.parse(e.data);
                 if (msg.type === 'output') term.write(msg.data);
                 if (msg.type === 'reset') term.reset();
+                if (msg.type === 'codex-event' && isCodexSession()) {
+                    applyCodexEvent(msg.event);
+                    if (msg.event?.type === 'presentation' && msg.event.presentation === 'structured') {
+                        currentSocket.close();
+                        currentSocket = null;
+                        initCodexSession(sessionId);
+                    }
+                }
                 if (msg.type === 'exit') showLobby();
             };
         }
@@ -2006,6 +2193,38 @@
                     renderClaudeChat();
                 }
                 if (msg.type === 'claude-event') applyClaudeEvent(msg.event);
+                if (msg.type === 'exit') showLobby();
+            };
+        }
+
+        function initCodexSession(sessionId) {
+            codexMessages = [];
+            codexPendingPermissions = [];
+            codexModelPanelOpen = false;
+            codexModelCandidate = null;
+            codexResumePanelOpen = false;
+            document.getElementById('codex-model-panel').classList.remove('active');
+            document.getElementById('codex-resume-panel').classList.remove('active');
+            codexState = { permissionMode: 'on-request', model: null, effort: null, status: 'idle', threadId: null, presentation: 'structured', models: [], canAbort: false, canSwitchToTerminal: false, canSwitchToStructured: false };
+            setClaudeModeEnabled(false);
+            applyCodexState(codexState);
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            currentSocket = new WebSocket(protocol + '//' + window.location.host + '?sessionId=' + sessionId);
+            currentSocket.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                if (msg.type === 'codex-snapshot' && msg.snapshot) {
+                    codexMessages = msg.snapshot.messages || [];
+                    codexPendingPermissions = msg.snapshot.pendingPermissions || [];
+                    applyCodexState(msg.snapshot.state || {});
+                }
+                if (msg.type === 'codex-event') {
+                    applyCodexEvent(msg.event);
+                    if (msg.event?.type === 'presentation' && msg.event.presentation === 'terminal') {
+                        currentSocket.close();
+                        currentSocket = null;
+                        initTerminal(sessionId);
+                    }
+                }
                 if (msg.type === 'exit') showLobby();
             };
         }
@@ -2224,6 +2443,12 @@
                 if (currentSocket && currentSocket.readyState === 1) {
                     currentSocket.send(JSON.stringify({ type: 'claude-input', text: val }));
                 }
+                inputEl.value = '';
+                inputEl.style.height = '38px';
+                return;
+            }
+            if (val && isCodexSession() && codexState.presentation === 'structured') {
+                if (currentSocket && currentSocket.readyState === 1) currentSocket.send(JSON.stringify({ type: 'codex-input', text: val }));
                 inputEl.value = '';
                 inputEl.style.height = '38px';
                 return;
