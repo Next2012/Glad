@@ -10,7 +10,7 @@
     <link rel="apple-touch-icon" href="logo.svg">
     <link rel="stylesheet" href="https://unpkg.com/xterm@5.3.0/css/xterm.css" />
     <style>
-        :root { --primary: #007aff; --bg: #000; --card-bg: #1c1c1e; --text: #fff; --text-dim: #8e8e93; --terminal-controls-rest-height: 108px; }
+        :root { --primary: #007aff; --bg: #000; --card-bg: #1c1c1e; --text: #fff; --text-dim: #8e8e93; --terminal-controls-rest-height: 108px; --chat-content-max: 900px; --control-content-max: 1100px; }
         body, html { margin: 0; padding: 0; height: 100dvh; width: 100vw; background: var(--bg); color: var(--text); overflow: hidden; overflow-anchor: none; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
         .view { display: none; height: 100%; width: 100%; flex-direction: column; }
         .view.active { display: flex; }
@@ -48,7 +48,7 @@
         #session-title { flex: 1; text-align: center; font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 10px; min-width: 0; }
         #terminal-controls { position: absolute; top: 100%; left: 0; right: 0; z-index: 2200; background: linear-gradient(180deg, rgba(18,18,18,0.98) 0%, rgba(18,18,18,0.92) 78%, rgba(18,18,18,0) 100%); border-bottom: 1px solid rgba(255,255,255,0.06); }
         #terminal-controls-spacer { flex: 0 0 var(--terminal-controls-rest-height); height: var(--terminal-controls-rest-height); background: #000; }
-        #input-row { display: flex; align-items: flex-end; padding: 10px 14px 8px 14px; }
+        #input-row { display: flex; align-items: flex-end; width: min(100%, var(--control-content-max)); margin: 0 auto; padding: 10px 14px 8px 14px; box-sizing: border-box; }
         #cmd-input { flex: 1; min-height: 38px; max-height: 150px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 19px; color: #fff; padding: 9px 16px; font-size: 16px; outline: none; resize: none; overflow-y: auto; line-height: 20px; box-sizing: border-box; transition: background 0.18s ease, border-color 0.18s ease; }
         #cmd-input::placeholder { color: rgba(255,255,255,0.45); }
         #cmd-input:focus { background: rgba(255,255,255,0.1); border-color: rgba(0,122,255,0.42); color: #fff; }
@@ -79,7 +79,7 @@
         #terminal { height: 100%; width: 100%; }
         #claude-chat-container { display: none; flex: 1; min-height: 0; overflow-y: auto; background: #050505; padding: 12px 12px 24px 12px; box-sizing: border-box; -webkit-overflow-scrolling: touch; }
         #codex-chat-container { display: none; flex: 1; min-height: 0; overflow-y: auto; background: #050505; padding: 12px 12px 24px 12px; box-sizing: border-box; -webkit-overflow-scrolling: touch; }
-        .codex-conversation { width: min(100%, 900px); margin: 0 auto; }
+        .codex-conversation { width: min(100%, var(--chat-content-max)); margin: 0 auto; }
         .codex-message { max-width: 100%; margin: 0 0 12px; color: #f5f5f7; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
         .codex-message.user { max-width: 92%; margin-left: auto; padding: 8px 12px; border: 1px solid rgba(0,122,255,.32); border-radius: 12px; background: rgba(0,122,255,.24); }
         .codex-message.event { color: var(--text-dim); text-align: center; font-size: 12px; }
@@ -116,7 +116,7 @@
         .codex-inline-permission-title { color: #f5f5f7; font-size: 12px; font-weight: 700; }
         .codex-inline-permission .claude-permission-actions { margin-top: 8px; }
         @keyframes codex-spin { to { transform: rotate(360deg); } }
-        #codex-control-panel { display: none; padding: 8px 14px 10px; border-bottom: 1px solid #222; background: #121212; }
+        #codex-control-panel { display: none; width: min(100%, var(--control-content-max)); margin: 0 auto; padding: 8px 14px 10px; border-bottom: 1px solid #222; background: #121212; box-sizing: border-box; }
         .codex-control-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; align-items: center; }
         .codex-select { appearance: none; max-width: 116px; min-width: 0; height: 32px; padding: 0 8px; border: 1px solid rgba(255,255,255,.12); border-radius: 7px; background: rgba(255,255,255,.08); color: #f5f5f7; font-weight: 700; font-size: 12px; }
         .codex-select option { background: #1c1c1e; color: #fff; }
@@ -277,6 +277,35 @@
             .schedule-actions { justify-content: flex-start; }
             .step-grid { grid-template-columns: 1fr; }
             .timed-row { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 480px) {
+            :root { --chat-content-max: 100%; --control-content-max: 100%; }
+            #nav-bar { padding: 8px 10px; }
+            #back-btn { font-size: 15px; }
+            #back-btn svg { width: 22px; height: 22px; }
+            #session-title { font-size: 15px; padding: 0 7px; }
+            #nav-bar > div:last-child { gap: 5px !important; }
+            #nav-bar > div:last-child .icon-btn { min-width: 34px; min-height: 30px; padding: 5px 7px !important; }
+            #input-row { padding-left: 10px; padding-right: 10px; }
+            #codex-control-panel { padding-left: 10px; padding-right: 10px; }
+            .codex-control-row { gap: 6px; }
+            #codex-chat-container { padding: 10px 10px calc(22px + env(safe-area-inset-bottom)); }
+            .codex-message.user { max-width: 94%; }
+            .claude-permission-actions { justify-content: flex-start; }
+        }
+        @media (max-width: 430px) {
+            #nav-bar > div:last-child .icon-btn:not(#codex-terminal-switch) { width: 34px; font-size: 0 !important; gap: 0 !important; }
+            #nav-bar > div:last-child .icon-btn:not(#codex-terminal-switch) svg { width: 16px; height: 16px; }
+            #codex-terminal-switch { padding-left: 8px !important; padding-right: 8px !important; }
+        }
+        @media (min-width: 768px) and (max-width: 1199px) {
+            :root { --chat-content-max: 780px; --control-content-max: 920px; }
+            #codex-chat-container { padding: 16px 18px 30px; }
+            #input-row, #codex-control-panel { padding-left: 18px; padding-right: 18px; }
+        }
+        @media (min-width: 1200px) {
+            :root { --chat-content-max: 960px; --control-content-max: 1100px; }
+            #codex-chat-container { padding: 18px 22px 34px; }
         }
     </style>
 </head>
@@ -894,18 +923,9 @@
         }
 
         function updateTerminalControlsHeight() {
-            const timedOpen = document.getElementById('timed-send-panel')?.classList.contains('active');
-            if (!isClaudeSession() && !isCodexSession()) {
-                document.documentElement.style.setProperty('--terminal-controls-rest-height', timedOpen ? '252px' : '108px');
-                return;
-            }
-            if (isCodexSession()) {
-                const codexPanelOpen = codexModelPanelOpen || codexResumePanelOpen;
-                document.documentElement.style.setProperty('--terminal-controls-rest-height', `${154 + (codexPanelOpen ? 288 : 0) + (timedOpen ? 144 : 0)}px`);
-                return;
-            }
-            const baseHeight = claudeResumePanelOpen ? 308 : ((claudePickerOpen || claudeUsagePanelOpen) ? 322 : 154);
-            document.documentElement.style.setProperty('--terminal-controls-rest-height', `${baseHeight + (timedOpen ? 144 : 0)}px`);
+            const controls = document.getElementById('terminal-controls');
+            const measuredHeight = controls ? Math.ceil(controls.getBoundingClientRect().height) : 0;
+            document.documentElement.style.setProperty('--terminal-controls-rest-height', `${Math.max(0, measuredHeight)}px`);
         }
 
         function shortModelLabel(value, resolved) {

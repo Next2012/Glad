@@ -1,6 +1,6 @@
 {
   "name": "glad-web",
-  "version": "1.0.21",
+  "version": "1.0.22",
   "description": "Glad transforms terminal-based AI coding tools into a polished, mobile-friendly local Web interface.",
   "main": "index.js",
   "bin": {
@@ -41,6 +41,7 @@
   "files": [
     "bin/",
     "lib/",
+    "!lib/**/*.test.js",
     "assets/logo.svg",
     "README.md"
   ],
