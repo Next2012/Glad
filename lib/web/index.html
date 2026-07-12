@@ -52,9 +52,26 @@
         #cmd-input { flex: 1; min-height: 38px; max-height: 150px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 19px; color: #fff; padding: 9px 16px; font-size: 16px; outline: none; resize: none; overflow-y: auto; line-height: 20px; box-sizing: border-box; transition: background 0.18s ease, border-color 0.18s ease; }
         #cmd-input::placeholder { color: rgba(255,255,255,0.45); }
         #cmd-input:focus { background: rgba(255,255,255,0.1); border-color: rgba(0,122,255,0.42); color: #fff; }
-        #timer-btn { width: 38px; height: 38px; margin-left: 8px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 19px; color: #d1d5db; display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer; }
+        #timer-btn { width: 38px; height: 38px; margin-left: 8px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 19px; color: #d1d5db; display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer; font-size: 24px; line-height: 1; }
         #timer-btn.active { color: #fff; border-color: rgba(0,122,255,0.45); background: rgba(0,122,255,0.22); }
         #send-btn { width: 44px; height: 38px; margin-left: 10px; background: #007aff; border: none; border-radius: 19px; color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer; }
+        #composer-menu { display: none; width: min(calc(100% - 28px), var(--control-content-max)); margin: -2px auto 8px auto; padding: 6px; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; background: rgba(38,38,42,0.98); box-shadow: 0 12px 28px rgba(0,0,0,0.28); box-sizing: border-box; }
+        #composer-menu.active { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+        .composer-menu-btn { min-height: 42px; border: 0; border-radius: 9px; background: rgba(255,255,255,0.08); color: #fff; font-size: 14px; font-weight: 650; cursor: pointer; }
+        .composer-menu-btn:hover { background: rgba(255,255,255,0.14); }
+        #attachment-strip { display: none; width: min(calc(100% - 28px), var(--control-content-max)); margin: -3px auto 2px auto; gap: 7px; overflow-x: auto; padding: 0 0 4px 0; box-sizing: border-box; scrollbar-width: none; }
+        #attachment-strip.active { display: flex; }
+        #attachment-strip::-webkit-scrollbar { display: none; }
+        .attachment-chip { min-width: 0; max-width: 210px; display: flex; align-items: center; gap: 7px; padding: 7px 9px; border: 1px solid rgba(0,122,255,0.45); border-radius: 10px; background: rgba(0,122,255,0.14); color: #e9f2ff; font-size: 12px; }
+        .attachment-chip.uploading { border-color: rgba(255,159,10,0.55); background: rgba(255,159,10,0.12); }
+        .attachment-chip-content { min-width: 0; flex: 1; }
+        .attachment-chip-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .attachment-progress { display: block; height: 5px; margin-top: 5px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,0.16); }
+        .attachment-progress > span { display: block; height: 100%; border-radius: inherit; background: #ff9f0a; transition: width .15s ease; }
+        .attachment-progress.estimated > span { background: repeating-linear-gradient(90deg, #ff9f0a 0 12px, #ffd37b 12px 24px); background-size: 48px 100%; animation: attachment-upload-pulse .75s linear infinite; }
+        .attachment-status { display: block; margin-top: 3px; color: #ffd59a; font-size: 10px; }
+        @keyframes attachment-upload-pulse { from { background-position: 0 0; } to { background-position: 48px 0; } }
+        .attachment-remove { width: 19px; height: 19px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,0.16); color: #fff; font-size: 15px; line-height: 18px; cursor: pointer; flex: 0 0 auto; }
         #timed-send-panel { display: none; margin: 0 14px 10px 14px; padding: 12px; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; background: rgba(28,28,30,0.98); box-sizing: border-box; }
         #timed-send-panel.active { display: block; }
         .timed-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; }
@@ -376,13 +393,17 @@
                 <div id="timed-tag-rail"></div>
                 <div id="input-row">
                     <textarea id="cmd-input" rows="1" placeholder="Type a message..."></textarea>
-                    <button id="timer-btn" title="Schedule send">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
-                    </button>
+                    <button id="timer-btn" title="Add image or schedule send" aria-label="Add image or schedule send">+</button>
                     <button id="send-btn">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                     </button>
                 </div>
+                <div id="attachment-strip" aria-live="polite"></div>
+                <div id="composer-menu" role="menu">
+                    <button id="attach-image-btn" class="composer-menu-btn" type="button" role="menuitem">Add image</button>
+                    <button id="schedule-send-btn" class="composer-menu-btn" type="button" role="menuitem">Schedule send</button>
+                </div>
+                <input id="image-file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
                 <div id="claude-control-panel">
                     <div class="claude-control-row">
                         <div class="claude-picker-wrap">
@@ -942,6 +963,7 @@
             document.getElementById('codex-control-panel').style.display = codexChat ? 'block' : 'none';
             document.getElementById('codex-terminal-switch').style.display = isCodexSession() ? '' : 'none';
             document.getElementById('timer-btn').style.display = '';
+            document.getElementById('attach-image-btn').style.display = codexChat ? '' : 'none';
             document.getElementById('shortcut-rail').style.display = structured ? 'none' : '';
             document.getElementById('scroll-controls').style.display = structured ? 'none' : '';
             document.getElementById('cmd-input').placeholder = enabled ? 'Message Claude...' : codexChat ? 'Message Codex...' : 'Type a message...';
@@ -2312,6 +2334,9 @@
         }
 
         function joinSession(id, sessionName, toolKey = null) {
+            if (typeof clearImageAttachments === 'function' && selectedImageAttachments.length) {
+                void clearImageAttachments();
+            }
             stopTimedInputTimers();
             activeSessionId = id;
             window.activeSessionId = id;
@@ -2655,7 +2680,176 @@
         }
 
         const inputEl = document.getElementById('cmd-input');
+        const imageFileInput = document.getElementById('image-file-input');
+        const attachmentStrip = document.getElementById('attachment-strip');
+        let selectedImageAttachments = [];
         let keepTerminalBottomForNextInput = false;
+
+        function isCodexImageAttachmentAvailable() {
+            return isCodexSession() && codexState.presentation === 'structured';
+        }
+
+        function syncComposerButtonState() {
+            const menuOpen = document.getElementById('composer-menu').classList.contains('active');
+            const timerOpen = document.getElementById('timed-send-panel').classList.contains('active');
+            document.getElementById('timer-btn').classList.toggle('active', menuOpen || timerOpen);
+        }
+
+        function renderImageAttachments() {
+            attachmentStrip.innerHTML = selectedImageAttachments.map(item => (
+                `<div class="attachment-chip${item.uploading ? ' uploading' : ''}"><span aria-hidden="true">▧</span><span class="attachment-chip-content"><span class="attachment-chip-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>${item.uploading ? `<span class="attachment-progress${item.progressKnown ? '' : ' estimated'}"><span style="width:${Math.max(0, Math.min(100, item.progress || 0))}%"></span></span><span class="attachment-status">${escapeHtml(item.status || (item.progressKnown ? `Uploading ${Math.round(item.progress || 0)}%` : 'Uploading original image…'))}</span>` : ''}</span><button class="attachment-remove" type="button" title="Remove image" aria-label="Remove ${escapeHtml(item.name)}" onclick="removeImageAttachment('${item.id}')">×</button></div>`
+            )).join('');
+            attachmentStrip.classList.toggle('active', selectedImageAttachments.length > 0);
+            updateTerminalControlsHeight();
+        }
+
+        window.removeImageAttachment = async function(attachmentId) {
+            const attachment = selectedImageAttachments.find(item => item.id === attachmentId);
+            selectedImageAttachments = selectedImageAttachments.filter(item => item.id !== attachmentId);
+            renderImageAttachments();
+            if (!attachment) return;
+            clearInterval(attachment.indicatorTimer);
+            attachment.abortUpload?.();
+            if (attachment.uploading) return;
+            try {
+                await fetchWithTimeout(`/api/sessions/${attachment.sessionId}/attachments/images/${encodeURIComponent(attachment.id)}`, { method: 'DELETE' });
+            } catch (_) {
+                // The server also removes all attachments when the session ends.
+            }
+        };
+
+        async function clearImageAttachments() {
+            const pending = selectedImageAttachments;
+            selectedImageAttachments = [];
+            renderImageAttachments();
+            for (const item of pending) item.abortUpload?.();
+            await Promise.all(pending.filter(item => !item.uploading).map(item => fetchWithTimeout(
+                `/api/sessions/${item.sessionId}/attachments/images/${encodeURIComponent(item.id)}`,
+                { method: 'DELETE' }
+            ).catch(() => null)));
+        }
+
+        const IMAGE_UPLOAD_CHUNK_BYTES = 512 * 1024;
+
+        function uploadImageInChunks(sessionId, file, onProgress) {
+            let xhr = null;
+            let cancelled = false;
+            const uploadId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const chunkTotal = Math.ceil(file.size / IMAGE_UPLOAD_CHUNK_BYTES);
+            return {
+                abort: () => {
+                    cancelled = true;
+                    xhr?.abort();
+                    void fetch(`/api/sessions/${sessionId}/attachments/images/uploads/${encodeURIComponent(uploadId)}`, { method: 'DELETE' }).catch(() => null);
+                },
+                promise: (async () => {
+                    for (let chunkIndex = 0; chunkIndex < chunkTotal; chunkIndex++) {
+                        if (cancelled) throw new Error('Image upload cancelled');
+                        const start = chunkIndex * IMAGE_UPLOAD_CHUNK_BYTES;
+                        const chunk = file.slice(start, Math.min(file.size, start + IMAGE_UPLOAD_CHUNK_BYTES));
+                        const result = await new Promise((resolve, reject) => {
+                            xhr = new XMLHttpRequest();
+                            xhr.open('POST', `/api/sessions/${sessionId}/attachments/images/chunks`);
+                            xhr.timeout = 60_000;
+                            xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+                            xhr.setRequestHeader('X-Glad-Upload-Id', uploadId);
+                            xhr.setRequestHeader('X-Glad-Chunk-Index', String(chunkIndex));
+                            xhr.setRequestHeader('X-Glad-Chunk-Total', String(chunkTotal));
+                            xhr.onerror = () => reject(new Error('Network error while uploading image'));
+                            xhr.ontimeout = () => reject(new Error(`Image upload timed out on chunk ${chunkIndex + 1}/${chunkTotal}`));
+                            xhr.onabort = () => reject(new Error('Image upload cancelled'));
+                            xhr.onload = () => {
+                                let data = {};
+                                try { data = JSON.parse(xhr.responseText || '{}'); } catch (_) {}
+                                if (xhr.status < 200 || xhr.status >= 300 || !data.success) {
+                                    reject(new Error(data.error || `Upload failed (HTTP ${xhr.status})`));
+                                    return;
+                                }
+                                resolve(data);
+                            };
+                            xhr.send(chunk);
+                        });
+                        const confirmedBytes = Math.min(file.size, start + chunk.size);
+                        onProgress(Math.round((confirmedBytes / file.size) * 100), chunkIndex + 1, chunkTotal);
+                        if (result.complete) return result.attachment;
+                    }
+                    throw new Error('Image upload did not complete');
+                })()
+            };
+        }
+
+        async function uploadImageFiles(files) {
+            if (!isCodexImageAttachmentAvailable()) {
+                alert('Image attachments are available only in Codex chat mode.');
+                return;
+            }
+            const remaining = 5 - selectedImageAttachments.length;
+            const batch = Array.from(files).slice(0, remaining);
+            if (files.length > remaining) alert('You can attach up to 5 images at a time.');
+            for (const file of batch) {
+                if (file.size > 50 * 1024 * 1024) {
+                    alert(`${file.name} is larger than 50 MB.`);
+                    continue;
+                }
+                const chunkTotal = Math.ceil(file.size / IMAGE_UPLOAD_CHUNK_BYTES);
+                const pending = {
+                    id: `uploading-${crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`}`,
+                    name: file.name || 'image',
+                    sessionId: activeSessionId,
+                    uploading: true,
+                    progress: 0,
+                    progressKnown: true,
+                    status: '0%',
+                    abortUpload: null
+                };
+                selectedImageAttachments.push(pending);
+                renderImageAttachments();
+                try {
+                    const upload = uploadImageInChunks(activeSessionId, file, progress => {
+                        pending.progress = progress;
+                        pending.status = `${progress}%`;
+                        renderImageAttachments();
+                    });
+                    pending.abortUpload = upload.abort;
+                    const attachment = await upload.promise;
+                    const index = selectedImageAttachments.indexOf(pending);
+                    if (index < 0) {
+                        await fetchWithTimeout(`/api/sessions/${activeSessionId}/attachments/images/${encodeURIComponent(attachment.id)}`, { method: 'DELETE' });
+                        continue;
+                    }
+                    selectedImageAttachments[index] = { ...attachment, name: file.name || attachment.name, sessionId: activeSessionId };
+                    renderImageAttachments();
+                } catch (e) {
+                    selectedImageAttachments = selectedImageAttachments.filter(item => item !== pending);
+                    renderImageAttachments();
+                    if (e.message === 'Image upload cancelled') continue;
+                    alert(`Could not add ${file.name}: ${e.message}`);
+                }
+            }
+        }
+
+        function closeComposerMenu() {
+            document.getElementById('composer-menu').classList.remove('active');
+            syncComposerButtonState();
+            updateTerminalControlsHeight();
+        }
+
+        function openTimedSendPanel() {
+            closeComposerMenu();
+            if (isClaudeSession()) {
+                closeClaudePicker();
+                closeClaudeUsagePanel();
+                claudeResumePanelOpen = false;
+                document.getElementById('claude-resume-panel').classList.remove('active');
+            }
+            initTimedDelaySelectors();
+            resetTimedEditor({ keepInput: true });
+            document.getElementById('timed-send-panel').classList.add('active');
+            updateTimedSendPreview();
+            loadTimedInputs();
+            syncComposerButtonState();
+            updateTerminalControlsHeight();
+        }
 
         function markInputEditStart() {
             keepTerminalBottomForNextInput = keepTerminalBottomForNextInput || isTerminalAtBottom();
@@ -2672,6 +2866,11 @@
         
         function performSend() {
             const val = inputEl.value;
+            const readyImageAttachments = selectedImageAttachments.filter(item => !item.uploading);
+            if (selectedImageAttachments.some(item => item.uploading)) {
+                alert('Wait for image uploads to finish before sending.');
+                return;
+            }
             if (val && isClaudeSession()) {
                 if (currentSocket && currentSocket.readyState === 1) {
                     currentSocket.send(JSON.stringify({ type: 'claude-input', text: val }));
@@ -2680,10 +2879,18 @@
                 inputEl.style.height = '38px';
                 return;
             }
-            if (val && isCodexSession() && codexState.presentation === 'structured') {
-                if (currentSocket && currentSocket.readyState === 1) currentSocket.send(JSON.stringify({ type: 'codex-input', text: val }));
+            if ((val || readyImageAttachments.length) && isCodexSession() && codexState.presentation === 'structured') {
+                if (currentSocket && currentSocket.readyState === 1) {
+                    currentSocket.send(JSON.stringify({
+                        type: 'codex-input',
+                        text: val,
+                        attachmentIds: readyImageAttachments.map(item => item.id)
+                    }));
+                }
                 inputEl.value = '';
                 inputEl.style.height = '38px';
+                selectedImageAttachments = [];
+                renderImageAttachments();
                 return;
             }
             if (val) {
@@ -2762,9 +2969,9 @@
 
         function closeTimedSendPanel() {
             document.getElementById('timed-send-panel').classList.remove('active');
-            document.getElementById('timer-btn').classList.remove('active');
             editingTimedInputId = null;
             renderTimedTags();
+            syncComposerButtonState();
             updateTerminalControlsHeight();
         }
 
@@ -2813,6 +3020,7 @@
         function editTimedInput(id) {
             const item = timedInputs.find(value => value.id === id);
             if (!item) return;
+            closeComposerMenu();
             initTimedDelaySelectors();
             editingTimedInputId = id;
             inputEl.value = item.text || '';
@@ -2823,9 +3031,9 @@
             document.getElementById('timed-cancel-edit-btn').style.display = '';
             document.getElementById('timed-delete-btn').style.display = '';
             document.getElementById('timed-send-panel').classList.add('active');
-            document.getElementById('timer-btn').classList.add('active');
             updateTimedSendPreview();
             renderTimedTags();
+            syncComposerButtonState();
             updateTerminalControlsHeight();
         }
 
@@ -2871,23 +3079,22 @@
         
         document.getElementById('send-btn').addEventListener('click', performSend);
         document.getElementById('timer-btn').addEventListener('click', () => {
-            const panel = document.getElementById('timed-send-panel');
-            const isOpen = panel.classList.toggle('active');
-            document.getElementById('timer-btn').classList.toggle('active', isOpen);
-            if (isOpen) {
-                if (isClaudeSession()) {
-                    closeClaudePicker();
-                    closeClaudeUsagePanel();
-                    claudeResumePanelOpen = false;
-                    document.getElementById('claude-resume-panel').classList.remove('active');
-                }
-                initTimedDelaySelectors();
-                resetTimedEditor({ keepInput: true });
-                updateTimedSendPreview();
-                loadTimedInputs();
-            }
-            else closeTimedSendPanel();
+            const menu = document.getElementById('composer-menu');
+            const willOpen = !menu.classList.contains('active');
+            document.getElementById('timed-send-panel').classList.remove('active');
+            menu.classList.toggle('active', willOpen);
+            syncComposerButtonState();
             updateTerminalControlsHeight();
+        });
+        document.getElementById('attach-image-btn').addEventListener('click', () => {
+            closeComposerMenu();
+            imageFileInput.click();
+        });
+        document.getElementById('schedule-send-btn').addEventListener('click', openTimedSendPanel);
+        imageFileInput.addEventListener('change', () => {
+            const files = imageFileInput.files;
+            if (files?.length) void uploadImageFiles(files);
+            imageFileInput.value = '';
         });
         inputEl.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); performSend(); }
