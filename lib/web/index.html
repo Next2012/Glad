@@ -116,6 +116,7 @@
         .codex-tool-title { flex: 0 1 auto; min-width: 0; color: #f5f5f7; font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .codex-tool-command { flex: 1; min-width: 0; color: #a9a9b0; font: 12px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .codex-tool-state { flex: 0 0 auto; color: #8e8e93; font-size: 11px; }
+        .codex-tool-duration { flex: 0 0 auto; color: #6f6f76; font-size: 10px; font-variant-numeric: tabular-nums; }
         .codex-tool-state.running::before { content: ''; display: inline-block; width: 9px; height: 9px; margin-right: 5px; border: 1.5px solid #8e8e93; border-top-color: transparent; border-radius: 50%; animation: codex-spin .8s linear infinite; vertical-align: -1px; }
         .codex-tool.error { border-color: rgba(255,59,48,.38); background: rgba(255,59,48,.07); }
         .codex-tool-body { border-top: 1px solid rgba(255,255,255,.08); padding: 9px 10px; }
@@ -257,6 +258,7 @@
         .claude-resume-item:last-child { border-bottom: 0; }
         .claude-resume-item:active { background: rgba(255,255,255,0.08); }
         .claude-resume-title { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 800; }
+        .codex-resume-question-secondary { min-height: 1.35em; color: var(--text-dim); font-size: 11px; margin-top: 3px; overflow-wrap: anywhere; }
         .claude-resume-meta { color: var(--text-dim); font-size: 11px; margin-top: 3px; overflow-wrap: anywhere; }
         #terminal .xterm, #terminal .xterm-viewport, #terminal .xterm-screen, #terminal .xterm-rows, #terminal .xterm-rows span { user-select: text !important; -webkit-user-select: text !important; -webkit-touch-callout: default; touch-action: pan-y; }
         #terminal .xterm-viewport { overflow-anchor: none; }
@@ -658,6 +660,7 @@
         let codexModelPanelOpen = false;
         let codexModelCandidate = null;
         let codexResumePanelOpen = false;
+        let codexRenderFrame = null;
         const modifiers = { ctrl: false };
 
         function log(msg) {
@@ -2070,6 +2073,16 @@
             if (status === 'completed') return item.exitCode && item.exitCode !== 0 ? 'failed' : 'completed';
             return status;
         }
+        function formatCodexDuration(durationMs) {
+            const value = Number(durationMs || 0);
+            if (!(value > 0)) return '';
+            if (value < 1000) return `${Math.round(value)}ms`;
+            const seconds = value / 1000;
+            if (seconds < 10) return `${seconds.toFixed(1).replace(/\.0$/, '')}s`;
+            if (seconds < 60) return `${Math.round(seconds)}s`;
+            const minutes = Math.floor(seconds / 60);
+            return `${minutes}m ${Math.round(seconds % 60)}s`;
+        }
         function renderCodexDiff(diff) {
             return `<div class="codex-diff">${String(diff || '').split('\n').map(line => {
                 const type = line.startsWith('+++') || line.startsWith('---') ? 'hunk' : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : line.startsWith('@@') ? 'hunk' : '';
@@ -2153,27 +2166,72 @@
             const command = item.name === 'CodexBash' ? item.command : item.title || item.tool || '';
             const icon = item.name === 'CodexBash' ? '>_' : item.name === 'McpTool' ? 'MCP' : item.name === 'Agent' ? 'A' : '•';
             const title = item.name === 'CodexBash' ? 'Command' : item.title || item.name || 'Tool';
-            const result = item.result || (item.name === 'McpTool' || item.name === 'Agent' ? codexJson(item.input) : '');
-            return `<details class="codex-tool${isError ? ' error' : ''}"><summary class="codex-tool-header"><span class="codex-tool-icon">${escapeHtml(icon)}</span><span class="codex-tool-title">${escapeHtml(title)}</span>${command && command !== title ? `<span class="codex-tool-command">${escapeHtml(command)}</span>` : '<span class="codex-tool-command"></span>'}<span class="codex-tool-state${runningClass}">${escapeHtml(status === 'completed' ? '' : status)}</span></summary>${result ? `<div class="codex-tool-body"><pre class="codex-tool-code">${escapeHtml(result)}</pre></div>` : ''}${permission ? renderCodexPermission(permission, true) : ''}</details>`;
+            const hasInput = item.input && typeof item.input === 'object' && Object.keys(item.input).length > 0;
+            const result = item.result || ((item.name === 'McpTool' || item.name === 'Agent') && hasInput ? codexJson(item.input) : '');
+            const duration = status === 'running' ? '' : formatCodexDuration(item.durationMs);
+            return `<details class="codex-tool${isError ? ' error' : ''}" data-codex-key="tool-${escapeHtml(item.id || item.providerId || '')}"><summary class="codex-tool-header"><span class="codex-tool-icon">${escapeHtml(icon)}</span><span class="codex-tool-title">${escapeHtml(title)}</span>${command && command !== title ? `<span class="codex-tool-command">${escapeHtml(command)}</span>` : '<span class="codex-tool-command"></span>'}${duration ? `<span class="codex-tool-duration">${escapeHtml(duration)}</span>` : ''}<span class="codex-tool-state${runningClass}">${escapeHtml(status === 'completed' ? '' : status)}</span></summary>${result ? `<div class="codex-tool-body"><pre class="codex-tool-code">${escapeHtml(result)}</pre></div>` : ''}${permission ? renderCodexPermission(permission, true) : ''}</details>`;
         }
         function renderCodexToolGroup(items, permissionById, usedPermissions, turnEnd = null) {
             const running = items.some(item => codexToolStatus(item) === 'running');
             const failed = items.some(item => codexToolStatus(item) === 'failed' || item.error);
-            const startedAt = Math.min(...items.map(item => Number(item.createdAt || Date.now())));
+            const startedAt = Math.min(...items.map(item => Number(item.startedAtMs || item.createdAt || Date.now())));
+            const itemCompletedAt = Math.max(...items.map(item => Number(item.completedAtMs || 0)));
             const storedDuration = Number(turnEnd?.durationMs || 0);
             const completedAt = Number(turnEnd?.createdAt || 0);
-            const durationMs = storedDuration > 0 ? storedDuration
+            const durationMs = itemCompletedAt >= startedAt ? itemCompletedAt - startedAt : storedDuration > 0 ? storedDuration
                 : (!running && completedAt >= startedAt ? completedAt - startedAt : 0);
-            const seconds = durationMs > 0 ? Math.max(1, Math.round(durationMs / 1000)) : null;
+            const duration = formatCodexDuration(durationMs);
             const tools = items.map(item => {
                 const permission = permissionById.get(String(item.providerId || ''));
                 if (permission) usedPermissions.add(permission.id);
                 return renderCodexTool(item, permission);
             }).join('');
-            const label = running ? 'Working' : failed ? 'Work finished with errors' : seconds ? `Worked for ${seconds}s` : 'Worked';
-            return `<details class="codex-work-group"${running ? ' open' : ''}><summary>${label} · ${items.length} tools</summary><div class="codex-work-group-body">${tools}</div></details>`;
+            const label = running ? 'Working' : failed ? 'Work finished with errors' : duration ? `Worked for ${duration}` : 'Worked';
+            const key = items.map(item => item.id || item.providerId || '').join('-');
+            return `<details class="codex-work-group" data-codex-key="group-${escapeHtml(key)}"${running ? ' open' : ''}><summary>${label} · ${items.length} tools</summary><div class="codex-work-group-body">${tools}</div></details>`;
+        }
+        function syncCodexDom(current, next) {
+            if (!current || !next) return;
+            if (current.nodeType !== next.nodeType || current.nodeName !== next.nodeName) {
+                current.replaceWith(next.cloneNode(true));
+                return;
+            }
+            if (current.nodeType === Node.TEXT_NODE) {
+                if (current.nodeValue !== next.nodeValue) current.nodeValue = next.nodeValue;
+                return;
+            }
+            const currentKey = current.getAttribute?.('data-codex-key');
+            const nextKey = next.getAttribute?.('data-codex-key');
+            if (currentKey && nextKey && currentKey !== nextKey) {
+                current.replaceWith(next.cloneNode(true));
+                return;
+            }
+            const preserveOpen = current.tagName === 'DETAILS' && currentKey === nextKey;
+            const wasOpen = preserveOpen ? current.open : false;
+            for (const attribute of Array.from(current.attributes || [])) {
+                if (!next.hasAttribute(attribute.name) && !(preserveOpen && attribute.name === 'open')) current.removeAttribute(attribute.name);
+            }
+            for (const attribute of Array.from(next.attributes || [])) {
+                if (!(preserveOpen && attribute.name === 'open') && current.getAttribute(attribute.name) !== attribute.value) {
+                    current.setAttribute(attribute.name, attribute.value);
+                }
+            }
+            if (preserveOpen) current.open = wasOpen;
+            const currentChildren = Array.from(current.childNodes);
+            const nextChildren = Array.from(next.childNodes);
+            const shared = Math.min(currentChildren.length, nextChildren.length);
+            for (let i = 0; i < shared; i++) syncCodexDom(currentChildren[i], nextChildren[i]);
+            for (let i = current.childNodes.length - 1; i >= nextChildren.length; i--) current.childNodes[i].remove();
+            for (let i = shared; i < nextChildren.length; i++) current.appendChild(nextChildren[i].cloneNode(true));
         }
         function renderCodexChat() {
+            if (codexRenderFrame != null) return;
+            codexRenderFrame = requestAnimationFrame(() => {
+                codexRenderFrame = null;
+                commitCodexChatRender();
+            });
+        }
+        function commitCodexChatRender() {
             const container = document.getElementById('codex-chat-container');
             if (!container) return;
             const parts = [];
@@ -2197,16 +2255,20 @@
                     }
                     continue;
                 }
-                if (item.kind === 'assistant') parts.push(`<div class="codex-message assistant claude-md">${renderMarkdown(item.text || '')}</div>`);
-                else if (item.kind === 'user') parts.push(`<div class="codex-message user claude-md">${renderMarkdown(item.text || '')}</div>`);
+                if (item.kind === 'assistant') parts.push(`<div class="codex-message assistant claude-md" data-codex-key="message-${escapeHtml(item.id || '')}">${renderMarkdown(item.text || '')}</div>`);
+                else if (item.kind === 'user') parts.push(`<div class="codex-message user claude-md" data-codex-key="message-${escapeHtml(item.id || '')}">${renderMarkdown(item.text || '')}</div>`);
                 else if (item.kind === 'status') parts.push(renderCodexStatus(item));
                 else parts.push(`<div class="codex-message ${escapeHtml(item.level === 'error' ? 'event error' : item.kind || 'event')}">${codexText(item.text)}</div>`);
                 i += 1;
             }
             for (const request of codexPendingPermissions) if (!usedPermissions.has(request.id)) parts.push(renderCodexPermission(request));
-            const working = codexState.status === 'running'
-                ? '<div class="codex-working-indicator" role="status" aria-label="Codex is working" title="Codex is working"></div>' : '';
-            container.innerHTML = `<div class="codex-conversation">${working}${parts.join('') || '<div class="codex-message event">Send a message to start Codex.</div>'}</div>`;
+            const working = `<div class="codex-working-indicator" role="status" aria-label="Codex is working" title="Codex is working"${codexState.status === 'running' ? '' : ' style="display:none"'}></div>`;
+            const template = document.createElement('template');
+            template.innerHTML = `<div class="codex-conversation">${working}${parts.join('') || '<div class="codex-message event">Send a message to start Codex.</div>'}</div>`;
+            const next = template.content.firstElementChild;
+            const current = container.firstElementChild;
+            if (!current) container.appendChild(next);
+            else syncCodexDom(current, next);
             requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; });
         }
 
@@ -2247,8 +2309,10 @@
             const el = document.getElementById('codex-state-bar');
             if (!el) return;
             const pending = Number(codexState.pendingPermissionCount || codexPendingPermissions.filter(item => item.status === 'pending').length) || 0;
+            const subagents = Number(codexState.activeSubagentCount || 0) || 0;
             const parts = [];
             if (pending || codexState.status === 'waiting_approval') parts.push(`<span class="claude-state-pill warn">${pending || 1} approval${pending === 1 ? '' : 's'}</span>`);
+            if (subagents) parts.push(`<span class="claude-state-pill">${subagents} subagent${subagents === 1 ? '' : 's'} running</span>`);
             el.innerHTML = parts.join('');
             el.style.display = parts.length ? 'flex' : 'none';
         }
@@ -2317,7 +2381,10 @@
                 const data = await res.json();
                 if (!res.ok || !data.success) throw new Error(data.error || 'Failed to load Codex sessions');
                 const items = data.items || [];
-                panel.innerHTML = items.length ? items.map(item => `<button class="claude-resume-item" onclick="selectCodexResumeThread(decodePathValue('${encodePathValue(item.id)}'))"><div class="claude-resume-title"><span>${escapeHtml((item.preview || 'Codex session').slice(0, 48))}${item.current ? ' · current' : ''}</span><span>${escapeHtml(item.updatedAt ? new Date(item.updatedAt).toLocaleString() : '')}</span></div><div class="claude-resume-meta">${escapeHtml(item.id.slice(0, 12))}</div></button>`).join('') : '<div class="claude-resume-meta" style="padding:12px;">No Codex sessions found for this folder.</div>';
+                panel.innerHTML = items.length ? items.map(item => {
+                    const questions = Array.isArray(item.questions) ? item.questions : [];
+                    return `<button class="claude-resume-item" onclick="selectCodexResumeThread(decodePathValue('${encodePathValue(item.id)}'))"><div class="claude-resume-title"><span>${escapeHtml((questions[0] || 'Codex session').slice(0, 120))}${item.current ? ' · current' : ''}</span><span>${escapeHtml(item.updatedAt ? new Date(item.updatedAt).toLocaleString() : '')}</span></div><div class="codex-resume-question-secondary">${escapeHtml((questions[1] || '').slice(0, 120))}</div></button>`;
+                }).join('') : '<div class="claude-resume-meta" style="padding:12px;">No Codex sessions found for this folder.</div>';
             } catch (e) { panel.innerHTML = `<div class="claude-resume-meta" style="padding:12px;color:#ff6b61;">${escapeHtml(e.message)}</div>`; }
         }
         async function selectCodexResumeThread(threadId) {
