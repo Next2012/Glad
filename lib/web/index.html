@@ -99,9 +99,13 @@
         .codex-conversation { width: min(100%, var(--chat-content-max)); margin: 0 auto; }
         .codex-working-indicator { position: sticky; top: 0; z-index: 4; width: 28px; height: 28px; margin: 0 0 -28px auto; border: 1px solid rgba(255,255,255,.1); border-radius: 50%; background: rgba(28,28,30,.68); box-shadow: 0 5px 16px rgba(0,0,0,.24); backdrop-filter: blur(8px); pointer-events: none; }
         .codex-working-indicator::after { content: ''; position: absolute; inset: 8px; border: 1.5px solid rgba(255,255,255,.7); border-top-color: transparent; border-radius: 50%; animation: codex-spin .8s linear infinite; }
-        .codex-message { max-width: 100%; margin: 0 0 12px; color: #f5f5f7; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
-        .codex-message.user { max-width: 92%; margin-left: auto; padding: 8px 12px; border: 1px solid rgba(0,122,255,.32); border-radius: 12px; background: rgba(0,122,255,.24); }
+        .codex-message-block { max-width: 100%; margin: 0 0 12px; }
+        .codex-message-block.user { max-width: 92%; margin-left: auto; }
+        .codex-message { max-width: 100%; margin: 0; color: #f5f5f7; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+        .codex-message.user { padding: 8px 12px; border: 1px solid rgba(0,122,255,.32); border-radius: 12px; background: rgba(0,122,255,.24); }
         .codex-message.event { color: var(--text-dim); text-align: center; font-size: 12px; }
+        .codex-message-time { display: block; width: max-content; margin-top: 4px; padding: 0 2px; color: #8e8e93; font-size: 10px; font-weight: 500; line-height: 1; font-variant-numeric: tabular-nums; }
+        .codex-message-block.user .codex-message-time { margin-left: auto; }
         .codex-status-card { margin: 10px 0 14px; border: 1px solid rgba(100,210,255,.2); border-radius: 10px; background: rgba(28,28,30,.72); padding: 11px; color: #f5f5f7; }
         .codex-status-title { margin-bottom: 9px; color: #64d2ff; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
         .codex-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
@@ -327,7 +331,7 @@
             .codex-control-page .claude-ctrl-btn { height: 36px; padding-left: 4px; padding-right: 4px; }
             .codex-select-control { height: 36px; }
             #codex-chat-container { padding: 10px 10px calc(22px + env(safe-area-inset-bottom)); }
-            .codex-message.user { max-width: 94%; }
+            .codex-message-block.user { max-width: 94%; }
             .claude-permission-actions { justify-content: flex-start; }
         }
         @media (max-width: 430px) {
@@ -451,7 +455,7 @@
                             <button id="codex-status-btn" class="claude-ctrl-btn" onclick="requestCodexStatus()" title="Show Codex account, limits, and context status">Status</button>
                             <button id="codex-abort-btn" class="claude-ctrl-btn danger" onclick="abortCodexSession()" title="Abort current Codex turn">Abort</button>
                             <button id="codex-resume-btn" class="claude-ctrl-btn primary" onclick="toggleCodexResumePanel()" title="Resume a Codex thread">Resume</button>
-                            <button id="codex-fork-btn" class="claude-ctrl-btn primary" onclick="toggleCodexForkPanel()" title="Fork a Codex thread into a new Glad session">Fork</button>
+                            <button id="codex-fork-btn" class="claude-ctrl-btn primary" onclick="toggleCodexForkPanel()" title="Fork a Codex thread in this conversation">Fork</button>
                         </div>
                         <div class="codex-control-page">
                             <label class="codex-select-control" title="Sandbox mode">
@@ -2197,7 +2201,16 @@
             }).join('');
             const label = running ? 'Working' : failed ? 'Work finished with errors' : duration ? `Worked for ${duration}` : 'Worked';
             const key = items.map(item => item.id || item.providerId || '').join('-');
-            return `<details class="codex-work-group" data-codex-key="group-${escapeHtml(key)}"${running ? ' open' : ''}><summary>${label} · ${items.length} tools</summary><div class="codex-work-group-body">${tools}</div></details>`;
+            return `<details class="codex-work-group" data-codex-key="group-${escapeHtml(key)}"><summary>${label} · ${items.length} ${items.length === 1 ? 'tool' : 'tools'}</summary><div class="codex-work-group-body">${tools}</div></details>`;
+        }
+        function renderCodexMessageTime(item, finalOnly = false) {
+            if (!item || (finalOnly && item.streaming)) return '';
+            const timestamp = Number(finalOnly ? (item.completedAtMs || item.updatedAt || item.createdAt) : item.createdAt);
+            if (!Number.isFinite(timestamp) || timestamp <= 0) return '';
+            const date = new Date(timestamp);
+            if (Number.isNaN(date.getTime())) return '';
+            const label = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            return `<time class="codex-message-time" datetime="${escapeHtml(date.toISOString())}" title="${escapeHtml(date.toLocaleString())}">${escapeHtml(label)}</time>`;
         }
         function syncCodexDom(current, next) {
             if (!current || !next) return;
@@ -2243,6 +2256,10 @@
         function commitCodexChatRender() {
             const container = document.getElementById('codex-chat-container');
             if (!container) return;
+            const wasEmpty = !container.firstElementChild;
+            const previousScrollTop = container.scrollTop;
+            const distanceFromBottom = container.scrollHeight - container.clientHeight - previousScrollTop;
+            const shouldStickToBottom = wasEmpty || distanceFromBottom <= 64;
             const parts = [];
             const permissionById = new Map(codexPendingPermissions.map(item => [String(item.id), item]));
             const usedPermissions = new Set();
@@ -2255,17 +2272,12 @@
                     const tools = [];
                     const turnId = item.turnId;
                     while (i < visible.length && visible[i].kind === 'tool' && visible[i].turnId === turnId) tools.push(visible[i++]);
-                    if (tools.length > 1) parts.push(renderCodexToolGroup(tools, permissionById, usedPermissions,
+                    parts.push(renderCodexToolGroup(tools, permissionById, usedPermissions,
                         turnEndById.get(String(turnId || ''))));
-                    else {
-                        const permission = permissionById.get(String(tools[0].providerId || ''));
-                        if (permission) usedPermissions.add(permission.id);
-                        parts.push(renderCodexTool(tools[0], permission));
-                    }
                     continue;
                 }
-                if (item.kind === 'assistant') parts.push(`<div class="codex-message assistant claude-md" data-codex-key="message-${escapeHtml(item.id || '')}">${renderMarkdown(item.text || '')}</div>`);
-                else if (item.kind === 'user') parts.push(`<div class="codex-message user claude-md" data-codex-key="message-${escapeHtml(item.id || '')}">${renderMarkdown(item.text || '')}</div>`);
+                if (item.kind === 'assistant') parts.push(`<div class="codex-message-block assistant" data-codex-key="message-${escapeHtml(item.id || '')}"><div class="codex-message assistant claude-md">${renderMarkdown(item.text || '')}</div>${renderCodexMessageTime(item, true)}</div>`);
+                else if (item.kind === 'user') parts.push(`<div class="codex-message-block user" data-codex-key="message-${escapeHtml(item.id || '')}"><div class="codex-message user claude-md">${renderMarkdown(item.text || '')}</div>${renderCodexMessageTime(item)}</div>`);
                 else if (item.kind === 'status') parts.push(renderCodexStatus(item));
                 else parts.push(`<div class="codex-message ${escapeHtml(item.level === 'error' ? 'event error' : item.kind || 'event')}">${codexText(item.text)}</div>`);
                 i += 1;
@@ -2278,7 +2290,7 @@
             const current = container.firstElementChild;
             if (!current) container.appendChild(next);
             else syncCodexDom(current, next);
-            requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; });
+            container.scrollTop = shouldStickToBottom ? container.scrollHeight : previousScrollTop;
         }
 
         function applyCodexState(state = {}) {
@@ -2307,7 +2319,7 @@
             const abort = document.getElementById('codex-abort-btn');
             if (abort) abort.disabled = !codexState.canAbort;
             const fork = document.getElementById('codex-fork-btn');
-            if (fork) fork.disabled = !(codexState.presentation === 'structured' && codexState.status === 'idle' && codexState.threadId);
+            if (fork) fork.disabled = !(codexState.presentation === 'structured' && codexState.status === 'idle');
             const terminal = document.getElementById('codex-terminal-switch');
             if (terminal) { terminal.textContent = codexState.presentation === 'terminal' ? 'CHAT' : 'TERM'; terminal.disabled = codexState.presentation === 'structured' && !codexState.canSwitchToTerminal; terminal.title = codexState.presentation === 'terminal' ? 'Return to Codex chat' : 'Switch to Codex terminal'; }
             renderCodexStateBar();
@@ -2393,7 +2405,7 @@
             await loadCodexThreadPanel(panel, 'resume');
         }
         async function toggleCodexForkPanel() {
-            if (!(codexState.presentation === 'structured' && codexState.status === 'idle' && codexState.threadId)) return;
+            if (!(codexState.presentation === 'structured' && codexState.status === 'idle')) return;
             codexForkPanelOpen = !codexForkPanelOpen;
             codexModelPanelOpen = false;
             codexResumePanelOpen = false;
@@ -2429,7 +2441,7 @@
         }
         async function selectCodexForkThread(threadId) {
             const panel = document.getElementById('codex-fork-panel');
-            panel.innerHTML = '<div class="claude-resume-meta" style="padding:12px;">Forking into a new session...</div>';
+            panel.innerHTML = '<div class="claude-resume-meta" style="padding:12px;">Forking and switching this conversation...</div>';
             updateTerminalControlsHeight();
             const res = await fetchWithTimeout(`/api/sessions/${activeSessionId}/codex-fork`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ threadId }) }, 60000);
             const data = await res.json();
@@ -2442,7 +2454,6 @@
             panel.classList.remove('active');
             panel.innerHTML = '';
             updateTerminalControlsHeight();
-            refreshSessionsNow();
         }
         async function toggleCodexPresentation() {
             const presentation = codexState.presentation === 'terminal' ? 'structured' : 'terminal';
