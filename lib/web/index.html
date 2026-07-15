@@ -131,6 +131,11 @@
         .codex-work-group > summary::before { content: '›'; width: 12px; color: #8e8e93; font-size: 17px; transform-origin: center; }
         .codex-work-group[open] > summary::before { transform: rotate(90deg); }
         .codex-work-group-body { padding-left: 2px; }
+        .codex-subagent-group { border-left-color: rgba(100,210,255,.24); }
+        .codex-subagent-group > summary { color: #8e9aa6; }
+        .codex-subagent-group > summary::before { color: #64a9d1; }
+        .codex-subagent-message { margin: 7px 0; padding: 7px 9px; border-left: 1px solid rgba(255,255,255,.1); color: #c7c7cc; font-size: 12px; line-height: 1.42; overflow-wrap: anywhere; }
+        .codex-subagent-message.task { color: #8e8e93; font-style: italic; }
         .codex-patch-file { border-top: 1px solid rgba(255,255,255,.08); }
         .codex-patch-file:first-child { border-top: 0; }
         .codex-patch-file > summary { display: flex; align-items: center; gap: 8px; padding: 8px 10px; color: #d1d5db; font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -2203,6 +2208,46 @@
             const key = items.map(item => item.id || item.providerId || '').join('-');
             return `<details class="codex-work-group" data-codex-key="group-${escapeHtml(key)}"><summary>${label} · ${items.length} ${items.length === 1 ? 'tool' : 'tools'}</summary><div class="codex-work-group-body">${tools}</div></details>`;
         }
+        function isCodexSubagentItem(item) {
+            return Boolean(item?.threadId && codexState.threadId && item.threadId !== codexState.threadId);
+        }
+        function renderCodexSubagentGroup(threadId, items, permissionById, usedPermissions) {
+            const turnEnds = items.filter(item => item.kind === 'turn-end');
+            const content = items.filter(item => !['reasoning', 'turn-start', 'turn-end'].includes(item.kind));
+            const tools = content.filter(item => item.kind === 'tool');
+            const messages = content.filter(item => item.kind === 'assistant' || item.kind === 'user');
+            const running = tools.some(item => codexToolStatus(item) === 'running')
+                || items.filter(item => item.kind === 'turn-start').length > turnEnds.length;
+            const startedAt = Math.min(...items.map(item => Number(item.startedAtMs || item.createdAt || Infinity)));
+            const completedAt = Math.max(...turnEnds.map(item => Number(item.createdAt || 0)),
+                ...content.map(item => Number(item.completedAtMs || item.updatedAt || 0)));
+            const duration = formatCodexDuration(Number.isFinite(startedAt) && completedAt >= startedAt
+                ? completedAt - startedAt : 0);
+            const counts = [];
+            if (tools.length) counts.push(`${tools.length} ${tools.length === 1 ? 'tool' : 'tools'}`);
+            if (messages.length) counts.push(`${messages.length} ${messages.length === 1 ? 'message' : 'messages'}`);
+            const label = running ? 'Subagent working' : duration ? `Subagent worked for ${duration}` : 'Subagent worked';
+            const body = [];
+            for (let i = 0; i < content.length;) {
+                const item = content[i];
+                if (item.kind === 'tool') {
+                    const group = [];
+                    const turnId = item.turnId;
+                    while (i < content.length && content[i].kind === 'tool' && content[i].turnId === turnId) group.push(content[i++]);
+                    const turnEnd = turnEnds.find(candidate => candidate.turnId === turnId) || null;
+                    body.push(renderCodexToolGroup(group, permissionById, usedPermissions, turnEnd));
+                    continue;
+                }
+                if (item.kind === 'assistant' || item.kind === 'user') {
+                    body.push(`<div class="codex-subagent-message${item.kind === 'user' ? ' task' : ''}">${renderMarkdown(item.text || '')}</div>`);
+                } else if (item.text) {
+                    body.push(`<div class="codex-subagent-message">${codexText(item.text)}</div>`);
+                }
+                i += 1;
+            }
+            const suffix = counts.length ? ` · ${counts.join(' · ')}` : '';
+            return `<details class="codex-work-group codex-subagent-group" data-codex-key="subagent-${escapeHtml(threadId)}"><summary>${escapeHtml(label + suffix)}</summary><div class="codex-work-group-body">${body.join('')}</div></details>`;
+        }
         function renderCodexMessageTime(item, finalOnly = false) {
             if (!item || (finalOnly && item.streaming)) return '';
             const timestamp = Number(finalOnly ? (item.completedAtMs || item.updatedAt || item.createdAt) : item.createdAt);
@@ -2265,9 +2310,26 @@
             const usedPermissions = new Set();
             const turnEndById = new Map(codexMessages.filter(item => item.kind === 'turn-end' && item.turnId)
                 .map(item => [String(item.turnId), item]));
+            const subagentItems = new Map();
+            for (const item of codexMessages) {
+                if (!isCodexSubagentItem(item)) continue;
+                const threadId = String(item.threadId);
+                if (!subagentItems.has(threadId)) subagentItems.set(threadId, []);
+                subagentItems.get(threadId).push(item);
+            }
+            const renderedSubagents = new Set();
             const visible = codexMessages.filter(item => !['reasoning', 'turn-start', 'turn-end'].includes(item.kind));
             for (let i = 0; i < visible.length;) {
                 const item = visible[i];
+                if (isCodexSubagentItem(item)) {
+                    const threadId = String(item.threadId);
+                    if (!renderedSubagents.has(threadId)) {
+                        renderedSubagents.add(threadId);
+                        parts.push(renderCodexSubagentGroup(threadId, subagentItems.get(threadId) || [], permissionById, usedPermissions));
+                    }
+                    i += 1;
+                    continue;
+                }
                 if (item.kind === 'tool') {
                     const tools = [];
                     const turnId = item.turnId;
