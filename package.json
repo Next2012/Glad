@@ -2,17 +2,18 @@
   "name": "glad-web",
   "version": "1.0.29",
   "description": "Glad transforms terminal-based AI coding tools into a polished, mobile-friendly local Web interface.",
-  "main": "index.js",
   "bin": {
     "glad": "bin/cli.js"
   },
   "scripts": {
     "start": "node bin/cli.js",
+    "test:e2e": "playwright test",
     "build:linux": "npx caxa -i . -e \".git\" \".github\" \"assets/Demo.mp4\" \"assets/demo.gif\" \"assets/demo.jpg\" \"assets/wechat.jpg\" \"glad-*\" \"*.tgz\" -m \"Extracting Glad...\" --output \"glad-linux-amd64\" -- \"{{caxa}}/node_modules/.bin/node\" \"{{caxa}}/bin/cli.js\"",
     "build:macos:x64": "npx caxa -i . -e \".git\" \".github\" \"assets/Demo.mp4\" \"assets/demo.gif\" \"assets/demo.jpg\" \"assets/wechat.jpg\" \"glad-*\" \"*.tgz\" -m \"Extracting Glad...\" --output \"glad-macos-x64\" -- \"{{caxa}}/node_modules/.bin/node\" \"{{caxa}}/bin/cli.js\"",
     "build:macos:arm64": "npx caxa -i . -e \".git\" \".github\" \"assets/Demo.mp4\" \"assets/demo.gif\" \"assets/demo.jpg\" \"assets/wechat.jpg\" \"glad-*\" \"*.tgz\" -m \"Extracting Glad...\" --output \"glad-macos-arm64\" -- \"{{caxa}}/node_modules/.bin/node\" \"{{caxa}}/bin/cli.js\"",
     "build:windows": "npx caxa -i . -e \".git\" \".github\" \"assets/Demo.mp4\" \"assets/demo.gif\" \"assets/demo.jpg\" \"assets/wechat.jpg\" \"glad-*\" \"*.tgz\" -m \"Extracting Glad...\" --output \"glad-windows-amd64.exe\" -- \"{{caxa}}/node_modules/.bin/node\" \"{{caxa}}/bin/cli.js\"",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test lib/**/*.test.js",
+    "check": "node scripts/check-syntax.js"
   },
   "keywords": [
     "terminal",
@@ -41,22 +42,26 @@
   "files": [
     "bin/",
     "lib/",
+    "scripts/",
     "!lib/**/*.test.js",
     "assets/logo.svg",
     "README.md"
   ],
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.201",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/headless": "^6.0.0",
+    "@xterm/xterm": "^5.5.0",
     "chalk": "^4.1.2",
     "commander": "^11.0.0",
     "conf": "^10.2.0",
     "express": "^5.2.1",
     "node-pty": "npm:@lydell/node-pty@^1.1.0",
     "uuid": "^11.1.1",
-    "ws": "^8.19.0",
-    "@xterm/headless": "^6.0.0"
+    "ws": "^8.19.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "caxa": "^3.0.1"
   }
 }

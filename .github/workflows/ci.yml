@@ -30,5 +30,19 @@ jobs:
       - name: Validate package metadata
         run: npm pack --dry-run
 
+      - name: Check JavaScript syntax
+        run: npm run check
+
+      - name: Run tests
+        run: npm test
+
+      - name: Install Playwright browser
+        if: matrix.node-version == 20
+        run: npx playwright install --with-deps chromium
+
+      - name: Run responsive browser tests
+        if: matrix.node-version == 20
+        run: npm run test:e2e
+
       - name: Verify CLI boots
         run: node bin/cli.js --version
