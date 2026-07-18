@@ -44,3 +44,67 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
   expect(pageErrors).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath('lobby-and-schedule.png'), fullPage: true });
 });
+
+test('approval bubble expands and jumps to its pending request', async ({ page }, testInfo) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  await page.evaluate(() => {
+    activeToolKey = 'codex';
+    codexState = {
+      ...codexState,
+      status: 'waiting_approval',
+      presentation: 'structured',
+      pendingPermissionCount: 1,
+      threadId: 'root-thread'
+    };
+    codexPendingPermissions = [{
+      id: 'approval-command-1',
+      status: 'pending',
+      title: 'Run command',
+      reason: 'Allow this command to run?'
+    }];
+    codexMessages = [{
+      id: 'tool-approval',
+      providerId: 'approval-command-1',
+      kind: 'tool',
+      name: 'CodexBash',
+      command: 'npm test',
+      toolStatus: 'running',
+      turnId: 'turn-1',
+      createdAt: Date.now()
+    }, ...Array.from({ length: 24 }, (_, index) => ({
+      id: `message-${index}`,
+      kind: 'assistant',
+      text: `Completed follow-up item ${index + 1}.\n\nAdditional output keeps the pending request above the current scroll position.`,
+      createdAt: Date.now() + index + 1
+    }))];
+
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    document.getElementById('terminal-view').classList.add('active');
+    setClaudeModeEnabled(false);
+    commitCodexChatRender();
+    renderCodexStateBar();
+    const chat = document.getElementById('codex-chat-container');
+    chat.scrollTop = chat.scrollHeight;
+  });
+
+  const target = page.locator('[data-codex-permission-id="approval-command-1"]');
+  await expect(target).toHaveCount(1);
+  await expect(target).not.toBeVisible();
+  await page.getByRole('button', { name: 'Jump to pending approval' }).click();
+
+  await expect(target).toBeVisible();
+  await expect(target).toHaveClass(/codex-approval-focus/);
+  await expect.poll(() => target.evaluate(element => {
+    const parents = [];
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+      if (parent.tagName === 'DETAILS') parents.push(parent.open);
+    }
+    return parents.length > 0 && parents.every(Boolean);
+  })).toBe(true);
+  await expect(target).toBeInViewport();
+  expect(pageErrors).toEqual([]);
+  await page.screenshot({ path: testInfo.outputPath('approval-jump.png'), fullPage: true });
+});

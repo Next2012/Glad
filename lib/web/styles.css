@@ -138,6 +138,13 @@
         .codex-inline-permission { border-top: 1px solid rgba(255,204,0,.28); padding: 9px 10px 10px; background: rgba(255,204,0,.055); }
         .codex-inline-permission-title { color: #f5f5f7; font-size: 12px; font-weight: 700; }
         .codex-inline-permission .claude-permission-actions { margin-top: 8px; }
+        .codex-approval-jump { cursor: pointer; font: inherit; line-height: 1; }
+        .codex-approval-jump:active { background: rgba(255,204,0,0.18); transform: translateY(1px); }
+        .codex-approval-focus { animation: codex-approval-focus 1.8s ease-out; scroll-margin: 120px 0 180px; }
+        @keyframes codex-approval-focus {
+            0%, 28% { box-shadow: 0 0 0 3px rgba(255,204,0,.92), 0 0 28px rgba(255,204,0,.45); background-color: rgba(255,204,0,.18); }
+            100% { box-shadow: 0 0 0 0 rgba(255,204,0,0); }
+        }
         @keyframes codex-spin { to { transform: rotate(360deg); } }
         #codex-control-panel { display: none; width: min(100%, var(--control-content-max)); margin: 0 auto; padding: 8px 14px 10px; border-bottom: 1px solid #222; background: #121212; box-sizing: border-box; }
         .codex-control-rail { display: flex; gap: 14px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
