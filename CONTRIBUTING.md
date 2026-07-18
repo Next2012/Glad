@@ -49,8 +49,17 @@ Be respectful, specific, and constructive.
 Before opening a pull request, run the checks that apply to your change:
 
 ```bash
+npm run check
+npm test
 node bin/cli.js --version
 npm pack --dry-run
+```
+
+For Web UI or responsive layout changes, install Chromium once and run the browser suite. The suite starts Glad on port `3001` and covers the maintained phone, tablet, and desktop viewports.
+
+```bash
+npx playwright install chromium
+npm run test:e2e
 ```
 
 If you changed the packaged binary flow, also test:
