@@ -74,40 +74,43 @@
                 </div>
                 <input id="image-file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
                 <div id="claude-control-panel">
-                    <div class="claude-control-row">
-                        <div class="claude-picker-wrap">
-                            <select id="claude-permission-select" class="claude-select" title="Permission mode" onchange="updateClaudeSettingsFromControls()">
-                                <option value="default">Default</option>
-                                <option value="acceptEdits">Accept edits</option>
-                                <option value="plan">Plan mode</option>
-                                <option value="bypassPermissions">Bypass</option>
-                            </select>
-                            <button id="claude-permission-picker-btn" class="claude-select claude-picker-btn" onclick="toggleClaudePicker('permission')" title="Permission mode">P</button>
+                    <div class="claude-control-rail">
+                        <div class="claude-control-page primary">
+                            <div class="claude-picker-wrap">
+                                <select id="claude-model-select" class="claude-select" title="Model" onchange="updateClaudeSettingsFromControls()">
+                                    <option value="default">M:Def</option>
+                                </select>
+                                <select id="claude-effort-select" class="claude-select" title="Effort" onchange="updateClaudeSettingsFromControls()">
+                                    <option value="low">Low</option>
+                                    <option value="medium">Medium</option>
+                                    <option value="high">High</option>
+                                    <option value="xhigh">Extra high</option>
+                                    <option value="max">Max</option>
+                                </select>
+                                <button id="claude-model-picker-btn" class="claude-select claude-picker-btn" onclick="toggleClaudePicker('model')" title="Model and effort">Model</button>
+                            </div>
+                            <button id="claude-usage-btn" class="claude-ctrl-btn" onclick="requestClaudeUsage()" title="Show Claude usage">Usage</button>
+                            <button id="claude-context-btn" class="claude-ctrl-btn" onclick="requestClaudeContext()" title="Show Claude context">Context</button>
+                            <button id="claude-abort-btn" class="claude-ctrl-btn danger" onclick="abortClaudeSession()" title="Abort current Claude turn">Abort</button>
+                            <button id="claude-resume-btn" class="claude-ctrl-btn primary" onclick="toggleClaudeResumePanel()" title="Choose a Claude session to resume">Resume</button>
+                            <button id="claude-fork-btn" class="claude-ctrl-btn primary" onclick="toggleClaudeForkPanel()" title="Fork a Claude session">Fork</button>
                         </div>
-                        <div class="claude-picker-wrap">
-                            <select id="claude-model-select" class="claude-select" title="Model" onchange="updateClaudeSettingsFromControls()">
-                                <option value="default">M:Def</option>
-                            </select>
-                            <button id="claude-model-picker-btn" class="claude-select claude-picker-btn" onclick="toggleClaudePicker('model')" title="Model">M</button>
+                        <div class="claude-control-page secondary">
+                            <div class="claude-picker-wrap">
+                                <select id="claude-permission-select" class="claude-select" title="Permission mode" onchange="updateClaudeSettingsFromControls()">
+                                    <option value="default">Default</option>
+                                    <option value="acceptEdits">Accept edits</option>
+                                    <option value="plan">Plan mode</option>
+                                    <option value="bypassPermissions">Bypass</option>
+                                </select>
+                                <button id="claude-permission-picker-btn" class="claude-select claude-picker-btn" onclick="toggleClaudePicker('permission')" title="Permission mode">Permission</button>
+                            </div>
                         </div>
-                        <div class="claude-picker-wrap">
-                            <select id="claude-effort-select" class="claude-select" title="Effort" onchange="updateClaudeSettingsFromControls()">
-                                <option value="low">E:Low</option>
-                                <option value="medium">E:Med</option>
-                                <option value="high">E:High</option>
-                                <option value="xhigh">E:XHi</option>
-                                <option value="max">E:Max</option>
-                            </select>
-                            <button id="claude-effort-picker-btn" class="claude-select claude-picker-btn" onclick="toggleClaudePicker('effort')" title="Effort">E</button>
-                        </div>
-                        <button id="claude-usage-btn" class="claude-ctrl-btn" onclick="toggleClaudeUsagePanel()" title="Usage">Usage</button>
-                        <button id="claude-abort-btn" class="claude-ctrl-btn danger" onclick="abortClaudeSession()" title="Abort current Claude turn">Abort</button>
-                        <button id="claude-resume-btn" class="claude-ctrl-btn primary" onclick="toggleClaudeResumePanel()" title="Choose a Claude session to resume">Resume</button>
                     </div>
                     <div id="claude-state-bar"></div>
                     <div id="claude-picker-panel"></div>
-                    <div id="claude-usage-panel"></div>
                     <div id="claude-resume-panel"></div>
+                    <div id="claude-fork-panel"></div>
                 </div>
                 <div id="codex-control-panel">
                     <div id="codex-control-rail" class="codex-control-rail">
