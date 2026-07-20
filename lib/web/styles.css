@@ -105,6 +105,10 @@
         .codex-compaction-title { font-size: 12px; font-weight: 800; }
         .codex-compaction-meta { margin-top: 3px; color: #a9a9b0; font-size: 10px; font-variant-numeric: tabular-nums; }
         .codex-compaction-card.running .codex-compaction-icon { animation: codex-pulse 1.1s ease-in-out infinite alternate; }
+        .codex-warning-card { display: flex; align-items: flex-start; gap: 10px; margin: 10px 0 14px; padding: 10px 12px; border: 1px solid rgba(255,204,0,.34); border-radius: 10px; background: linear-gradient(135deg, rgba(255,204,0,.13), rgba(255,159,10,.07)); color: #f5f5f7; }
+        .codex-warning-icon { display: grid; width: 28px; height: 28px; flex: 0 0 28px; place-items: center; border-radius: 50%; background: rgba(255,204,0,.16); color: #ffd60a; font-size: 15px; font-weight: 900; }
+        .codex-warning-title { color: #ffe680; font-size: 12px; font-weight: 800; }
+        .codex-warning-text { margin-top: 3px; color: #d8d3bf; font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
         .codex-status-card { margin: 10px 0 14px; border: 1px solid rgba(100,210,255,.2); border-radius: 10px; background: rgba(28,28,30,.72); padding: 11px; color: #f5f5f7; }
         .codex-status-title { margin-bottom: 9px; color: #64d2ff; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
         .codex-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
@@ -173,8 +177,8 @@
         .codex-select-control:focus-within .codex-select-label { background: rgba(255,255,255,.14); border-color: rgba(0,122,255,.45); }
         .codex-select { appearance: none; position: absolute; inset: 0; width: 100%; min-width: 0; height: 100%; opacity: 0; cursor: pointer; }
         .codex-select option { background: #1c1c1e; color: #fff; }
-        #codex-model-panel, #codex-resume-panel, #codex-fork-panel { display: none; margin-top: 8px; border: 1px solid rgba(255,255,255,.1); background: rgba(28,28,30,.99); border-radius: 8px; box-shadow: 0 16px 36px rgba(0,0,0,.34); overflow: hidden; }
-        #codex-model-panel.active, #codex-resume-panel.active, #codex-fork-panel.active { display: block; }
+        #codex-model-panel, #codex-resume-panel, #codex-fork-panel, #codex-prompt-panel { display: none; margin-top: 8px; border: 1px solid rgba(255,255,255,.1); background: rgba(28,28,30,.99); border-radius: 8px; box-shadow: 0 16px 36px rgba(0,0,0,.34); overflow: hidden; }
+        #codex-model-panel.active, #codex-resume-panel.active, #codex-fork-panel.active, #codex-prompt-panel.active { display: block; }
         #codex-model-panel { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); max-height: min(300px, 42dvh); }
         #codex-model-panel.active { display: grid; }
         .codex-picker-column { min-width: 0; overflow-y: auto; }
@@ -184,6 +188,17 @@
         #codex-state-bar { display: flex; align-items: center; gap: 7px; min-height: 24px; margin-top: 8px; color: var(--text-dim); font-size: 11px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
         #codex-state-bar::-webkit-scrollbar { display: none; }
         #codex-resume-panel, #codex-fork-panel { max-height: min(280px, 38dvh); overflow-y: auto; }
+        #codex-prompt-panel { max-height: min(440px, 52dvh); overflow-y: auto; }
+        .codex-prompt-header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 11px; border-bottom: 1px solid rgba(255,255,255,.08); background: rgba(28,28,30,.97); color: var(--text-dim); font-size: 11px; font-weight: 800; }
+        .codex-prompt-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; padding: 10px 11px; border-bottom: 1px solid rgba(255,255,255,.06); }
+        .codex-prompt-item:last-of-type { border-bottom: 0; }
+        .codex-prompt-text { display: -webkit-box; width: 100%; min-width: 0; max-height: calc(1.42em * 4); overflow: hidden; padding: 0; border: 0; background: transparent; color: #f5f5f7; font: 12px/1.42 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 4; cursor: pointer; }
+        .codex-prompt-text.expanded { display: block; max-height: none; -webkit-line-clamp: initial; }
+        .codex-prompt-actions { display: flex; min-width: 64px; flex-direction: column; align-items: flex-end; gap: 6px; }
+        .codex-prompt-time { color: #77777e; font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .codex-prompt-copy { min-width: 54px; min-height: 28px; padding: 0 9px; }
+        .codex-prompt-footer { padding: 9px 11px; text-align: center; }
+        .codex-prompt-footer .small-btn { min-width: 112px; }
         .claude-message { max-width: 92%; margin: 0 0 10px 0; padding: 10px 12px; border-radius: 8px; overflow-wrap: anywhere; line-height: 1.45; font-size: 14px; }
         .claude-message-block { max-width: 100%; margin: 0 0 12px; }
         .claude-message-block > .claude-message { margin-bottom: 0; }
