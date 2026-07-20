@@ -93,8 +93,18 @@
         .codex-message { max-width: 100%; margin: 0; color: #f5f5f7; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
         .codex-message.user { padding: 8px 12px; border: 1px solid rgba(0,122,255,.32); border-radius: 12px; background: rgba(0,122,255,.24); }
         .codex-message.event { color: var(--text-dim); text-align: center; font-size: 12px; }
-        .codex-message-time { display: block; width: max-content; margin-top: 4px; padding: 0 2px; color: #8e8e93; font-size: 10px; font-weight: 500; line-height: 1; font-variant-numeric: tabular-nums; }
-        .codex-message-block.user .codex-message-time { margin-left: auto; }
+        .codex-message-meta { display: flex; width: 100%; align-items: center; gap: 7px; margin-top: 4px; padding: 0 2px; box-sizing: border-box; }
+        .codex-message-block.user .codex-message-meta { justify-content: flex-end; }
+        .codex-message-time { display: block; flex: 0 0 auto; width: max-content; color: #8e8e93; font-size: 10px; font-weight: 500; line-height: 1; font-variant-numeric: tabular-nums; }
+        .codex-context-meter { --context-color: #30d158; position: relative; isolation: isolate; display: inline-flex; min-width: 128px; height: 16px; align-items: center; justify-content: center; overflow: hidden; border: 1px solid color-mix(in srgb, var(--context-color) 42%, transparent); border-radius: 8px; background: rgba(255,255,255,.055); color: #d9fbe2; font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .codex-context-meter::before { content: ''; position: absolute; inset: 0 auto 0 0; z-index: -1; width: var(--context-remaining); background: color-mix(in srgb, var(--context-color) 28%, transparent); }
+        .codex-context-meter.warn { --context-color: #ffd60a; color: #fff3a6; }
+        .codex-context-meter.danger { --context-color: #ff453a; color: #ffd0cc; }
+        .codex-compaction-card { display: flex; align-items: center; gap: 10px; margin: 10px 0 14px; padding: 10px 12px; border: 1px solid rgba(191,90,242,.3); border-radius: 10px; background: linear-gradient(135deg, rgba(191,90,242,.13), rgba(94,92,230,.08)); color: #f5f5f7; }
+        .codex-compaction-icon { display: grid; width: 28px; height: 28px; flex: 0 0 28px; place-items: center; border-radius: 50%; background: rgba(191,90,242,.18); color: #d6a5ff; font-size: 15px; }
+        .codex-compaction-title { font-size: 12px; font-weight: 800; }
+        .codex-compaction-meta { margin-top: 3px; color: #a9a9b0; font-size: 10px; font-variant-numeric: tabular-nums; }
+        .codex-compaction-card.running .codex-compaction-icon { animation: codex-pulse 1.1s ease-in-out infinite alternate; }
         .codex-status-card { margin: 10px 0 14px; border: 1px solid rgba(100,210,255,.2); border-radius: 10px; background: rgba(28,28,30,.72); padding: 11px; color: #f5f5f7; }
         .codex-status-title { margin-bottom: 9px; color: #64d2ff; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
         .codex-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
@@ -151,6 +161,7 @@
         .claude-inline-permission { margin-top: 10px; padding: 10px; border-top: 1px solid rgba(255,204,0,0.22); background: rgba(255,204,0,0.04); }
         .claude-inline-permission-title { margin-bottom: 7px; color: #ffcc00; font-weight: 800; }
         @keyframes codex-spin { to { transform: rotate(360deg); } }
+        @keyframes codex-pulse { to { box-shadow: 0 0 0 5px rgba(191,90,242,.08); transform: scale(.92); } }
         #codex-control-panel { display: none; width: min(100%, var(--control-content-max)); margin: 0 auto; padding: 8px 14px 10px; border-bottom: 1px solid #222; background: #121212; box-sizing: border-box; }
         .codex-control-rail { display: flex; gap: 14px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
         .codex-control-rail::-webkit-scrollbar { display: none; }
