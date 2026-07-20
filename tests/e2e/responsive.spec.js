@@ -109,6 +109,62 @@ test('approval bubble expands and jumps to its pending request', async ({ page }
   await page.screenshot({ path: testInfo.outputPath('approval-jump.png'), fullPage: true });
 });
 
+test('Codex shows per-turn context energy and context compaction controls', async ({ page }, testInfo) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  await page.evaluate(() => {
+    const now = Date.now();
+    activeSessionId = 'test-codex-context';
+    activeToolKey = 'codex';
+    codexState = {
+      ...codexState,
+      status: 'idle',
+      presentation: 'structured',
+      threadId: 'root-thread',
+      canCompact: true,
+      compacting: false
+    };
+    codexMessages = [
+      { id: 'context-user', kind: 'user', text: 'Check the project', turnId: 'context-turn', createdAt: now - 4000 },
+      { id: 'context-assistant', kind: 'assistant', text: 'The project looks good.', turnId: 'context-turn', createdAt: now - 1000, completedAtMs: now - 800 },
+      { id: 'context-end', kind: 'turn-end', turnId: 'context-turn', createdAt: now - 700,
+        context: { usedTokens: 45000, remainingTokens: 213000, contextWindow: 258000, remainingPercent: 83 } },
+      { id: 'context-compaction', kind: 'compaction', providerId: 'compact-item', turnId: 'compact-turn',
+        compactionStatus: 'completed', createdAt: now - 500, completedAtMs: now - 400 }
+    ];
+    codexPendingPermissions = [];
+    window.__codexSent = null;
+    currentSocket = {
+      readyState: 1,
+      send: data => { window.__codexSent = JSON.parse(data); }
+    };
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    document.getElementById('terminal-view').classList.add('active');
+    setClaudeModeEnabled(false);
+    applyCodexState(codexState);
+    commitCodexChatRender();
+  });
+
+  const meter = page.locator('.codex-context-meter');
+  await expect(meter).toHaveText('213K / 258K（83%）');
+  await expect(meter).toHaveAttribute('style', /83%/);
+  await expect(page.locator('.codex-compaction-card')).toContainText('Context compacted');
+
+  await page.locator('#codex-control-rail').evaluate(element => { element.scrollLeft = element.scrollWidth; });
+  const compactButton = page.getByRole('button', { name: 'Compact' });
+  await expect(compactButton).toBeInViewport();
+  await expect(compactButton).toBeEnabled();
+  await compactButton.click();
+  await expect.poll(() => page.evaluate(() => window.__codexSent)).toEqual({ type: 'codex-compact' });
+  await expect(compactButton).toBeDisabled();
+  await expect(compactButton).toHaveText('Compacting');
+
+  expect(pageErrors).toEqual([]);
+  await page.screenshot({ path: testInfo.outputPath('codex-context-and-compaction.png'), fullPage: true });
+});
+
 test('Claude approval stays inline and its bubble preserves reading state', async ({ page }, testInfo) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
