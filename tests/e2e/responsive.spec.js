@@ -165,6 +165,73 @@ test('Codex shows per-turn context energy and context compaction controls', asyn
   await page.screenshot({ path: testInfo.outputPath('codex-context-and-compaction.png'), fullPage: true });
 });
 
+test('Codex renders warning cards and paginates four-line prompt history with full-text copy', async ({ page }, testInfo) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.route('**/api/sessions/test-codex-prompts/codex-prompts**', async route => {
+    const url = new URL(route.request().url());
+    const offset = Number(url.searchParams.get('offset') || 0);
+    const count = offset === 0 ? 30 : 5;
+    const items = Array.from({ length: count }, (_, index) => {
+      const itemIndex = offset + index;
+      return {
+        id: `prompt-${itemIndex}`,
+        threadId: 'prompt-thread',
+        text: itemIndex === 0
+          ? 'Line one of the complete prompt.\nLine two stays visible.\nLine three stays visible.\nLine four stays visible.\nLine five is clamped.\nLine six must still be copied.'
+          : `Historical prompt ${itemIndex + 1}`,
+        createdAt: Date.now() - itemIndex * 1000
+      };
+    });
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, items, offset, nextOffset: offset + count, total: 35, hasMore: offset + count < 35 })
+    });
+  });
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  await page.evaluate(() => {
+    activeSessionId = 'test-codex-prompts';
+    activeToolKey = 'codex';
+    codexState = { ...codexState, status: 'idle', presentation: 'structured', threadId: 'prompt-thread' };
+    codexMessages = [{
+      id: 'model-warning',
+      kind: 'event',
+      level: 'warning',
+      text: 'This session was recorded with model A but is resuming with model B.'
+    }];
+    copyTextToClipboard = async text => { window.__copiedPrompt = text; };
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    document.getElementById('terminal-view').classList.add('active');
+    setClaudeModeEnabled(false);
+    applyCodexState(codexState);
+    commitCodexChatRender();
+  });
+
+  const warning = page.locator('.codex-warning-card');
+  await expect(warning).toContainText('recorded with model A');
+  await expect(warning.locator('button')).toHaveCount(0);
+
+  await page.locator('#codex-control-rail').evaluate(element => { element.scrollLeft = element.scrollWidth; });
+  await page.locator('#codex-prompts-btn').click();
+  const panel = page.locator('#codex-prompt-panel');
+  await expect(panel).toHaveClass(/active/);
+  await expect(panel.locator('.codex-prompt-item')).toHaveCount(30);
+  await expect(panel.locator('.codex-prompt-header')).toContainText('30 / 35');
+  const firstPrompt = panel.locator('.codex-prompt-text').first();
+  await expect.poll(() => firstPrompt.evaluate(element => getComputedStyle(element).webkitLineClamp)).toBe('4');
+  await panel.locator('.codex-prompt-copy').first().click();
+  await expect.poll(() => page.evaluate(() => window.__copiedPrompt)).toContain('Line six must still be copied.');
+
+  await panel.getByRole('button', { name: 'Load more' }).click();
+  await expect(panel.locator('.codex-prompt-item')).toHaveCount(35);
+  await expect(panel.locator('.codex-prompt-header')).toContainText('35 / 35');
+  await expect(panel.getByRole('button', { name: 'Load more' })).toHaveCount(0);
+
+  expect(pageErrors).toEqual([]);
+  await page.screenshot({ path: testInfo.outputPath('codex-warning-and-prompts.png'), fullPage: true });
+});
+
 test('Claude approval stays inline and its bubble preserves reading state', async ({ page }, testInfo) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
