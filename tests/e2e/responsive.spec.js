@@ -232,6 +232,94 @@ test('Codex renders warning cards and paginates four-line prompt history with fu
   await page.screenshot({ path: testInfo.outputPath('codex-warning-and-prompts.png'), fullPage: true });
 });
 
+test('Codex selects a skill with a removable floating bubble and sends structured skill input', async ({ page }, testInfo) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.route('**/api/sessions/test-codex-skills/codex-skills**', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ success: true, skills: [{
+      name: 'pdf',
+      path: '/workspace/.agents/skills/pdf/SKILL.md',
+      description: 'Create, inspect, and edit PDF documents.',
+      enabled: true,
+      scope: 'repo',
+      interface: { displayName: 'PDF tools', shortDescription: 'Work reliably with PDF documents.' }
+    }], errors: [] })
+  }));
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  await page.evaluate(() => {
+    activeSessionId = 'test-codex-skills';
+    activeToolKey = 'codex';
+    codexState = { ...codexState, status: 'running', presentation: 'structured', threadId: 'skills-thread' };
+    codexMessages = [];
+    codexPendingPermissions = [];
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    document.getElementById('terminal-view').classList.add('active');
+    setClaudeModeEnabled(false);
+    applyCodexState(codexState);
+    commitCodexChatRender();
+  });
+
+  const workingBox = await page.locator('.codex-working-indicator').boundingBox();
+  expect(workingBox).not.toBeNull();
+  await page.evaluate(() => applyCodexState({ status: 'idle' }));
+  await page.locator('#codex-control-rail').evaluate(element => { element.scrollLeft = element.scrollWidth; });
+  const skillsButton = page.getByRole('button', { name: 'Skills' });
+  await expect(skillsButton).toBeInViewport();
+  const buttonBoxBefore = await skillsButton.boundingBox();
+  await skillsButton.click();
+  await expect(page.locator('#codex-skill-panel')).toHaveClass(/active/);
+  await expect(page.getByRole('button', { name: /PDF tools/ })).toContainText('Work reliably with PDF documents.');
+  await page.getByRole('button', { name: /PDF tools/ }).click();
+
+  const bubble = page.locator('.codex-skill-bubble');
+  await expect(bubble).toContainText('Skill · pdf');
+  const bubbleBox = await bubble.boundingBox();
+  const buttonBoxAfter = await skillsButton.boundingBox();
+  expect(Math.abs((bubbleBox.x + bubbleBox.width) - (workingBox.x + workingBox.width))).toBeLessThanOrEqual(2);
+  expect(Math.abs(bubbleBox.y - workingBox.y)).toBeLessThanOrEqual(36);
+  expect(buttonBoxAfter).toEqual(buttonBoxBefore);
+
+  await bubble.getByRole('button', { name: 'Remove selected skill' }).click();
+  await expect(bubble).toHaveCount(0);
+  await skillsButton.click();
+  await page.getByRole('button', { name: /PDF tools/ }).click();
+  await expect(bubble).toBeVisible();
+
+  await page.evaluate(() => {
+    currentSocket = { readyState: 1, send: value => { window.__codexSkillSent = JSON.parse(value); } };
+  });
+  await page.locator('#cmd-input').fill('Analyze the attached report');
+  await page.locator('#send-btn').click();
+  await expect.poll(() => page.evaluate(() => window.__codexSkillSent)).toEqual({
+    type: 'codex-input',
+    text: 'Analyze the attached report',
+    attachmentIds: [],
+    skills: [{ name: 'pdf', path: '/workspace/.agents/skills/pdf/SKILL.md' }]
+  });
+  await expect(bubble).toHaveCount(0);
+
+  await page.evaluate(() => {
+    codexMessages = [{
+      id: 'resumed-skill-message',
+      kind: 'user',
+      text: 'Analyze the attached report',
+      createdAt: Date.now(),
+      skills: [{ name: 'pdf', path: '/workspace/.agents/skills/pdf/SKILL.md' }]
+    }];
+    commitCodexChatRender();
+  });
+  const messageMeta = page.locator('[data-codex-key="message-resumed-skill-message"] .codex-message-meta');
+  await expect(messageMeta.locator('time')).toBeVisible();
+  await expect(messageMeta.locator('.codex-message-skill')).toHaveText('Skill · pdf');
+  await expect.poll(() => messageMeta.evaluate(element => Array.from(element.children).map(child => child.tagName))).toEqual(['TIME', 'SPAN']);
+
+  expect(pageErrors).toEqual([]);
+  await page.screenshot({ path: testInfo.outputPath('codex-skill-selection.png'), fullPage: true });
+});
+
 test('Claude approval stays inline and its bubble preserves reading state', async ({ page }, testInfo) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));

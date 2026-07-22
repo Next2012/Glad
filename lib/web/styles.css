@@ -88,12 +88,15 @@
         .codex-conversation { width: min(100%, var(--chat-content-max)); margin: 0 auto; }
         .codex-working-indicator, .claude-working-indicator { position: sticky; top: 0; z-index: 4; width: 28px; height: 28px; margin: 0 0 -28px auto; border: 1px solid rgba(255,255,255,.1); border-radius: 50%; background: rgba(28,28,30,.68); box-shadow: 0 5px 16px rgba(0,0,0,.24); backdrop-filter: blur(8px); pointer-events: none; }
         .codex-working-indicator::after, .claude-working-indicator::after { content: ''; position: absolute; inset: 8px; border: 1.5px solid rgba(255,255,255,.7); border-top-color: transparent; border-radius: 50%; animation: codex-spin .8s linear infinite; }
+        .codex-skill-bubble { position: sticky; top: 0; z-index: 5; display: flex; width: max-content; max-width: min(280px, 72vw); min-height: 28px; margin: 0 0 -30px auto; padding: 0 4px 0 10px; align-items: center; gap: 7px; border: 1px solid rgba(0,122,255,.42); border-radius: 15px; background: rgba(21,47,78,.92); color: #eaf3ff; box-shadow: 0 5px 18px rgba(0,0,0,.3); backdrop-filter: blur(10px); font-size: 11px; font-weight: 750; }
+        .codex-skill-bubble-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .codex-skill-bubble-close { width: 23px; height: 23px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,.1); color: #fff; cursor: pointer; font-size: 16px; line-height: 1; }
         .codex-message-block { max-width: 100%; margin: 0 0 12px; }
         .codex-message-block.user { max-width: 92%; margin-left: auto; }
         .codex-message { max-width: 100%; margin: 0; color: #f5f5f7; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
         .codex-message.user { padding: 8px 12px; border: 1px solid rgba(0,122,255,.32); border-radius: 12px; background: rgba(0,122,255,.24); }
         .codex-message.event { color: var(--text-dim); text-align: center; font-size: 12px; }
-        .codex-message-meta { display: flex; width: 100%; align-items: center; gap: 7px; margin-top: 4px; padding: 0 2px; box-sizing: border-box; }
+        .codex-message-meta { display: flex; width: 100%; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 4px; padding: 0 2px; box-sizing: border-box; }
         .codex-message-block.user .codex-message-meta { justify-content: flex-end; }
         .codex-message-time { display: block; flex: 0 0 auto; width: max-content; color: #8e8e93; font-size: 10px; font-weight: 500; line-height: 1; font-variant-numeric: tabular-nums; }
         .codex-context-meter { --context-color: #30d158; position: relative; isolation: isolate; display: inline-flex; min-width: 128px; height: 16px; align-items: center; justify-content: center; overflow: hidden; border: 1px solid color-mix(in srgb, var(--context-color) 42%, transparent); border-radius: 8px; background: rgba(255,255,255,.055); color: #d9fbe2; font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -177,8 +180,8 @@
         .codex-select-control:focus-within .codex-select-label { background: rgba(255,255,255,.14); border-color: rgba(0,122,255,.45); }
         .codex-select { appearance: none; position: absolute; inset: 0; width: 100%; min-width: 0; height: 100%; opacity: 0; cursor: pointer; }
         .codex-select option { background: #1c1c1e; color: #fff; }
-        #codex-model-panel, #codex-resume-panel, #codex-fork-panel, #codex-prompt-panel { display: none; margin-top: 8px; border: 1px solid rgba(255,255,255,.1); background: rgba(28,28,30,.99); border-radius: 8px; box-shadow: 0 16px 36px rgba(0,0,0,.34); overflow: hidden; }
-        #codex-model-panel.active, #codex-resume-panel.active, #codex-fork-panel.active, #codex-prompt-panel.active { display: block; }
+        #codex-model-panel, #codex-resume-panel, #codex-fork-panel, #codex-prompt-panel, #codex-skill-panel { display: none; margin-top: 8px; border: 1px solid rgba(255,255,255,.1); background: rgba(28,28,30,.99); border-radius: 8px; box-shadow: 0 16px 36px rgba(0,0,0,.34); overflow: hidden; }
+        #codex-model-panel.active, #codex-resume-panel.active, #codex-fork-panel.active, #codex-prompt-panel.active, #codex-skill-panel.active { display: block; }
         #codex-model-panel { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); max-height: min(300px, 42dvh); }
         #codex-model-panel.active { display: grid; }
         .codex-picker-column { min-width: 0; overflow-y: auto; }
@@ -189,6 +192,13 @@
         #codex-state-bar::-webkit-scrollbar { display: none; }
         #codex-resume-panel, #codex-fork-panel { max-height: min(280px, 38dvh); overflow-y: auto; }
         #codex-prompt-panel { max-height: min(440px, 52dvh); overflow-y: auto; }
+        #codex-skill-panel { max-height: min(360px, 46dvh); overflow-y: auto; }
+        .codex-skill-header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 11px; border-bottom: 1px solid rgba(255,255,255,.08); background: rgba(28,28,30,.97); color: var(--text-dim); font-size: 11px; font-weight: 800; }
+        .codex-skill-item { display: block; width: 100%; padding: 10px 11px; border: 0; border-bottom: 1px solid rgba(255,255,255,.06); background: transparent; color: #f5f5f7; text-align: left; cursor: pointer; }
+        .codex-skill-item.selected { background: rgba(0,122,255,.18); }
+        .codex-skill-item-name { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 800; }
+        .codex-skill-scope { color: #79b8ff; font-size: 10px; text-transform: uppercase; }
+        .codex-skill-description { display: block; margin-top: 4px; color: #a9a9b0; font-size: 11px; line-height: 1.35; white-space: normal; overflow-wrap: anywhere; }
         .codex-prompt-header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 11px; border-bottom: 1px solid rgba(255,255,255,.08); background: rgba(28,28,30,.97); color: var(--text-dim); font-size: 11px; font-weight: 800; }
         .codex-prompt-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; padding: 10px 11px; border-bottom: 1px solid rgba(255,255,255,.06); }
         .codex-prompt-item:last-of-type { border-bottom: 0; }
@@ -206,6 +216,7 @@
         .claude-message-block.user > .claude-message { max-width: 100%; }
         .claude-message-time { display: block; width: max-content; margin-top: 4px; padding: 0 2px; color: #8e8e93; font-size: 10px; font-weight: 500; line-height: 1; font-variant-numeric: tabular-nums; }
         .claude-message-block.user .claude-message-time { margin-left: auto; }
+        .codex-message-skill { display: inline-flex; max-width: min(220px, 58vw); min-height: 16px; align-items: center; padding: 1px 6px; border: 1px solid rgba(0,122,255,.32); border-radius: 999px; background: rgba(0,122,255,.12); color: #8fc5ff; font-size: 9px; font-weight: 750; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .claude-message-attachments { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
         .claude-message-attachment { max-width: 100%; border: 1px solid rgba(255,255,255,.14); border-radius: 999px; padding: 3px 7px; color: #d1d5db; background: rgba(255,255,255,.07); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .claude-message.user { margin-left: auto; background: rgba(0,122,255,0.24); border: 1px solid rgba(0,122,255,0.32); color: #fff; border-radius: 12px; padding-top: 7px; padding-bottom: 7px; }
