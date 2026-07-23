@@ -238,14 +238,40 @@ test('Codex selects a skill with a removable floating bubble and sends structure
   await page.route('**/api/sessions/test-codex-skills/codex-skills**', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
-    body: JSON.stringify({ success: true, skills: [{
-      name: 'pdf',
-      path: '/workspace/.agents/skills/pdf/SKILL.md',
-      description: 'Create, inspect, and edit PDF documents.',
-      enabled: true,
-      scope: 'repo',
-      interface: { displayName: 'PDF tools', shortDescription: 'Work reliably with PDF documents.' }
-    }], errors: [] })
+    body: JSON.stringify({ success: true, skills: [
+      {
+        name: 'pdf',
+        path: '/workspace/.agents/skills/pdf/SKILL.md',
+        description: 'Create, inspect, and edit PDF documents.',
+        enabled: true,
+        scope: 'repo',
+        interface: { displayName: 'PDF tools', shortDescription: 'Work reliably with PDF documents.' }
+      },
+      {
+        name: 'review',
+        path: '/workspace/.agents/skills/review/SKILL.md',
+        description: 'Review repository changes.',
+        enabled: true,
+        scope: 'repo',
+        interface: { displayName: 'Repository review', shortDescription: 'Review the current repository.' }
+      },
+      {
+        name: 'pdf-personal',
+        path: '/home/test/.codex/skills/pdf/SKILL.md',
+        description: 'Personal PDF workflow.',
+        enabled: true,
+        scope: 'user',
+        interface: { displayName: 'PDF tools', shortDescription: 'Use the personal PDF workflow.' }
+      },
+      {
+        name: 'issues',
+        path: '/opt/plugins/issues/skills/issues/SKILL.md',
+        description: 'Analyze tracked issues.',
+        enabled: true,
+        scope: 'plugin',
+        interface: { displayName: 'Issue analysis', shortDescription: 'Analyze issues from installed plugins.' }
+      }
+    ], errors: [] })
   }));
   await page.goto('/', { waitUntil: 'networkidle' });
 
@@ -270,9 +296,32 @@ test('Codex selects a skill with a removable floating bubble and sends structure
   await expect(skillsButton).toBeInViewport();
   const buttonBoxBefore = await skillsButton.boundingBox();
   await skillsButton.click();
-  await expect(page.locator('#codex-skill-panel')).toHaveClass(/active/);
-  await expect(page.getByRole('button', { name: /PDF tools/ })).toContainText('Work reliably with PDF documents.');
-  await page.getByRole('button', { name: /PDF tools/ }).click();
+  const skillPanel = page.locator('#codex-skill-panel');
+  await expect(skillPanel).toHaveClass(/active/);
+  await expect(skillPanel.getByRole('searchbox', { name: 'Search skills' })).toBeFocused();
+  await expect(skillPanel.locator('.codex-skill-section-title > span:first-child')).toHaveText(['Current project', 'Personal', 'Other']);
+  await expect(skillPanel.locator('.codex-skill-source')).toHaveText(['Project', 'Project', 'Personal', 'Plugin']);
+  const projectPdfSkill = skillPanel.locator('[data-codex-skill-path="/workspace/.agents/skills/pdf/SKILL.md"]');
+  await expect(projectPdfSkill.locator('.codex-skill-item-name > span:first-child')).toHaveText('pdf');
+  await expect(projectPdfSkill).toContainText('Work reliably with PDF documents.');
+  await expect(projectPdfSkill.locator('.codex-skill-full-name')).toHaveCount(0);
+  await expect(projectPdfSkill.locator('.codex-skill-directory')).toHaveText('Dir · pdf');
+  await expect(projectPdfSkill.locator('.codex-skill-directory')).toHaveAttribute('title', 'pdf');
+
+  const search = skillPanel.getByRole('searchbox', { name: 'Search skills' });
+  await search.evaluate(element => { window.__codexSkillSearchElement = element; });
+  await search.fill('/opt/plugins');
+  await expect.poll(() => page.evaluate(() => (
+    window.__codexSkillSearchElement === document.getElementById('codex-skill-search')
+    && document.activeElement === window.__codexSkillSearchElement
+  ))).toBe(true);
+  await expect(skillPanel.locator('.codex-skill-section-title > span:first-child')).toHaveText(['Search results']);
+  await expect(skillPanel.locator('.codex-skill-item')).toHaveCount(1);
+  await expect(skillPanel.locator('.codex-skill-item')).toContainText('issues');
+  await search.fill('');
+  await page.screenshot({ path: testInfo.outputPath('codex-skill-search.png'), fullPage: true });
+
+  await skillPanel.locator('[data-codex-skill-path="/workspace/.agents/skills/pdf/SKILL.md"]').click();
 
   const bubble = page.locator('.codex-skill-bubble');
   await expect(bubble).toContainText('Skill · pdf');
@@ -285,7 +334,10 @@ test('Codex selects a skill with a removable floating bubble and sends structure
   await bubble.getByRole('button', { name: 'Remove selected skill' }).click();
   await expect(bubble).toHaveCount(0);
   await skillsButton.click();
-  await page.getByRole('button', { name: /PDF tools/ }).click();
+  await expect(skillPanel.locator('.codex-skill-section-title').first().locator('span').first()).toHaveText('Recently used');
+  await expect(skillPanel.locator('.codex-skill-section').first().locator('.codex-skill-item')).toHaveCount(1);
+  await skillPanel.locator('.codex-skill-section').first()
+    .locator('[data-codex-skill-path="/workspace/.agents/skills/pdf/SKILL.md"]').click();
   await expect(bubble).toBeVisible();
 
   await page.evaluate(() => {

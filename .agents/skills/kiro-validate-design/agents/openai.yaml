@@ -1,6 +1,0 @@
-interface:
-  display_name: "Validate Design"
-  short_description: "Interactive technical design quality review and validation"
-
-policy:
-  allow_implicit_invocation: false

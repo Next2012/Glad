@@ -1,6 +1,0 @@
-interface:
-  display_name: "Debug Failure"
-  short_description: "Investigate implementation failures with root-cause-first debugging"
-
-policy:
-  allow_implicit_invocation: false
