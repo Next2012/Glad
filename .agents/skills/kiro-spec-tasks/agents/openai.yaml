@@ -1,6 +1,0 @@
-interface:
-  display_name: "Spec Tasks"
-  short_description: "Generate implementation tasks for a specification"
-
-policy:
-  allow_implicit_invocation: false

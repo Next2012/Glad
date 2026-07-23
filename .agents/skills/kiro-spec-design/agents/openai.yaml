@@ -1,6 +1,0 @@
-interface:
-  display_name: "Spec Design"
-  short_description: "Create comprehensive technical design for a specification"
-
-policy:
-  allow_implicit_invocation: false
