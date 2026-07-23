@@ -109,6 +109,70 @@ test('approval bubble expands and jumps to its pending request', async ({ page }
   await page.screenshot({ path: testInfo.outputPath('approval-jump.png'), fullPage: true });
 });
 
+test('Codex loads an older history page and keeps the reading position stable', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  const result = await page.evaluate(async () => {
+    activeSessionId = 'paged-codex';
+    activeToolKey = 'codex';
+    codexState = { ...codexState, presentation: 'structured', threadId: 'root-thread' };
+    codexMessages = Array.from({ length: 30 }, (_, index) => ({
+      id: `latest-${index}`,
+      kind: index % 2 === 0 ? 'user' : 'assistant',
+      text: `Latest message ${index}\n\n${'Rendered content '.repeat(12)}`,
+      turnId: `latest-turn-${Math.floor(index / 2)}`,
+      createdAt: Date.now() + index
+    }));
+    codexPendingPermissions = [];
+    codexHistoryBeforeId = 'latest-0';
+    codexHistoryHasMore = true;
+    codexHistoryLoading = false;
+    codexHistoryUserScrolled = true;
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    document.getElementById('terminal-view').classList.add('active');
+    setClaudeModeEnabled(false);
+    commitCodexChatRender();
+
+    const chat = document.getElementById('codex-chat-container');
+    chat.onscroll = handleCodexHistoryScroll;
+    chat.scrollTop = Math.max(1, (chat.scrollHeight - chat.clientHeight) * 0.25);
+    const anchor = document.querySelector('[data-codex-key="message-latest-0"]');
+    const anchorTopBefore = anchor.getBoundingClientRect().top;
+    currentSocket = { readyState: 1, send: value => { window.__codexHistoryRequest = JSON.parse(value); } };
+    handleCodexHistoryScroll({ isTrusted: true, currentTarget: chat });
+
+    applyCodexHistoryPage({
+      messages: Array.from({ length: 20 }, (_, index) => ({
+        id: `older-${index}`,
+        kind: index % 2 === 0 ? 'user' : 'assistant',
+        text: `Older message ${index}\n\n${'Earlier rendered content '.repeat(12)}`,
+        turnId: `older-turn-${Math.floor(index / 2)}`,
+        createdAt: Date.now() - 1000 + index
+      })),
+      beforeId: 'older-0',
+      hasMore: false,
+      bytes: 120000,
+      maxBytes: 204800
+    });
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    return {
+      request: window.__codexHistoryRequest,
+      messageCount: codexMessages.length,
+      hasMore: codexHistoryHasMore,
+      anchorShift: document.querySelector('[data-codex-key="message-latest-0"]').getBoundingClientRect().top - anchorTopBefore
+    };
+  });
+
+  expect(result.request).toEqual({ type: 'codex-history-before', beforeId: 'latest-0' });
+  expect(result.messageCount).toBe(50);
+  expect(result.hasMore).toBe(false);
+  expect(Math.abs(result.anchorShift)).toBeLessThanOrEqual(1);
+  expect(pageErrors).toEqual([]);
+});
+
 test('Codex shows per-turn context energy and context compaction controls', async ({ page }, testInfo) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
