@@ -85,6 +85,7 @@
         #claude-chat-container { display: none; flex: 1; min-height: 0; overflow-y: auto; background: #050505; padding: 12px 12px 24px 12px; box-sizing: border-box; -webkit-overflow-scrolling: touch; }
         .claude-conversation { width: min(100%, var(--chat-content-max)); min-height: 100%; margin: 0 auto; }
         #codex-chat-container { display: none; flex: 1; min-height: 0; overflow-y: auto; background: #050505; padding: 12px 12px 24px 12px; box-sizing: border-box; -webkit-overflow-scrolling: touch; }
+        .codex-lazy-detail { padding: 10px 12px; color: var(--text-dim); font-size: 12px; }
         .codex-conversation { width: min(100%, var(--chat-content-max)); margin: 0 auto; }
         .codex-working-indicator, .claude-working-indicator { position: sticky; top: 0; z-index: 4; width: 28px; height: 28px; margin: 0 0 -28px auto; border: 1px solid rgba(255,255,255,.1); border-radius: 50%; background: rgba(28,28,30,.68); box-shadow: 0 5px 16px rgba(0,0,0,.24); backdrop-filter: blur(8px); pointer-events: none; }
         .codex-working-indicator::after, .claude-working-indicator::after { content: ''; position: absolute; inset: 8px; border: 1.5px solid rgba(255,255,255,.7); border-top-color: transparent; border-radius: 50%; animation: codex-spin .8s linear infinite; }

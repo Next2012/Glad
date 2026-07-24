@@ -50,7 +50,7 @@ test('approval bubble expands and jumps to its pending request', async ({ page }
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     activeToolKey = 'codex';
     codexState = {
       ...codexState,
@@ -73,6 +73,8 @@ test('approval bubble expands and jumps to its pending request', async ({ page }
       command: 'npm test',
       toolStatus: 'running',
       turnId: 'turn-1',
+      hasDetail: true,
+      detailRevision: 1,
       createdAt: Date.now()
     }, ...Array.from({ length: 24 }, (_, index) => ({
       id: `message-${index}`,
@@ -84,6 +86,22 @@ test('approval bubble expands and jumps to its pending request', async ({ page }
     document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
     document.getElementById('terminal-view').classList.add('active');
     setClaudeModeEnabled(false);
+    installCodexLazyDetailHandler();
+    currentSocket = {
+      readyState: 1,
+      send: value => {
+        const request = JSON.parse(value);
+        if (request.type !== 'codex-detail-request') return;
+        setTimeout(() => applyCodexDetailResponse({
+          requestId: request.requestId,
+          detail: { messages: [{
+            id: 'tool-approval', providerId: 'approval-command-1', kind: 'tool',
+            name: 'CodexBash', command: 'npm test', result: 'Approval detail loaded',
+            toolStatus: 'running', turnId: 'turn-1', createdAt: 1
+          }] }
+        }), 0);
+      }
+    };
     commitCodexChatRender();
     renderCodexStateBar();
     const chat = document.getElementById('codex-chat-container');
@@ -104,72 +122,124 @@ test('approval bubble expands and jumps to its pending request', async ({ page }
     }
     return parents.length > 0 && parents.every(Boolean);
   })).toBe(true);
+  await expect(page.locator('.codex-work-group').first()).toContainText('Approval detail loaded');
   await expect(target).toBeInViewport();
   expect(pageErrors).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath('approval-jump.png'), fullPage: true });
 });
 
-test('Codex loads an older history page and keeps the reading position stable', async ({ page }) => {
+test('Codex lazily loads folded tool and subagent details', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  const result = await page.evaluate(async () => {
-    activeSessionId = 'paged-codex';
+  await page.evaluate(() => {
+    activeSessionId = 'lazy-codex';
     activeToolKey = 'codex';
     codexState = { ...codexState, presentation: 'structured', threadId: 'root-thread' };
-    codexMessages = Array.from({ length: 30 }, (_, index) => ({
-      id: `latest-${index}`,
-      kind: index % 2 === 0 ? 'user' : 'assistant',
-      text: `Latest message ${index}\n\n${'Rendered content '.repeat(12)}`,
-      turnId: `latest-turn-${Math.floor(index / 2)}`,
-      createdAt: Date.now() + index
-    }));
+    codexMessages = [
+      { id: 'root-start', kind: 'turn-start', threadId: 'root-thread', turnId: 'root-turn', createdAt: 1 },
+      { id: 'tool-lazy', providerId: 'tool-provider', kind: 'tool', threadId: 'root-thread',
+        turnId: 'root-turn', name: 'CodexBash', command: 'npm test', toolStatus: 'completed',
+        hasDetail: true, detailRevision: 2, createdAt: 2 },
+      { id: 'agent-start', kind: 'turn-start', threadId: 'agent-thread', turnId: 'agent-turn', createdAt: 3 },
+      { id: 'agent-message', kind: 'assistant', threadId: 'agent-thread', turnId: 'agent-turn',
+        hasDetail: true, detailRevision: 4, createdAt: 4 },
+      { id: 'agent-end', kind: 'turn-end', threadId: 'agent-thread', turnId: 'agent-turn',
+        status: 'completed', createdAt: 5 }
+    ];
     codexPendingPermissions = [];
-    codexHistoryBeforeId = 'latest-0';
-    codexHistoryHasMore = true;
-    codexHistoryLoading = false;
-    codexHistoryUserScrolled = true;
     document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
     document.getElementById('terminal-view').classList.add('active');
     setClaudeModeEnabled(false);
+    installCodexLazyDetailHandler();
+    window.__codexDetailRequests = [];
+    currentSocket = { readyState: 1, send: value => window.__codexDetailRequests.push(JSON.parse(value)) };
     commitCodexChatRender();
-
-    const chat = document.getElementById('codex-chat-container');
-    chat.onscroll = handleCodexHistoryScroll;
-    chat.scrollTop = Math.max(1, (chat.scrollHeight - chat.clientHeight) * 0.25);
-    const anchor = document.querySelector('[data-codex-key="message-latest-0"]');
-    const anchorTopBefore = anchor.getBoundingClientRect().top;
-    currentSocket = { readyState: 1, send: value => { window.__codexHistoryRequest = JSON.parse(value); } };
-    handleCodexHistoryScroll({ isTrusted: true, currentTarget: chat });
-
-    applyCodexHistoryPage({
-      messages: Array.from({ length: 20 }, (_, index) => ({
-        id: `older-${index}`,
-        kind: index % 2 === 0 ? 'user' : 'assistant',
-        text: `Older message ${index}\n\n${'Earlier rendered content '.repeat(12)}`,
-        turnId: `older-turn-${Math.floor(index / 2)}`,
-        createdAt: Date.now() - 1000 + index
-      })),
-      beforeId: 'older-0',
-      hasMore: false,
-      bytes: 120000,
-      maxBytes: 204800
-    });
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-
-    return {
-      request: window.__codexHistoryRequest,
-      messageCount: codexMessages.length,
-      hasMore: codexHistoryHasMore,
-      anchorShift: document.querySelector('[data-codex-key="message-latest-0"]').getBoundingClientRect().top - anchorTopBefore
-    };
   });
 
-  expect(result.request).toEqual({ type: 'codex-history-before', beforeId: 'latest-0' });
-  expect(result.messageCount).toBe(50);
-  expect(result.hasMore).toBe(false);
-  expect(Math.abs(result.anchorShift)).toBeLessThanOrEqual(1);
+  const toolGroup = page.locator('.codex-work-group:not(.codex-subagent-group)').first();
+  await toolGroup.locator(':scope > summary').click();
+  await expect.poll(() => page.evaluate(() => window.__codexDetailRequests.length)).toBe(1);
+  await page.evaluate(async () => {
+    const request = window.__codexDetailRequests[0];
+    applyCodexDetailResponse({
+      type: 'codex-detail-response',
+      requestId: request.requestId,
+      detail: { messages: [{
+        id: 'tool-lazy', providerId: 'tool-provider', kind: 'tool', threadId: 'root-thread',
+        turnId: 'root-turn', name: 'CodexBash', command: 'npm test', result: '50 tests passed',
+        input: { command: 'npm test' }, toolStatus: 'completed', hasDetail: true,
+        detailLoaded: true, detailRevision: 2, createdAt: 2
+      }] }
+    });
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  await expect(toolGroup).toHaveAttribute('open', '');
+  await expect(toolGroup).toContainText('50 tests passed');
+
+  await page.evaluate(() => applyCodexEvent({
+    type: 'message-updated',
+    message: {
+      id: 'tool-lazy', providerId: 'tool-provider', kind: 'tool', threadId: 'root-thread',
+      turnId: 'root-turn', name: 'CodexBash', command: 'npm test', toolStatus: 'running',
+      hasDetail: true, detailRevision: 6, createdAt: 2, updatedAt: 6
+    }
+  }));
+  await expect.poll(() => page.evaluate(() => window.__codexDetailRequests.length)).toBe(2);
+  await page.evaluate(async () => {
+    const request = window.__codexDetailRequests[1];
+    applyCodexDetailResponse({
+      requestId: request.requestId,
+      detail: { messages: [{
+        id: 'tool-lazy', providerId: 'tool-provider', kind: 'tool', threadId: 'root-thread',
+        turnId: 'root-turn', name: 'CodexBash', command: 'npm test', result: '51 tests passed',
+        input: { command: 'npm test' }, toolStatus: 'running', createdAt: 2, updatedAt: 6
+      }] }
+    });
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  await expect(toolGroup).toContainText('51 tests passed');
+
+  const subagentGroup = page.locator('.codex-subagent-group').first();
+  await subagentGroup.locator(':scope > summary').click();
+  await expect.poll(() => page.evaluate(() => window.__codexDetailRequests.length)).toBe(3);
+  await page.evaluate(async () => {
+    const request = window.__codexDetailRequests[2];
+    applyCodexDetailResponse({
+      type: 'codex-detail-response',
+      requestId: request.requestId,
+      detail: { threadId: 'agent-thread', messages: [{
+        id: 'agent-message', kind: 'assistant', threadId: 'agent-thread', turnId: 'agent-turn',
+        text: 'Subagent completed its investigation.', hasDetail: true,
+        detailLoaded: true, detailRevision: 4, createdAt: 4
+      }] }
+    });
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  await expect(subagentGroup).toHaveAttribute('open', '');
+  await expect(subagentGroup).toContainText('Subagent completed its investigation.');
+
+  await page.evaluate(() => applyCodexEvent({
+    type: 'message-updated',
+    message: {
+      id: 'agent-message', kind: 'assistant', threadId: 'agent-thread', turnId: 'agent-turn',
+      hasDetail: true, detailRevision: 8, createdAt: 4, updatedAt: 8
+    }
+  }));
+  await expect.poll(() => page.evaluate(() => window.__codexDetailRequests.length)).toBe(4);
+  await page.evaluate(async () => {
+    const request = window.__codexDetailRequests[3];
+    applyCodexDetailResponse({
+      requestId: request.requestId,
+      detail: { threadId: 'agent-thread', messages: [{
+        id: 'agent-message', kind: 'assistant', threadId: 'agent-thread', turnId: 'agent-turn',
+        text: 'Subagent received a running update.', createdAt: 4, updatedAt: 8
+      }] }
+    });
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  await expect(subagentGroup).toContainText('Subagent received a running update.');
   expect(pageErrors).toEqual([]);
 });
 
