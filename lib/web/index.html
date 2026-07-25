@@ -20,7 +20,7 @@
             <div class="header">
                 <h1><img class="header-logo" src="logo.svg" alt="">Glad</h1>
                 <div class="header-actions">
-                    <button class="header-action-btn" onclick="showToolModal()" title="New AI session"><span>+</span><span>Run</span></button>
+                    <button class="header-action-btn" onclick="showToolModal()" title="New AI session"><span>+</span><span>Session</span></button>
                     <button class="header-action-btn" onclick="showScheduleModal()" title="New scheduled task"><span>+</span><span>Task</span></button>
                     <button id="app-settings-button" class="header-action-btn icon-only" type="button"
                         onclick="openSettings()" title="Settings" aria-label="Settings">
@@ -32,7 +32,7 @@
                 </div>
             </div>
             <div class="lobby-tabs">
-                <button id="lobby-tab-sessions" class="lobby-tab active" onclick="switchLobbyTab('sessions')" title="AI session runs">Runs</button>
+                <button id="lobby-tab-sessions" class="lobby-tab active" onclick="switchLobbyTab('sessions')" title="AI sessions">Sessions</button>
                 <button id="lobby-tab-schedules" class="lobby-tab" onclick="switchLobbyTab('schedules')" title="Scheduled tasks">Tasks</button>
             </div>
             <div id="sessions-list">

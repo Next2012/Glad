@@ -19,9 +19,9 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
   await expect(page.locator('#lobby-view')).toHaveClass(/active/);
   await expect(page.locator('.header')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
-  await expect(page.getByTitle('New AI session')).toContainText('Run');
+  await expect(page.getByTitle('New AI session')).toContainText('Session');
   await expect(page.getByTitle('New scheduled task')).toContainText('Task');
-  await expect(page.locator('#lobby-tab-sessions')).toHaveText('Runs');
+  await expect(page.locator('#lobby-tab-sessions')).toHaveText('Sessions');
   await expect(page.locator('#lobby-tab-schedules')).toHaveText('Tasks');
 
   const headerActionStyles = await page.locator('.header-action-btn').evaluateAll(buttons =>
