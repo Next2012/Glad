@@ -19,14 +19,21 @@
         <div id="lobby">
             <div class="header">
                 <h1><img class="header-logo" src="logo.svg" alt="">Glad</h1>
-                <div style="display:flex; gap:6px;">
-                    <button class="btn-new" onclick="showToolModal()" title="New session"><span>+</span><span>Session</span></button>
-                    <button class="btn-new" onclick="showScheduleModal()" title="New scheduler"><span>+</span><span>Sched</span></button>
+                <div class="header-actions">
+                    <button class="header-action-btn" onclick="showToolModal()" title="New AI session"><span>+</span><span>Session</span></button>
+                    <button class="header-action-btn" onclick="showScheduleModal()" title="New scheduled task"><span>+</span><span>Task</span></button>
+                    <button id="app-settings-button" class="header-action-btn icon-only" type="button"
+                        onclick="openSettings()" title="Settings" aria-label="Settings">
+                        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="3"></circle>
+                            <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.1A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.1A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.1A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.1.37.31.7.6 1 .3.25.67.39 1.1.4h.1v4h-.1a1.7 1.7 0 0 0-1.7.6z"></path>
+                        </svg>
+                    </button>
                 </div>
             </div>
             <div class="lobby-tabs">
-                <button id="lobby-tab-sessions" class="lobby-tab active" onclick="switchLobbyTab('sessions')">Sessions</button>
-                <button id="lobby-tab-schedules" class="lobby-tab" onclick="switchLobbyTab('schedules')">Schedules</button>
+                <button id="lobby-tab-sessions" class="lobby-tab active" onclick="switchLobbyTab('sessions')" title="AI sessions">Sessions</button>
+                <button id="lobby-tab-schedules" class="lobby-tab" onclick="switchLobbyTab('schedules')" title="Scheduled tasks">Tasks</button>
             </div>
             <div id="sessions-list">
                 <p style="color:#888; text-align:center; margin-top:50px;">Loading sessions...</p>
@@ -252,11 +259,57 @@
         </div>
     </div>
 
+    <!-- App Settings Modal -->
+    <div id="settings-modal-overlay" onclick="closeSettings(event)">
+        <div id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title" onclick="event.stopPropagation()">
+            <div class="settings-modal-header">
+                <div>
+                    <h2 id="settings-modal-title">Settings</h2>
+                    <p>Manage Glad preferences and integrations.</p>
+                </div>
+                <button class="icon-btn settings-close" type="button" onclick="closeSettings()" aria-label="Close">×</button>
+            </div>
+            <section class="settings-section" aria-labelledby="notifications-settings-title">
+                <div class="settings-section-label" id="notifications-settings-title">Notifications</div>
+                <div class="settings-provider-header">
+                    <div>
+                        <h3>ServerChan</h3>
+                        <p>Save the integration here, then enable notifications per chat using its bell.</p>
+                    </div>
+                </div>
+                <div class="form-field">
+                    <label for="serverchan-client-type">Delivery</label>
+                    <select id="serverchan-client-type">
+                        <option value="wechat">WeChat</option>
+                        <option value="pushdeer">PushDeer</option>
+                    </select>
+                    <div class="serverchan-help">This choice adjusts message formatting. Delivery is managed by ServerChan.</div>
+                </div>
+                <div class="form-field">
+                    <label for="serverchan-send-key">SendKey</label>
+                    <input id="serverchan-send-key" type="password" autocomplete="off" placeholder="SCT...">
+                    <div id="serverchan-key-hint" class="serverchan-help"></div>
+                </div>
+                <div id="serverchan-settings-status" class="serverchan-settings-status" aria-live="polite"></div>
+                <div class="serverchan-modal-actions">
+                    <button id="serverchan-remove-btn" class="small-btn danger" type="button" onclick="removeServerChanSettings()">Remove</button>
+                    <span class="serverchan-action-spacer"></span>
+                    <button id="serverchan-save-btn" class="small-btn primary" type="button" onclick="saveServerChanSettings()">Save</button>
+                    <button id="serverchan-test-btn" class="small-btn" type="button" onclick="testServerChanSettings()">Send Test</button>
+                </div>
+            </section>
+        </div>
+    </div>
+    <div id="app-toast" role="status" aria-live="polite"></div>
+
     <!-- Schedule Modal -->
     <div id="schedule-modal-overlay" onclick="closeScheduleModal(event)" style="position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 10001; display: none; align-items: center; justify-content: center; padding: 16px;">
         <div id="schedule-modal" onclick="event.stopPropagation()">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px;">
-                <h2 id="schedule-modal-title" style="margin:0; font-size:20px;">Schedule</h2>
+                <div>
+                    <h2 id="schedule-modal-title" style="margin:0; font-size:20px;">Scheduled Task</h2>
+                    <p class="schedule-modal-subtitle">Runs automatically at the selected time.</p>
+                </div>
                 <button class="icon-btn" onclick="closeScheduleModal()" style="color: var(--text-dim); font-size: 24px;">×</button>
             </div>
             <div class="form-field">
@@ -304,6 +357,7 @@
     <script defer src="vendor/xterm-addon-fit.js"></script>
     <script src="gitgraph.js"></script>
     <script src="core.js"></script>
+    <script src="notifications.js"></script>
     <script src="claude.js"></script>
     <script src="schedules.js"></script>
     <script src="shell.js"></script>

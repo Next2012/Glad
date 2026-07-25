@@ -6,7 +6,10 @@
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
         .header h1 { font-size: 28px; font-weight: 700; margin: 0; display: flex; align-items: center; gap: 10px; }
         .header-logo { width: 32px; height: 32px; flex-shrink: 0; }
-        .btn-new { background: var(--primary); color: #fff; border: none; padding: 8px 11px; border-radius: 16px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; min-height: 32px; white-space: nowrap; }
+        .header-actions { display: flex; align-items: center; gap: 5px; }
+        .header-action-btn { height: 36px; min-width: 36px; padding: 0 10px; border: 0; border-radius: 10px; background: var(--primary); color: #fff; display: inline-flex; align-items: center; justify-content: center; gap: 3px; font-size: 13px; font-weight: 750; line-height: 1; white-space: nowrap; cursor: pointer; flex-shrink: 0; }
+        .header-action-btn.icon-only { width: 36px; padding: 0; }
+        .header-action-btn:active { background: #0062cc; transform: scale(.97); }
         .btn-retry { background: #333; color: #fff; border: none; padding: 8px 16px; border-radius: 20px; margin-top: 10px; cursor: pointer; }
         .session-card { background: var(--card-bg); border-radius: 12px; padding: 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; transition: transform 0.1s; position: relative; }
         .session-card:active { transform: scale(0.98); }
@@ -20,12 +23,39 @@
         .copy-dir-btn { color: var(--text-dim); background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; width: 28px; height: 28px; padding: 0; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
         .copy-dir-btn:active { color: #fff; background: rgba(255,255,255,0.12); }
         .session-actions { display: flex; gap: 12px; align-items: center; margin-left: 10px; }
+        .serverchan-toggle { width: 34px; height: 34px; padding: 0; border: 1px solid rgba(255,255,255,0.1); border-radius: 50%; background: rgba(255,255,255,0.05); color: var(--text-dim); cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .serverchan-toggle.active { color: #34c759; background: rgba(52,199,89,0.13); }
+        .serverchan-toggle:active { color: #fff; background: rgba(255,255,255,0.12); }
         .btn-join { background: rgba(255,255,255,0.1); border: none; color: var(--primary); padding: 8px 14px; border-radius: 18px; font-weight: 600; font-size: 14px; cursor: pointer; }
         .icon-btn { color: var(--text-dim); background: none; border: none; padding: 4px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
         .icon-btn:active { color: var(--text); }
         .btn-delete { color: #ff3b30; }
         #modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 10000; display: none; align-items: center; justify-content: center; padding: 20px; }
         #tool-modal { background: var(--card-bg); width: 100%; max-width: 400px; border-radius: 16px; padding: 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.4); }
+        #settings-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 10020; display: none; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
+        #settings-modal { background: var(--card-bg); width: 100%; max-width: 450px; border-radius: 16px; padding: 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.4); box-sizing: border-box; }
+        .settings-modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+        .settings-modal-header h2 { margin: 0; font-size: 20px; }
+        .settings-modal-header p { margin: 5px 0 0; color: var(--text-dim); font-size: 12px; line-height: 1.45; }
+        .settings-close { font-size: 25px; line-height: 1; }
+        .settings-section { padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.09); }
+        .settings-section-label { margin-bottom: 12px; color: var(--text-dim); font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+        .settings-provider-header { margin-bottom: 16px; }
+        .settings-provider-header h3 { margin: 0; font-size: 16px; }
+        .settings-provider-header p { margin: 5px 0 0; color: var(--text-dim); font-size: 12px; line-height: 1.45; }
+        #settings-modal .form-field { margin-bottom: 14px; }
+        #settings-modal .form-field label { display: block; margin-bottom: 7px; color: #f5f5f7; font-size: 13px; font-weight: 650; }
+        #settings-modal input, #settings-modal select { width: 100%; min-height: 42px; padding: 9px 10px; box-sizing: border-box; border: 1px solid rgba(255,255,255,0.12); border-radius: 9px; background: rgba(255,255,255,0.08); color: #fff; font-size: 14px; outline: none; }
+        #settings-modal input:focus, #settings-modal select:focus { border-color: rgba(0,122,255,0.6); }
+        .serverchan-help { margin-top: 6px; color: var(--text-dim); font-size: 11px; line-height: 1.4; }
+        .serverchan-settings-status { min-height: 20px; margin: 4px 0 10px; color: var(--text-dim); font-size: 12px; }
+        .serverchan-settings-status.success { color: #34c759; }
+        .serverchan-settings-status.error { color: #ff6b61; }
+        .serverchan-modal-actions { display: flex; align-items: center; gap: 8px; }
+        .serverchan-action-spacer { flex: 1; }
+        #serverchan-remove-btn { display: none; }
+        #app-toast { position: fixed; left: 50%; bottom: max(24px, env(safe-area-inset-bottom)); z-index: 10100; max-width: calc(100vw - 32px); transform: translate(-50%, 18px); opacity: 0; pointer-events: none; padding: 9px 14px; border-radius: 999px; background: rgba(44,44,46,0.96); border: 1px solid rgba(255,255,255,0.12); color: #fff; font-size: 13px; box-shadow: 0 10px 28px rgba(0,0,0,0.35); transition: opacity .18s ease, transform .18s ease; }
+        #app-toast.visible { opacity: 1; transform: translate(-50%, 0); }
         .tool-item { padding: 12px; border-bottom: 1px solid #333; cursor: pointer; display: flex; align-items: center; border-radius: 8px; margin-top: 4px; }
         .tool-item:hover { background: rgba(255,255,255,0.05); }
         .tool-icon { width: 32px; height: 32px; background: #333; border-radius: 8px; margin-right: 12px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
@@ -380,6 +410,7 @@
         .weekday-btn { border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.05); color: var(--text-dim); border-radius: 8px; padding: 8px 0; font-size: 12px; font-weight: 700; cursor: pointer; }
         .weekday-btn.active { border-color: var(--primary); background: rgba(0,122,255,0.25); color: #fff; }
         #schedule-modal { background: var(--card-bg); width: 100%; max-width: 720px; max-height: 92dvh; overflow-y: auto; border-radius: 16px; padding: 18px; box-shadow: 0 20px 40px rgba(0,0,0,0.4); box-sizing: border-box; }
+        .schedule-modal-subtitle { margin: 4px 0 0; color: var(--text-dim); font-size: 12px; line-height: 1.4; }
         .step-card { border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 10px; margin-bottom: 8px; background: rgba(255,255,255,0.04); }
         .step-grid { display: grid; grid-template-columns: minmax(110px, 150px) 1fr auto; gap: 8px; align-items: center; }
         @media (max-width: 640px) {

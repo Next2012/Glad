@@ -18,6 +18,30 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
   await expect(page).toHaveTitle('Glad - AI Sessions');
   await expect(page.locator('#lobby-view')).toHaveClass(/active/);
   await expect(page.locator('.header')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
+  await expect(page.getByTitle('New AI session')).toContainText('Session');
+  await expect(page.getByTitle('New scheduled task')).toContainText('Task');
+  await expect(page.locator('#lobby-tab-sessions')).toHaveText('Sessions');
+  await expect(page.locator('#lobby-tab-schedules')).toHaveText('Tasks');
+
+  const headerActionStyles = await page.locator('.header-action-btn').evaluateAll(buttons =>
+    buttons.map(button => {
+      const style = getComputedStyle(button);
+      return {
+        backgroundColor: style.backgroundColor,
+        height: style.height,
+        borderRadius: style.borderRadius
+      };
+    })
+  );
+  expect(headerActionStyles).toHaveLength(3);
+  expect(new Set(headerActionStyles.map(style => style.backgroundColor)).size).toBe(1);
+  expect(new Set(headerActionStyles.map(style => style.height)).size).toBe(1);
+  expect(new Set(headerActionStyles.map(style => style.borderRadius)).size).toBe(1);
+  const headerActionTitles = await page.locator('.header-action-btn').evaluateAll(buttons =>
+    buttons.map(button => button.title)
+  );
+  expect(headerActionTitles).toEqual(['New AI session', 'New scheduled task', 'Settings']);
 
   const layout = await page.evaluate(() => ({
     bodyWidth: document.body.scrollWidth,
@@ -30,14 +54,16 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
     expect(layout.resources.some(url => url.endsWith(asset))).toBe(true);
   }
 
-  await page.getByTitle('New session').click();
+  await page.getByTitle('New AI session').click();
   await expect(page.locator('#modal-overlay')).toBeVisible();
   await expectInsideViewport(page.locator('#tool-modal'), page);
   await page.locator('#modal-overlay').click({ position: { x: 5, y: 5 } });
   await expect(page.locator('#modal-overlay')).toBeHidden();
 
-  await page.getByTitle('New scheduler').click();
+  await page.getByTitle('New scheduled task').click();
   await expect(page.locator('#schedule-modal-overlay')).toBeVisible();
+  await expect(page.locator('#schedule-modal-title')).toHaveText('New Scheduled Task');
+  await expect(page.locator('.schedule-modal-subtitle')).toContainText('automatically');
   await expectInsideViewport(page.locator('#schedule-modal'), page);
   await expect(page.locator('#schedule-name')).toBeEditable();
 
