@@ -11,18 +11,18 @@
         .header-action-btn.icon-only { width: 36px; padding: 0; }
         .header-action-btn:active { background: #0062cc; transform: scale(.97); }
         .btn-retry { background: #333; color: #fff; border: none; padding: 8px 16px; border-radius: 20px; margin-top: 10px; cursor: pointer; }
-        .session-card { background: var(--card-bg); border-radius: 12px; padding: 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; transition: transform 0.1s; position: relative; }
+        .session-card { background: var(--card-bg); border-radius: 12px; padding: 12px 16px 8px; margin-bottom: 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px; row-gap: 0; align-items: center; transition: transform 0.1s; position: relative; }
         .session-card:active { transform: scale(0.98); }
         .completion-dot { width: 9px; height: 9px; border-radius: 50%; background: #ff3b30; flex-shrink: 0; }
         .session-info { flex: 1; min-width: 0; }
         .session-info h3 { margin: 0 0 4px 0; font-size: 17px; display: flex; align-items: center; gap: 8px; }
         .session-info p { margin: 0; font-size: 13px; color: var(--text-dim); }
         .timer-count-badge { display: inline-flex; align-items: center; gap: 3px; color: #fff; background: rgba(0,122,255,0.22); border: 1px solid rgba(0,122,255,0.34); border-radius: 999px; padding: 2px 7px; font-size: 11px; font-weight: 800; flex-shrink: 0; }
-        .session-dir-row { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+        .session-dir-row { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; }
         .session-dir-row p { flex: 1; min-width: 0; font-family: monospace; overflow-wrap: anywhere; }
         .copy-dir-btn { color: var(--text-dim); background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; width: 28px; height: 28px; padding: 0; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
         .copy-dir-btn:active { color: #fff; background: rgba(255,255,255,0.12); }
-        .session-actions { display: flex; gap: 12px; align-items: center; margin-left: 10px; }
+        .session-actions { display: flex; gap: 12px; align-items: center; }
         .serverchan-toggle { width: 34px; height: 34px; padding: 0; border: 1px solid rgba(255,255,255,0.1); border-radius: 50%; background: rgba(255,255,255,0.05); color: var(--text-dim); cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
         .serverchan-toggle.active { color: #34c759; background: rgba(52,199,89,0.13); }
         .serverchan-toggle:active { color: #fff; background: rgba(255,255,255,0.12); }
