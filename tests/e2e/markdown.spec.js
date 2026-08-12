@@ -60,3 +60,31 @@ test('renders tilde fences and non-word info strings', async ({ page }) => {
     { label: 'objective-c', code: '@interface Example' }
   ]);
 });
+
+test('preserves ordered list numbers when nested bullets split the list into blocks', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  const lists = await page.evaluate(() => {
+    const container = document.createElement('div');
+    container.innerHTML = renderMarkdown([
+      '1. **First item**',
+      '   - First detail',
+      '',
+      '2. **Second item**',
+      '   - Second detail',
+      '',
+      '3. **Third item**',
+      '   - Third detail'
+    ].join('\n'));
+    return Array.from(container.querySelectorAll('ol')).map(list => ({
+      start: list.start,
+      text: list.textContent
+    }));
+  });
+
+  expect(lists).toEqual([
+    { start: 1, text: 'First item' },
+    { start: 2, text: 'Second item' },
+    { start: 3, text: 'Third item' }
+  ]);
+});
