@@ -88,3 +88,44 @@ test('preserves ordered list numbers when nested bullets split the list into blo
     { start: 3, text: 'Third item' }
   ]);
 });
+
+test('preserves intraword underscores while retaining intentional emphasis', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  const rendered = await page.evaluate(() => {
+    const container = document.createElement('div');
+    container.innerHTML = renderMarkdown([
+      'foo_bar_baz snake_case_name foo__bar__baz 前缀_中间_后缀',
+      '',
+      '_italic_ and __bold__ and (_punctuation_)',
+      '',
+      '`code_with_underscores` and `[literal_emphasis_](https://example.com/a_b_c)`',
+      '',
+      '[read _this_](https://example.com/docs_with_underscores)'
+    ].join('\n'));
+    return {
+      text: container.textContent,
+      emphasis: Array.from(container.querySelectorAll('em')).map(element => element.textContent),
+      strong: Array.from(container.querySelectorAll('strong')).map(element => element.textContent),
+      code: Array.from(container.querySelectorAll('code')).map(element => ({
+        text: element.textContent,
+        emphasis: element.querySelectorAll('em, strong').length
+      })),
+      links: Array.from(container.querySelectorAll('a')).map(element => ({
+        text: element.textContent,
+        href: element.getAttribute('href')
+      }))
+    };
+  });
+
+  expect(rendered.text).toContain('foo_bar_baz snake_case_name foo__bar__baz 前缀_中间_后缀');
+  expect(rendered.emphasis).toEqual(['italic', 'punctuation', 'this']);
+  expect(rendered.strong).toEqual(['bold']);
+  expect(rendered.code).toEqual([
+    { text: 'code_with_underscores', emphasis: 0 },
+    { text: '[literal_emphasis_](https://example.com/a_b_c)', emphasis: 0 }
+  ]);
+  expect(rendered.links).toEqual([
+    { text: 'read this', href: 'https://example.com/docs_with_underscores' }
+  ]);
+});
