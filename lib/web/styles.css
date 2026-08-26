@@ -11,8 +11,7 @@
         .header-action-btn.icon-only { width: 36px; padding: 0; }
         .header-action-btn:active { background: #0062cc; transform: scale(.97); }
         .btn-retry { background: #333; color: #fff; border: none; padding: 8px 16px; border-radius: 20px; margin-top: 10px; cursor: pointer; }
-        .session-card { background: var(--card-bg); border-radius: 12px; padding: 12px 16px 8px; margin-bottom: 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px; row-gap: 0; align-items: center; transition: transform 0.1s; position: relative; }
-        .session-card:active { transform: scale(0.98); }
+        .session-card { background: var(--card-bg); border-radius: 12px; padding: 12px 16px 8px; margin-bottom: 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px; row-gap: 0; align-items: center; position: relative; }
         .completion-dot { width: 9px; height: 9px; border-radius: 50%; background: #ff3b30; flex-shrink: 0; }
         .session-info { flex: 1; min-width: 0; }
         .session-info h3 { margin: 0 0 4px 0; font-size: 17px; display: flex; align-items: center; gap: 8px; }
@@ -29,6 +28,11 @@
         .btn-join { background: rgba(255,255,255,0.1); border: none; color: var(--primary); padding: 8px 14px; border-radius: 18px; font-weight: 600; font-size: 14px; cursor: pointer; }
         .icon-btn { color: var(--text-dim); background: none; border: none; padding: 4px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
         .icon-btn:active { color: var(--text); }
+        .session-edit-btn, .session-delete-btn { position: relative; }
+        .session-edit-btn::before, .session-delete-btn::before { content: ""; position: absolute; }
+        .session-edit-btn::before { inset: -9px; }
+        .session-delete-btn::before { inset: -8px; }
+        .session-edit-btn svg, .session-delete-btn svg { pointer-events: none; }
         .btn-delete { color: #ff3b30; }
         #modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 10000; display: none; align-items: center; justify-content: center; padding: 20px; }
         #tool-modal { background: var(--card-bg); width: 100%; max-width: 400px; border-radius: 16px; padding: 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.4); }
