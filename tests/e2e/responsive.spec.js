@@ -352,6 +352,47 @@ test('Codex lazily loads folded tool and subagent details', async ({ page }) => 
   expect(pageErrors).toEqual([]);
 });
 
+test('Codex unlocks resume controls after the server rejects recovery', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  await page.evaluate(() => {
+    activeSessionId = 'failing-resume';
+    activeToolKey = 'codex';
+    codexState = { ...codexState, status: 'idle', presentation: 'structured', resuming: false };
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    document.getElementById('terminal-view').classList.add('active');
+    document.getElementById('codex-resume-panel').classList.add('active');
+    window.fetch = async url => {
+      if (String(url).includes('codex-resume-threads')) {
+        return new Response(JSON.stringify({ success: true, items: [{
+          id: 'retry-thread', questions: ['Retry conversation', 'Second question'], updatedAt: 100
+        }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      // 模拟 WebSocket 状态先于失败的 HTTP 响应到达。
+      applyCodexState({ resuming: false, canAbort: false });
+      return new Response(JSON.stringify({ error: 'thread already has an active writer' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    };
+    applyCodexState({});
+  });
+
+  await page.evaluate(() => selectCodexResumeThread('busy-thread'));
+
+  await expect(page.locator('#codex-state-bar')).not.toContainText('Resuming conversation');
+  await expect(page.locator('#codex-resume-panel')).toContainText('already has an active writer');
+  await expect(page.locator('#codex-resume-btn')).toBeEnabled();
+  await expect(page.locator('#codex-fork-btn')).toBeEnabled();
+  await expect(page.locator('#codex-abort-btn')).toBeDisabled();
+
+  await page.evaluate(() => toggleCodexResumePanel());
+  await expect(page.locator('#codex-resume-panel .claude-resume-item')).toContainText('Retry conversation');
+  expect(pageErrors).toEqual([]);
+});
+
 test('Codex shows per-turn context energy and context compaction controls', async ({ page }, testInfo) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
