@@ -20,7 +20,8 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
   await expect(page.locator('.header')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
   await expect(page.getByTitle('New AI session')).toContainText('Session');
-  await expect(page.getByTitle('New scheduled task')).toContainText('Task');
+  await expect(page.getByTitle('Usage dashboard')).toBeVisible();
+  await expect(page.getByTitle('New scheduled task')).toBeVisible();
   await expect(page.locator('#lobby-tab-sessions')).toHaveText('Sessions');
   await expect(page.locator('#lobby-tab-schedules')).toHaveText('Tasks');
 
@@ -34,14 +35,14 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
       };
     })
   );
-  expect(headerActionStyles).toHaveLength(3);
+  expect(headerActionStyles).toHaveLength(4);
   expect(new Set(headerActionStyles.map(style => style.backgroundColor)).size).toBe(1);
   expect(new Set(headerActionStyles.map(style => style.height)).size).toBe(1);
   expect(new Set(headerActionStyles.map(style => style.borderRadius)).size).toBe(1);
   const headerActionTitles = await page.locator('.header-action-btn').evaluateAll(buttons =>
     buttons.map(button => button.title)
   );
-  expect(headerActionTitles).toEqual(['New AI session', 'New scheduled task', 'Settings']);
+  expect(headerActionTitles).toEqual(['New AI session', 'Usage dashboard', 'New scheduled task', 'Settings']);
 
   const layout = await page.evaluate(() => ({
     bodyWidth: document.body.scrollWidth,
@@ -50,7 +51,7 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
   }));
   expect(layout.bodyWidth).toBeLessThanOrEqual(layout.viewportWidth + 1);
   expect(layout.resources.some(url => url.includes('unpkg.com'))).toBe(false);
-  for (const asset of ['styles.css', 'core.js', 'claude.js', 'codex.js', 'session.js', 'vendor/xterm.js']) {
+  for (const asset of ['styles.css', 'core.js', 'claude.js', 'codex.js', 'session.js', 'usage.js', 'vendor/xterm.js']) {
     expect(layout.resources.some(url => url.endsWith(asset))).toBe(true);
   }
 
@@ -69,6 +70,88 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
 
   expect(pageErrors).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath('lobby-and-schedule.png'), fullPage: true });
+});
+
+test('usage dashboard selects week or month and renders model summaries with daily charts', async ({ page }, testInfo) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+
+  await page.route('**/api/usage/sources*', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      sources: [
+        { id: 'codex', label: 'Codex', badge: 'CX' },
+        { id: 'claude', label: 'Claude', badge: 'CL' }
+      ],
+      generatedAt: '2026-08-26T10:00:00.000Z',
+      timezone: 'Asia/Shanghai'
+    })
+  }));
+  await page.route('**/api/usage/report*', route => {
+    const url = new URL(route.request().url());
+    const scope = url.searchParams.get('scope') || 'weekly';
+    const availablePeriods = scope === 'weekly' ? ['2026-08-24', '2026-08-17'] : ['2026-08', '2026-07'];
+    const selectedPeriod = url.searchParams.get('period') || availablePeriods[0];
+    const models = [
+      { modelName: 'gpt-5.6-sol', uncachedInputTokens: 123456, cachedInputTokens: 9876543, outputTokens: 45678, totalTokens: 10045677, estimatedCostUSD: 8.7654 },
+      { modelName: 'deepseek-v4-pro', uncachedInputTokens: 4000, cachedInputTokens: 0, outputTokens: 200, totalTokens: 4200, estimatedCostUSD: null }
+    ];
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        source: { id: 'codex', label: 'Codex', badge: 'CX' },
+        scope,
+        availablePeriods,
+        selectedPeriod,
+        summary: {
+          models,
+          totals: { uncachedInputTokens: 127456, cachedInputTokens: 9876543, outputTokens: 45878, totalTokens: 10049877, estimatedCostUSD: 8.7654 }
+        },
+        days: [
+          { period: '2026-08-25', models, totals: { totalTokens: 10049877, estimatedCostUSD: 8.7654 } },
+          { period: '2026-08-26', models: [models[0]], totals: { totalTokens: 10045677, estimatedCostUSD: 8.7654 } }
+        ],
+        generatedAt: '2026-08-26T10:00:00.000Z',
+        timezone: 'Asia/Shanghai',
+        engine: { name: 'ccusage', version: '20.0.20', pricingMode: 'embedded' },
+        cost: { basis: 'ccusage estimate for Codex GPT models', note: 'Estimate only.' }
+      })
+    });
+  });
+
+  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.getByTitle('Usage dashboard').click();
+  await expect(page.locator('#usage-source-overlay')).toBeVisible();
+  await expectInsideViewport(page.locator('#usage-source-modal'), page);
+  await page.getByRole('button', { name: /Codex/ }).click();
+
+  await expect(page.locator('#usage-view')).toHaveClass(/active/);
+  await expect(page.locator('#usage-source-title')).toHaveText('Codex Usage');
+  await expect(page.locator('#usage-scope-weekly')).toHaveClass(/active/);
+  await expect(page.locator('#usage-period-select')).toHaveValue('2026-08-24');
+  await expect(page.locator('#usage-summary')).toContainText('All-model tokens');
+  await expect(page.locator('#usage-summary')).toContainText('All GPT cost');
+  await expect(page.locator('#usage-model-summary')).toContainText('gpt-5.6-sol');
+  await expect(page.locator('#usage-model-summary')).toContainText('deepseek-v4-pro');
+  await expect(page.locator('#usage-model-summary')).toContainText('All models');
+  await expect(page.locator('#usage-model-summary tbody tr').filter({ hasText: 'deepseek-v4-pro' })).toContainText('—');
+  await expect(page.locator('#usage-token-chart .usage-chart-row')).toHaveCount(2);
+  await expect(page.locator('#usage-token-legend')).toContainText('deepseek-v4-pro');
+  await expect(page.locator('#usage-cost-chart .usage-chart-row')).toHaveCount(2);
+  await expect(page.locator('#usage-cost-legend')).not.toContainText('deepseek-v4-pro');
+  await expect(page.locator('#usage-daily-table')).toContainText('2026-08-26');
+  await expect(page.locator('#usage-engine-note')).toContainText('ccusage 20.0.20');
+  await expect(page.locator('#usage-engine-note')).toContainText('embedded pricing');
+  await expectInsideViewport(page.locator('.usage-summary-card').first(), page);
+
+  await page.locator('#usage-period-select').selectOption('2026-08-17');
+  await expect(page.locator('#usage-period-select')).toHaveValue('2026-08-17');
+  await page.getByRole('button', { name: 'Month', exact: true }).click();
+  await expect(page.locator('#usage-scope-monthly')).toHaveClass(/active/);
+  await expect(page.locator('#usage-period-select')).toHaveValue('2026-08');
+
+  expect(pageErrors).toEqual([]);
+  await page.screenshot({ path: testInfo.outputPath('usage-dashboard.png'), fullPage: true });
 });
 
 test('approval bubble expands and jumps to its pending request', async ({ page }, testInfo) => {

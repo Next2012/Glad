@@ -34,6 +34,7 @@ Glad was created to enable **vibe coding** on mobile devices. By bringing variou
 
 Our design philosophy is **Easy to use, Stable, and Restrained**. Glad focuses strictly on the essentials:
 - **Session management:** Run multiple sessions from a single dashboard with per-session working directories.
+- **Local usage dashboard:** Select a week or month, compare per-model and daily token totals, and inspect model-stacked token and cost charts through the bundled read-only `ccusage` engine. Costs use `ccusage` estimates and are shown only for GPT models used by Codex.
 - **High-fidelity terminal interaction:** A mobile-friendly terminal experience with touch shortcuts.
 - **Extreme performance history viewing:** Fast and responsive text history.
 - **Simple but effective change checking:** Integrated Git changes preview.

@@ -1,6 +1,6 @@
 {
   "name": "glad-web",
-  "version": "1.0.39",
+  "version": "1.0.40",
   "description": "Glad transforms terminal-based AI coding tools into a polished, mobile-friendly local Web interface.",
   "bin": {
     "glad": "bin/cli.js"
@@ -52,6 +52,7 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/headless": "^6.0.0",
     "@xterm/xterm": "^5.5.0",
+    "ccusage": "20.0.20",
     "chalk": "^4.1.2",
     "commander": "^11.0.0",
     "conf": "^10.2.0",
