@@ -434,6 +434,16 @@ test('Codex shows per-turn context energy and context compaction controls', asyn
   const meter = page.locator('.codex-context-meter');
   await expect(meter).toHaveText('213K / 258K（83%）');
   await expect(meter).toHaveAttribute('style', /83%/);
+  const meterColors = await meter.evaluate(element => ({
+    color: getComputedStyle(element).color,
+    background: getComputedStyle(element).backgroundColor,
+    fill: getComputedStyle(element, '::before').backgroundColor
+  }));
+  expect(meterColors).toEqual({
+    color: 'rgb(18, 95, 52)',
+    background: 'rgb(239, 250, 243)',
+    fill: 'rgb(188, 235, 201)'
+  });
   await expect(page.locator('.codex-compaction-card')).toContainText('Context compacted');
 
   await page.locator('#codex-control-rail').evaluate(element => { element.scrollLeft = element.scrollWidth; });
@@ -709,7 +719,7 @@ test('Claude approval stays inline and its bubble preserves reading state', asyn
   await page.screenshot({ path: testInfo.outputPath('claude-approval-jump.png'), fullPage: true });
 });
 
-test('Claude shows one Working bubble and keeps primary controls on the first page', async ({ page }, testInfo) => {
+test('Claude shows one Working bubble and keeps controls in one freely scrolling row', async ({ page }, testInfo) => {
   await page.goto('/', { waitUntil: 'networkidle' });
   const layout = await page.evaluate(() => {
     activeToolKey = 'claude-code';
@@ -731,7 +741,10 @@ test('Claude shows one Working bubble and keeps primary controls on the first pa
       first: controlIds(pages[0]),
       second: controlIds(pages[1]),
       stateText: stateBar.textContent,
-      indicatorPosition: indicator ? getComputedStyle(indicator).position : ''
+      indicatorPosition: indicator ? getComputedStyle(indicator).position : '',
+      firstPageDisplay: getComputedStyle(pages[0]).display,
+      secondPageDisplay: getComputedStyle(pages[1]).display,
+      scrollSnapType: getComputedStyle(document.querySelector('.claude-control-rail')).scrollSnapType
     };
   });
 
@@ -742,16 +755,100 @@ test('Claude shows one Working bubble and keeps primary controls on the first pa
   expect(layout.second).toEqual(['claude-permission-picker-btn']);
   expect(layout.stateText).not.toContain('Working');
   expect(layout.indicatorPosition).toBe('sticky');
+  expect(layout.firstPageDisplay).toBe('flex');
+  expect(layout.secondPageDisplay).toBe('flex');
+  expect(layout.scrollSnapType).toBe('none');
   await expect(page.getByRole('status', { name: 'Claude is working' })).toBeVisible();
   await expect(page.locator('.claude-working-indicator')).toHaveCount(1);
   await expect(page.getByText('Claude is working...', { exact: true })).toHaveCount(0);
   await expect(page.locator('.claude-status')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Usage' })).toBeInViewport();
+  await expect(page.locator('#claude-usage-btn')).toBeInViewport();
   await expect(page.getByRole('button', { name: 'Context' })).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath('claude-primary-controls.png'), fullPage: true });
   await page.locator('.claude-control-rail').evaluate(element => { element.scrollLeft = element.scrollWidth; });
   await expect(page.getByRole('button', { name: 'Permission' })).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath('claude-secondary-controls.png'), fullPage: true });
+});
+
+test('responsive shell, bottom composer, and themes follow the new layout', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  await page.evaluate(() => localStorage.removeItem('glad-theme'));
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Dark' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('glad-theme'))).toBe('dark');
+  await page.locator('#settings-modal-overlay').click({ position: { x: 5, y: 5 } });
+
+  await page.evaluate(() => {
+    activeToolKey = 'claude-code';
+    claudeStatus = 'idle';
+    claudeState = { ...claudeState, status: 'idle', canAbort: false };
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    document.getElementById('terminal-view').classList.add('active');
+    setClaudeModeEnabled(true);
+    applyClaudeState(claudeState);
+  });
+
+  const geometry = await page.evaluate(() => {
+    const composer = document.getElementById('terminal-controls').getBoundingClientRect();
+    const send = document.getElementById('send-btn').getBoundingClientRect();
+    const imageButton = document.getElementById('attach-image-btn');
+    const scheduleButton = document.getElementById('schedule-send-btn');
+    const railElement = document.querySelector('.claude-control-rail');
+    const image = imageButton.getBoundingClientRect();
+    const schedule = scheduleButton.getBoundingClientRect();
+    const rail = railElement.getBoundingClientRect();
+    const firstAction = document.getElementById('claude-model-picker-btn').getBoundingClientRect();
+    return {
+      viewportWidth: innerWidth,
+      viewportHeight: innerHeight,
+      composerBottom: composer.bottom,
+      composerTop: composer.top,
+      imageToScheduleGap: schedule.left - image.right,
+      scheduleToFirstActionGap: firstAction.left - schedule.right,
+      railToSendGap: send.left - rail.right,
+      actionTops: [image.top, schedule.top, firstAction.top, send.top],
+      actionHeights: [image.height, schedule.height, firstAction.height, send.height],
+      lobbyVisible: getComputedStyle(document.getElementById('lobby-view')).display !== 'none',
+      backVisible: getComputedStyle(document.getElementById('back-btn')).visibility !== 'hidden',
+      resizerVisible: getComputedStyle(document.getElementById('sidebar-resizer')).display !== 'none',
+      iconCount: document.querySelectorAll('.claude-control-rail .action-icon').length,
+      utilityButtonsInRail: imageButton.parentElement === railElement && scheduleButton.parentElement === railElement,
+      railScrollWidth: railElement.scrollWidth,
+      railClientWidth: railElement.clientWidth,
+      railOverflowX: getComputedStyle(railElement).overflowX
+    };
+  });
+
+  expect(geometry.composerBottom).toBeLessThanOrEqual(geometry.viewportHeight + 1);
+  expect(geometry.composerTop).toBeGreaterThan(geometry.viewportHeight / 2);
+  expect(geometry.imageToScheduleGap).toBeGreaterThanOrEqual(7);
+  expect(geometry.scheduleToFirstActionGap).toBeGreaterThanOrEqual(7);
+  expect(geometry.railToSendGap).toBeGreaterThanOrEqual(10);
+  expect(Math.max(...geometry.actionTops) - Math.min(...geometry.actionTops)).toBeLessThanOrEqual(1);
+  expect(new Set(geometry.actionHeights.map(Math.round))).toEqual(new Set([40]));
+  expect(geometry.iconCount).toBeGreaterThanOrEqual(7);
+  expect(geometry.utilityButtonsInRail).toBe(true);
+  expect(geometry.railOverflowX).toBe('auto');
+  if (geometry.viewportWidth <= 480) expect(geometry.railScrollWidth).toBeGreaterThan(geometry.railClientWidth);
+  await expect(page.locator('#attach-image-btn use')).toHaveAttribute('href', '#icon-image');
+  await expect(page.locator('#schedule-send-btn use')).toHaveAttribute('href', '#icon-schedule');
+  if (geometry.viewportWidth >= 920) {
+    expect(geometry.lobbyVisible).toBe(true);
+    expect(geometry.backVisible).toBe(false);
+    expect(geometry.resizerVisible).toBe(true);
+  } else {
+    expect(geometry.lobbyVisible).toBe(false);
+    expect(geometry.backVisible).toBe(true);
+    expect(geometry.resizerVisible).toBe(false);
+  }
+
+  await page.reload({ waitUntil: 'networkidle' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  expect(pageErrors).toEqual([]);
 });
 
 test('Claude combines model and effort and renders separate CLI usage and context cards', async ({ page }, testInfo) => {
