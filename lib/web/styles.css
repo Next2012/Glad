@@ -187,7 +187,7 @@
         .codex-conversation { width: min(100%, var(--chat-content-max)); margin: 0 auto; }
         .codex-working-indicator, .claude-working-indicator { position: sticky; top: 0; z-index: 4; width: 28px; height: 28px; margin: 0 0 -28px auto; border: 1px solid rgba(255,255,255,.1); border-radius: 50%; background: rgba(28,28,30,.68); box-shadow: 0 5px 16px rgba(0,0,0,.24); backdrop-filter: blur(8px); pointer-events: none; }
         .codex-working-indicator::after, .claude-working-indicator::after { content: ''; position: absolute; inset: 8px; border: 1.5px solid rgba(255,255,255,.7); border-top-color: transparent; border-radius: 50%; animation: codex-spin .8s linear infinite; }
-        .codex-skill-bubble { position: sticky; top: 0; z-index: 5; display: flex; width: max-content; max-width: min(280px, 72vw); min-height: 28px; margin: 0 0 -30px auto; padding: 0 4px 0 10px; align-items: center; gap: 7px; border: 1px solid rgba(0,122,255,.42); border-radius: 15px; background: rgba(21,47,78,.92); color: #eaf3ff; box-shadow: 0 5px 18px rgba(0,0,0,.3); backdrop-filter: blur(10px); font-size: 11px; font-weight: 750; }
+        .codex-skill-bubble { position: relative; z-index: 5; display: flex; width: max-content; max-width: min(280px, 72vw); min-height: 28px; padding: 0 4px 0 10px; align-items: center; gap: 7px; border: 1px solid rgba(0,122,255,.42); border-bottom: 0; border-radius: 12px 12px 0 0; background: rgba(21,47,78,.96); color: #eaf3ff; box-shadow: 0 -3px 12px rgba(0,0,0,.12); font-size: 11px; font-weight: 750; }
         .codex-skill-bubble-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .codex-skill-bubble-close { width: 23px; height: 23px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,.1); color: #fff; cursor: pointer; font-size: 16px; line-height: 1; }
         .codex-message-block { max-width: 100%; margin: 0 0 12px; }
@@ -325,7 +325,9 @@
         .claude-message-block.user > .claude-message { max-width: 100%; }
         .claude-message-time { display: block; width: max-content; margin-top: 4px; padding: 0 2px; color: #8e8e93; font-size: 10px; font-weight: 500; line-height: 1; font-variant-numeric: tabular-nums; }
         .claude-message-block.user .claude-message-time { margin-left: auto; }
-        .codex-message-skill { display: inline-flex; max-width: min(220px, 58vw); min-height: 16px; align-items: center; padding: 1px 6px; border: 1px solid rgba(0,122,255,.32); border-radius: 999px; background: rgba(0,122,255,.12); color: #8fc5ff; font-size: 9px; font-weight: 750; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .codex-message-skills { position: relative; z-index: 1; display: flex; justify-content: flex-start; gap: 5px; margin-bottom: -1px; }
+        .codex-message-skill { display: inline-flex; max-width: min(220px, 58vw); min-height: 18px; align-items: center; padding: 2px 8px; border: 1px solid rgba(0,122,255,.32); border-bottom: 0; border-radius: 9px 9px 0 0; background: rgba(0,122,255,.16); color: #8fc5ff; font-size: 9px; font-weight: 750; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .codex-message-skills + .codex-message.user { border-top-left-radius: 4px; }
         .claude-message-attachments { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
         .claude-message-attachment { max-width: 100%; border: 1px solid rgba(255,255,255,.14); border-radius: 999px; padding: 3px 7px; color: #d1d5db; background: rgba(255,255,255,.07); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .message-attachment-icon { width: 13px; height: 13px; flex: 0 0 13px; margin-right: 4px; vertical-align: -2px; }
@@ -526,9 +528,8 @@
             .usage-summary-card .value { font-size: 21px; }
         }
         @media (max-width: 430px) {
-            #nav-bar > div:last-child .icon-btn:not(#codex-terminal-switch) { width: 34px; font-size: 0 !important; gap: 0 !important; }
-            #nav-bar > div:last-child .icon-btn:not(#codex-terminal-switch) svg { width: 16px; height: 16px; }
-            #codex-terminal-switch { padding-left: 8px !important; padding-right: 8px !important; }
+            #nav-bar > div:last-child .icon-btn { width: 34px; font-size: 0 !important; gap: 0 !important; }
+            #nav-bar > div:last-child .icon-btn svg { width: 16px; height: 16px; }
         }
         @media (min-width: 768px) and (max-width: 1199px) {
             :root { --chat-content-max: 780px; --control-content-max: 920px; }
@@ -620,7 +621,16 @@ html[data-theme="light"] .session-attention-pill.subagent { border-color: #99c8f
 #terminal-controls { position: relative; inset: auto; grid-row: 4; z-index: 30; max-height: min(62dvh, 620px); overflow-y: auto; padding-bottom: env(safe-area-inset-bottom); border-top: 1px solid var(--line); border-bottom: 0; background: color-mix(in srgb, var(--surface) 96%, transparent); box-shadow: 0 -10px 28px rgba(0,0,0,.12); }
 #terminal-controls-spacer { display: none; }
 #terminal-container, #claude-chat-container, #codex-chat-container { grid-row: 3; min-width: 0; min-height: 0; background: var(--chat-bg); }
+#composer-skill-prefix { display: none; width: min(100%, var(--control-content-max)); margin: 0 auto; padding: 8px 14px 0; box-sizing: border-box; }
+#composer-skill-prefix.active { display: flex; justify-content: flex-start; }
+#composer-skill-prefix.active + #input-row { padding-top: 0; }
 #input-row { padding-top: 10px; padding-bottom: 7px; }
+@media (max-width: 480px) {
+    #composer-skill-prefix { padding-left: 10px; padding-right: 10px; }
+}
+@media (min-width: 768px) and (max-width: 1199px) {
+    #composer-skill-prefix { padding-left: 18px; padding-right: 18px; }
+}
 #cmd-input { width: 100%; min-height: 42px; border-color: var(--line); background: var(--input-bg); color: var(--input-fg); }
 #cmd-input::placeholder { color: var(--input-placeholder); }
 #cmd-input:focus { color: var(--input-fg); }
@@ -628,6 +638,8 @@ html[data-theme="light"] .session-attention-pill.subagent { border-color: #99c8f
 .composer-action-btn { position: relative; width: 40px; min-width: 40px; height: 40px; flex: 0 0 40px; padding: 0; margin: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); color: var(--text-dim); display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .composer-action-btn:hover { color: var(--text); }
 .composer-action-btn.active { color: var(--primary); border-color: color-mix(in srgb, var(--primary) 48%, transparent); background: color-mix(in srgb, var(--primary) 14%, var(--surface)); }
+#composer-action-tooltip { position: fixed; z-index: 11000; display: none; max-width: min(220px, calc(100vw - 24px)); padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; background: color-mix(in srgb, var(--surface-raised) 96%, transparent); color: var(--text); box-shadow: 0 6px 18px rgba(0,0,0,.18); font-size: 11px; font-weight: 700; line-height: 1.2; text-align: center; white-space: nowrap; pointer-events: none; }
+#composer-action-tooltip.visible { display: block; }
 #send-btn { right: max(12px, calc((100% - var(--control-content-max)) / 2 + 14px)); width: 44px; height: 40px; }
 #claude-control-panel, #codex-control-panel { position: relative; flex-direction: column; width: min(100%, var(--control-content-max)); padding: 0 14px 10px; border: 0; background: transparent; }
 .claude-control-rail, .codex-control-rail { order: 100; min-height: 40px; gap: 7px; margin: 0 58px 0 0; padding: 0; overflow-x: auto; overflow-y: hidden; scroll-snap-type: none; scroll-padding: 0; }
@@ -781,6 +793,9 @@ html[data-theme="light"] .codex-warning-title { color: #7a5200; }
 html[data-theme="light"] .codex-warning-text { color: #725d28; }
 html[data-theme="light"] .codex-compaction-card { border-color: #d9c4ef; background: #f7f0ff; color: #3f2a56; }
 html[data-theme="light"] .codex-compaction-meta { color: #725d86; }
+html[data-theme="light"] .codex-skill-bubble,
+html[data-theme="light"] .codex-message-skill { border-color: #99c8f7; background: #e8f3ff; color: #075fae; }
+html[data-theme="light"] .codex-skill-bubble-close { background: rgba(7,95,174,.10); color: #075fae; }
 html[data-theme="light"] .codex-context-meter { --context-color: #168447; border-color: #69c98a; background: #effaf3; color: #125f34; }
 html[data-theme="light"] .codex-context-meter::before { background: #bcebc9; }
 html[data-theme="light"] .codex-context-meter.warn { --context-color: #a66f00; border-color: #e0b53e; background: #fff9df; color: #715000; }

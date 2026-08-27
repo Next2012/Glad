@@ -109,7 +109,6 @@ test('light theme keeps dialogs, subview navigation, and file chips readable', a
 
   await page.evaluate(() => {
     activeToolKey = 'codex';
-    codexState = { ...codexState, presentation: 'structured' };
     document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
     document.getElementById('terminal-view').classList.add('active');
     setClaudeModeEnabled(false);
@@ -187,7 +186,6 @@ test('dark theme keeps modal rows and attachment chips readable', async ({ page 
 
   await page.evaluate(() => {
     activeToolKey = 'codex';
-    codexState = { ...codexState, presentation: 'structured' };
     document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
     document.getElementById('terminal-view').classList.add('active');
     setClaudeModeEnabled(false);
@@ -290,7 +288,6 @@ test('approval bubble expands and jumps to its pending request', async ({ page }
     codexState = {
       ...codexState,
       status: 'waiting_approval',
-      presentation: 'structured',
       pendingPermissionCount: 1,
       threadId: 'root-thread'
     };
@@ -378,7 +375,7 @@ test('Codex lazily loads folded tool and subagent details', async ({ page }) => 
   await page.evaluate(() => {
     activeSessionId = 'lazy-codex';
     activeToolKey = 'codex';
-    codexState = { ...codexState, presentation: 'structured', threadId: 'root-thread' };
+    codexState = { ...codexState, threadId: 'root-thread' };
     codexMessages = [
       { id: 'root-start', kind: 'turn-start', threadId: 'root-thread', turnId: 'root-turn', createdAt: 1 },
       { id: 'tool-lazy', providerId: 'tool-provider', kind: 'tool', threadId: 'root-thread',
@@ -502,7 +499,7 @@ test('Codex unlocks resume controls after the server rejects recovery', async ({
   await page.evaluate(() => {
     activeSessionId = 'failing-resume';
     activeToolKey = 'codex';
-    codexState = { ...codexState, status: 'idle', presentation: 'structured', resuming: false };
+    codexState = { ...codexState, status: 'idle', resuming: false };
     document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
     document.getElementById('terminal-view').classList.add('active');
     document.getElementById('codex-resume-panel').classList.add('active');
@@ -547,7 +544,6 @@ test('Codex shows per-turn context energy and context compaction controls', asyn
     codexState = {
       ...codexState,
       status: 'idle',
-      presentation: 'structured',
       threadId: 'root-thread',
       canCompact: true,
       compacting: false
@@ -629,7 +625,7 @@ test('Codex renders warning cards and paginates four-line prompt history with fu
   await page.evaluate(() => {
     activeSessionId = 'test-codex-prompts';
     activeToolKey = 'codex';
-    codexState = { ...codexState, status: 'idle', presentation: 'structured', threadId: 'prompt-thread' };
+    codexState = { ...codexState, status: 'idle', threadId: 'prompt-thread' };
     codexMessages = [{
       id: 'model-warning',
       kind: 'event',
@@ -714,7 +710,7 @@ test('Codex selects a skill with a removable floating bubble and sends structure
   await page.evaluate(() => {
     activeSessionId = 'test-codex-skills';
     activeToolKey = 'codex';
-    codexState = { ...codexState, status: 'running', presentation: 'structured', threadId: 'skills-thread' };
+    codexState = { ...codexState, status: 'running', threadId: 'skills-thread' };
     codexMessages = [];
     codexPendingPermissions = [];
     document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
@@ -762,9 +758,11 @@ test('Codex selects a skill with a removable floating bubble and sends structure
   const bubble = page.locator('.codex-skill-bubble');
   await expect(bubble).toContainText('Skill · pdf');
   const bubbleBox = await bubble.boundingBox();
+  const inputBox = await page.locator('#cmd-input').boundingBox();
   const buttonBoxAfter = await skillsButton.boundingBox();
-  expect(Math.abs((bubbleBox.x + bubbleBox.width) - (workingBox.x + workingBox.width))).toBeLessThanOrEqual(2);
-  expect(Math.abs(bubbleBox.y - workingBox.y)).toBeLessThanOrEqual(36);
+  expect(Math.abs(bubbleBox.x - inputBox.x)).toBeLessThanOrEqual(2);
+  expect(Math.abs((bubbleBox.y + bubbleBox.height) - inputBox.y)).toBeLessThanOrEqual(2);
+  await expect(page.locator('#composer-skill-prefix')).toHaveClass(/active/);
   expect(buttonBoxAfter).toEqual(buttonBoxBefore);
 
   await bubble.getByRole('button', { name: 'Remove selected skill' }).click();
@@ -799,10 +797,20 @@ test('Codex selects a skill with a removable floating bubble and sends structure
     }];
     commitCodexChatRender();
   });
-  const messageMeta = page.locator('[data-codex-key="message-resumed-skill-message"] .codex-message-meta');
+  const messageBlock = page.locator('[data-codex-key="message-resumed-skill-message"]');
+  const messageSkills = messageBlock.locator('.codex-message-skills');
+  const messageBubble = messageBlock.locator('.codex-message.user');
+  const messageMeta = messageBlock.locator('.codex-message-meta');
   await expect(messageMeta.locator('time')).toBeVisible();
-  await expect(messageMeta.locator('.codex-message-skill')).toHaveText('Skill · pdf');
-  await expect.poll(() => messageMeta.evaluate(element => Array.from(element.children).map(child => child.tagName))).toEqual(['TIME', 'SPAN']);
+  await expect(messageSkills.locator('.codex-message-skill')).toHaveText('Skill · pdf');
+  const sentSkillBox = await messageSkills.boundingBox();
+  const sentMessageBox = await messageBubble.boundingBox();
+  expect(Math.abs(sentSkillBox.x - sentMessageBox.x)).toBeLessThanOrEqual(2);
+  expect(Math.abs((sentSkillBox.y + sentSkillBox.height) - sentMessageBox.y)).toBeLessThanOrEqual(2);
+  await expect.poll(() => messageBlock.evaluate(element => Array.from(element.children).map(child => child.className))).toEqual([
+    'codex-message-skills', 'codex-message user claude-md', 'codex-message-meta'
+  ]);
+  await expect.poll(() => messageMeta.evaluate(element => Array.from(element.children).map(child => child.tagName))).toEqual(['TIME']);
 
   expect(pageErrors).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath('codex-skill-selection.png'), fullPage: true });
@@ -939,10 +947,10 @@ test('responsive shell, bottom composer, and themes follow the new layout', asyn
   const geometry = await page.evaluate(() => {
     const composer = document.getElementById('terminal-controls').getBoundingClientRect();
     const send = document.getElementById('send-btn').getBoundingClientRect();
-    const imageButton = document.getElementById('attach-image-btn');
+    const attachmentButton = document.getElementById('attachment-btn');
     const scheduleButton = document.getElementById('schedule-send-btn');
     const railElement = document.querySelector('.claude-control-rail');
-    const image = imageButton.getBoundingClientRect();
+    const attachment = attachmentButton.getBoundingClientRect();
     const schedule = scheduleButton.getBoundingClientRect();
     const rail = railElement.getBoundingClientRect();
     const firstAction = document.getElementById('claude-model-picker-btn').getBoundingClientRect();
@@ -951,16 +959,16 @@ test('responsive shell, bottom composer, and themes follow the new layout', asyn
       viewportHeight: innerHeight,
       composerBottom: composer.bottom,
       composerTop: composer.top,
-      imageToScheduleGap: schedule.left - image.right,
+      attachmentToScheduleGap: schedule.left - attachment.right,
       scheduleToFirstActionGap: firstAction.left - schedule.right,
       railToSendGap: send.left - rail.right,
-      actionTops: [image.top, schedule.top, firstAction.top, send.top],
-      actionHeights: [image.height, schedule.height, firstAction.height, send.height],
+      actionTops: [attachment.top, schedule.top, firstAction.top, send.top],
+      actionHeights: [attachment.height, schedule.height, firstAction.height, send.height],
       lobbyVisible: getComputedStyle(document.getElementById('lobby-view')).display !== 'none',
       backVisible: getComputedStyle(document.getElementById('back-btn')).visibility !== 'hidden',
       resizerVisible: getComputedStyle(document.getElementById('sidebar-resizer')).display !== 'none',
       iconCount: document.querySelectorAll('.claude-control-rail .action-icon').length,
-      utilityButtonsInRail: imageButton.parentElement === railElement && scheduleButton.parentElement === railElement,
+      utilityButtonsInRail: attachmentButton.parentElement === railElement && scheduleButton.parentElement === railElement,
       railScrollWidth: railElement.scrollWidth,
       railClientWidth: railElement.clientWidth,
       railOverflowX: getComputedStyle(railElement).overflowX
@@ -969,7 +977,7 @@ test('responsive shell, bottom composer, and themes follow the new layout', asyn
 
   expect(geometry.composerBottom).toBeLessThanOrEqual(geometry.viewportHeight + 1);
   expect(geometry.composerTop).toBeGreaterThan(geometry.viewportHeight / 2);
-  expect(geometry.imageToScheduleGap).toBeGreaterThanOrEqual(7);
+  expect(geometry.attachmentToScheduleGap).toBeGreaterThanOrEqual(7);
   expect(geometry.scheduleToFirstActionGap).toBeGreaterThanOrEqual(7);
   expect(geometry.railToSendGap).toBeGreaterThanOrEqual(10);
   expect(Math.max(...geometry.actionTops) - Math.min(...geometry.actionTops)).toBeLessThanOrEqual(1);
@@ -978,8 +986,38 @@ test('responsive shell, bottom composer, and themes follow the new layout', asyn
   expect(geometry.utilityButtonsInRail).toBe(true);
   expect(geometry.railOverflowX).toBe('auto');
   if (geometry.viewportWidth <= 480) expect(geometry.railScrollWidth).toBeGreaterThan(geometry.railClientWidth);
-  await expect(page.locator('#attach-image-btn use')).toHaveAttribute('href', '#icon-image');
+  await expect(page.locator('#attachment-btn use')).toHaveAttribute('href', '#icon-file');
   await expect(page.locator('#schedule-send-btn use')).toHaveAttribute('href', '#icon-schedule');
+  await expect(page.locator('#icon-schedule circle')).toHaveCount(1);
+  await expect(page.locator('#schedule-create-button use')).toHaveAttribute('href', '#icon-calendar');
+  await expect(page.locator('#attach-image-btn')).toHaveCount(0);
+  await expect(page.locator('#codex-terminal-switch')).toHaveCount(0);
+  await page.locator('#attachment-btn').focus();
+  await expect(page.locator('#composer-action-tooltip')).toHaveText('Attachment');
+  await expect(page.locator('#composer-action-tooltip')).toBeVisible();
+  await page.locator('#claude-model-picker-btn').focus();
+  await expect(page.locator('#composer-action-tooltip')).toHaveText('Model');
+  const touchTooltipState = await page.evaluate(() => {
+    document.activeElement?.blur?.();
+    hideComposerActionTooltip();
+    const button = document.getElementById('attachment-btn');
+    const box = button.getBoundingClientRect();
+    const event = (type, x, pointerId = 71) => new PointerEvent(type, {
+      bubbles: true, pointerType: 'touch', pointerId, clientX: x, clientY: box.y + box.height / 2
+    });
+    button.dispatchEvent(event('pointerdown', box.x + 10));
+    button.dispatchEvent(event('pointermove', box.x + 35));
+    button.dispatchEvent(event('pointerup', box.x + 35));
+    const shownAfterSwipe = document.getElementById('composer-action-tooltip').classList.contains('visible');
+    button.dispatchEvent(event('pointerdown', box.x + 10, 72));
+    button.dispatchEvent(event('pointerup', box.x + 10, 72));
+    return {
+      shownAfterSwipe,
+      shownAfterTap: document.getElementById('composer-action-tooltip').classList.contains('visible'),
+      label: document.getElementById('composer-action-tooltip').textContent
+    };
+  });
+  expect(touchTooltipState).toEqual({ shownAfterSwipe: false, shownAfterTap: true, label: 'Attachment' });
   if (geometry.viewportWidth >= 920) {
     expect(geometry.lobbyVisible).toBe(true);
     expect(geometry.backVisible).toBe(false);
@@ -1248,7 +1286,7 @@ test('Claude supports edit diffs, image sends, and session forks', async ({ page
   await expect(editTool.locator('.codex-diff-line.del')).toContainText('-const oldValue = 1;');
   await expect(editTool.locator('.codex-diff-line.add')).toContainText('+const newValue = 2;');
 
-  await page.locator('#image-file-input').setInputFiles({
+  await page.locator('#attachment-file-input').setInputFiles({
     name: 'diagram.png',
     mimeType: 'image/png',
     buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])

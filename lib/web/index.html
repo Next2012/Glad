@@ -41,6 +41,7 @@
         <symbol id="icon-image" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m4 17 4.5-4 3.5 3 2.5-2 5.5 4"/></symbol>
         <symbol id="icon-file" viewBox="0 0 24 24"><path d="M9 8.5 14.5 3a4 4 0 0 1 5.7 5.7L10.4 18.5a5.5 5.5 0 0 1-7.8-7.8l9.2-9.2"/><path d="m7 11 7-7a2 2 0 1 1 2.8 2.8l-9.1 9.1a2.5 2.5 0 0 1-3.5-3.5L12 4.6"/></symbol>
         <symbol id="icon-schedule" viewBox="0 0 24 24"><circle cx="10.5" cy="13" r="7.5"/><path d="M10.5 9v4l2.5 1.5M18 3v6M15 6h6"/></symbol>
+        <symbol id="icon-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></symbol>
     </svg>
 
     <div id="app-shell">
@@ -60,9 +61,7 @@
                     </button>
                     <button id="schedule-create-button" class="header-action-btn icon-only" type="button"
                         onclick="showScheduleModal()" title="New scheduled task" aria-label="New scheduled task">
-                        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                            <circle cx="12" cy="13" r="8"></circle><path d="M12 9v4l2.5 1.5"></path><path d="M9 2h6"></path><path d="M12 2v3"></path>
-                        </svg>
+                        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-calendar"></use></svg>
                     </button>
                     <button id="app-settings-button" class="header-action-btn icon-only" type="button"
                         onclick="openSettings()" title="Settings" aria-label="Settings">
@@ -165,7 +164,6 @@
                 </button>
                 <div id="session-title">Terminal</div>
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <button id="codex-terminal-switch" class="icon-btn" onclick="toggleCodexPresentation()" title="Switch Codex interface" style="display:none; color: var(--primary); font-size: 12px; font-weight: 700; background: rgba(0, 122, 255, 0.1); padding: 5px 9px; border-radius: 15px; gap: 4px;">TERM</button>
                     <button class="icon-btn" onclick="showHistory()" title="History" style="color: var(--primary); font-size: 12px; font-weight: 700; background: rgba(0, 122, 255, 0.1); padding: 5px 9px; border-radius: 15px; gap: 4px;">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"></path><polyline points="3 3 3 9 9 9"></polyline><path d="M12 7v5l3 2"></path></svg>
                         HIS
@@ -181,18 +179,18 @@
             </div>
             <div id="terminal-controls">
                 <div id="timed-tag-rail"></div>
+                <div id="composer-skill-prefix"></div>
                 <div id="input-row">
                     <textarea id="cmd-input" rows="1" placeholder="Type a message..."></textarea>
-                    <button id="attach-image-btn" class="composer-action-btn" type="button" title="Add image" aria-label="Add image"><svg class="action-icon" aria-hidden="true"><use href="#icon-image"></use></svg></button>
-                    <button id="attach-file-btn" class="composer-action-btn" type="button" title="Add file" aria-label="Add file"><svg class="action-icon" aria-hidden="true"><use href="#icon-file"></use></svg></button>
-                    <button id="schedule-send-btn" class="composer-action-btn" type="button" title="Schedule send" aria-label="Schedule send"><svg class="action-icon" aria-hidden="true"><use href="#icon-schedule"></use></svg></button>
+                    <button id="attachment-btn" class="composer-action-btn" type="button" title="Attachment" aria-label="Attachment"><svg class="action-icon" aria-hidden="true"><use href="#icon-file"></use></svg></button>
+                    <button id="schedule-send-btn" class="composer-action-btn" type="button" title="Schedule" aria-label="Schedule"><svg class="action-icon" aria-hidden="true"><use href="#icon-schedule"></use></svg></button>
                     <button id="send-btn" type="button" title="Send" aria-label="Send">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                        <svg class="action-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                     </button>
                 </div>
                 <div id="attachment-strip" aria-live="polite"></div>
-                <input id="image-file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
                 <input id="attachment-file-input" type="file" multiple hidden>
+                <div id="composer-action-tooltip" role="tooltip"></div>
                 <div id="claude-control-panel">
                     <div class="claude-control-rail">
                         <div class="claude-control-page primary">
