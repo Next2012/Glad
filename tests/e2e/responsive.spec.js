@@ -10,6 +10,21 @@ async function expectInsideViewport(locator, page) {
   expect(box.y + Math.min(box.height, viewport.height)).toBeLessThanOrEqual(viewport.height + 1);
 }
 
+async function createNamedSession(page, toolKey, name) {
+  const created = await page.request.post('/api/sessions', { data: { toolKey } });
+  expect(created.ok()).toBe(true);
+  const { id } = await created.json();
+  const renamed = await page.request.patch(`/api/sessions/${id}`, { data: { name } });
+  expect(renamed.ok()).toBe(true);
+  return id;
+}
+
+async function expectSessionDeleted(page, sessionId) {
+  const response = await page.request.get('/api/sessions');
+  expect(response.ok()).toBe(true);
+  expect((await response.json()).some(session => session.id === sessionId)).toBe(false);
+}
+
 test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
@@ -18,6 +33,7 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
   await expect(page).toHaveTitle('Glad - AI Sessions');
   await expect(page.locator('#lobby-view')).toHaveClass(/active/);
   await expect(page.locator('.header')).toBeVisible();
+  await expect(page.locator('#lobby-view .header h1')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
   await expect(page.getByTitle('New AI session')).toContainText('Session');
   await expect(page.getByTitle('Usage dashboard')).toBeVisible();
@@ -51,7 +67,7 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
   }));
   expect(layout.bodyWidth).toBeLessThanOrEqual(layout.viewportWidth + 1);
   expect(layout.resources.some(url => url.includes('unpkg.com'))).toBe(false);
-  for (const asset of ['styles.css', 'core.js', 'claude.js', 'codex.js', 'session.js', 'usage.js', 'vendor/xterm.js']) {
+  for (const asset of ['bootstrap.js', 'styles.css', 'core.js', 'claude.js', 'codex.js', 'session.js', 'usage.js', 'vendor/xterm.js']) {
     expect(layout.resources.some(url => url.endsWith(asset))).toBe(true);
   }
 
@@ -70,6 +86,90 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
 
   expect(pageErrors).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath('lobby-and-schedule.png'), fullPage: true });
+});
+
+test('desktop sidebar identifies and deletes the active structured session', async ({ page }) => {
+  test.skip(page.viewportSize().width < 920, 'Desktop split layout only');
+
+  const sessionId = await createNamedSession(page, 'codex', 'A deliberately long desktop session name');
+  let deleteCount = 0;
+
+  await page.addInitScript(() => localStorage.setItem('glad-sidebar-width', '300'));
+  page.on('request', request => {
+    if (request.method() === 'DELETE' && new URL(request.url()).pathname === `/api/sessions/${sessionId}`) {
+      deleteCount += 1;
+    }
+  });
+  page.on('dialog', dialog => dialog.accept());
+
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  const newSessionButton = page.getByTitle('New AI session');
+  await expect(newSessionButton).toContainText('+Session');
+  const newSessionGeometry = await newSessionButton.evaluate(button => {
+    const label = button.querySelector('span:last-child').getBoundingClientRect();
+    const sidebar = document.getElementById('lobby-view').getBoundingClientRect();
+    const header = document.querySelector('#lobby-view .header').getBoundingClientRect();
+    return {
+      buttonLeft: button.getBoundingClientRect().left,
+      headerLeft: header.left,
+      labelWidth: label.width,
+      labelRight: label.right,
+      sidebarRight: sidebar.right,
+      fontSize: parseFloat(getComputedStyle(button.querySelector('span:last-child')).fontSize)
+    };
+  });
+  expect(newSessionGeometry.fontSize).toBeGreaterThan(0);
+  expect(newSessionGeometry.labelWidth).toBeGreaterThan(35);
+  expect(newSessionGeometry.buttonLeft).toBeGreaterThanOrEqual(newSessionGeometry.headerLeft);
+  expect(newSessionGeometry.labelRight).toBeLessThanOrEqual(newSessionGeometry.sidebarRight);
+
+  const sessionCard = page.locator(`.session-card[data-session-id="${sessionId}"]`);
+  await expect(sessionCard).toHaveCount(1);
+  await sessionCard.getByRole('button', { name: 'Connect' }).click();
+  await expect(page.locator('#terminal-view')).toHaveClass(/active/);
+  await expect(sessionCard).toHaveClass(/selected/);
+  await expect(sessionCard.locator('.active-session-dot')).toBeVisible();
+  await expect(sessionCard.locator('.active-session-dot')).toHaveCSS('background-color', 'rgb(52, 199, 89)');
+  await sessionCard.getByRole('button', { name: 'Delete session' }).click();
+  await expect.poll(() => deleteCount).toBe(1);
+  await expect(sessionCard).toHaveCount(0);
+  await expect(page.locator('#detail-empty')).toBeVisible();
+  await expectSessionDeleted(page, sessionId);
+});
+
+test('touch lobby deletes a structured session', async ({ page }) => {
+  test.skip(page.viewportSize().width >= 920, 'Compact touch layouts only');
+
+  const sessionId = await createNamedSession(page, 'codex', 'Touch deletion regression');
+  page.on('dialog', dialog => dialog.accept());
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  const sessionCard = page.locator(`.session-card[data-session-id="${sessionId}"]`);
+  await sessionCard.getByRole('button', { name: 'Delete session' }).tap();
+  await expect(sessionCard).toHaveCount(0);
+  await expectSessionDeleted(page, sessionId);
+});
+
+test('split sidebar divider stays fixed while the saved width is restored', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.addInitScript(() => {
+    localStorage.setItem('glad-sidebar-width', '430');
+    window.__sidebarLoadPositions = [];
+    document.addEventListener('DOMContentLoaded', () => {
+      window.__sidebarLoadPositions.push(document.getElementById('sidebar-resizer').getBoundingClientRect().left);
+      requestAnimationFrame(() => {
+        window.__sidebarLoadPositions.push(document.getElementById('sidebar-resizer').getBoundingClientRect().left);
+      });
+    }, { once: true });
+  });
+
+  await page.goto('/', { waitUntil: 'networkidle' });
+  await expect.poll(() => page.evaluate(() => window.__sidebarLoadPositions.length)).toBe(2);
+  const positions = await page.evaluate(() => window.__sidebarLoadPositions);
+
+  expect(positions[0]).toBeGreaterThanOrEqual(429);
+  expect(Math.abs(positions[1] - positions[0])).toBeLessThanOrEqual(1);
 });
 
 test('light theme keeps dialogs, subview navigation, and file chips readable', async ({ page }) => {
