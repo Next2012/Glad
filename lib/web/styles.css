@@ -143,6 +143,7 @@
         #cmd-input::placeholder { color: rgba(255,255,255,0.45); }
         #cmd-input:focus { background: rgba(255,255,255,0.1); border-color: rgba(0,122,255,0.42); color: #fff; }
         #send-btn { width: 44px; height: 38px; margin-left: 10px; background: #007aff; border: none; border-radius: 19px; color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer; }
+        #send-btn:disabled { background: color-mix(in srgb, var(--text-dim) 34%, var(--surface)); color: var(--text-dim); opacity: .72; cursor: not-allowed; }
         #attachment-strip { display: none; width: min(calc(100% - 28px), var(--control-content-max)); margin: -3px auto 2px auto; gap: 7px; overflow-x: auto; padding: 0 0 4px 0; box-sizing: border-box; scrollbar-width: none; }
         #attachment-strip.active { display: flex; }
         #attachment-strip::-webkit-scrollbar { display: none; }

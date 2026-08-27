@@ -172,6 +172,45 @@ test('split sidebar divider stays fixed while the saved width is restored', asyn
   expect(Math.abs(positions[1] - positions[0])).toBeLessThanOrEqual(1);
 });
 
+test('structured execution disables send until the provider returns to idle', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'networkidle' });
+  const sendButton = page.locator('#send-btn');
+
+  await page.evaluate(() => {
+    activeToolKey = 'claude-code';
+    claudeStatus = 'idle';
+    claudeState = { ...claudeState, status: 'idle', canAbort: false };
+    setClaudeModeEnabled(true);
+    applyClaudeState(claudeState);
+    window.__composerMessages = [];
+    currentSocket = { readyState: 1, send: message => window.__composerMessages.push(JSON.parse(message)) };
+    document.getElementById('cmd-input').value = 'Run once';
+    performSend();
+  });
+
+  await expect(sendButton).toBeDisabled();
+  await expect(sendButton).toHaveAttribute('aria-label', 'Send disabled while running');
+  expect(await page.evaluate(() => window.__composerMessages.length)).toBe(1);
+  await page.evaluate(() => applyClaudeState({ model: claudeState.model }));
+  await expect(sendButton).toBeDisabled();
+
+  await page.evaluate(() => applyClaudeState({ status: 'thinking', canAbort: true }, { providerStateReceived: true }));
+  await expect(sendButton).toBeDisabled();
+  await page.evaluate(() => applyClaudeState({ status: 'idle', canAbort: false }, { providerStateReceived: true }));
+  await expect(sendButton).toBeEnabled();
+
+  await page.evaluate(() => {
+    activeToolKey = 'codex';
+    setClaudeModeEnabled(false);
+    applyCodexState({ status: 'running', aborting: false, resuming: false }, { providerStateReceived: true });
+  });
+  await expect(sendButton).toBeDisabled();
+  await page.evaluate(() => applyCodexState({ status: 'waiting_approval' }, { providerStateReceived: true }));
+  await expect(sendButton).toBeDisabled();
+  await page.evaluate(() => applyCodexState({ status: 'idle', aborting: false, resuming: false }, { providerStateReceived: true }));
+  await expect(sendButton).toBeEnabled();
+});
+
 test('light theme keeps dialogs, subview navigation, and file chips readable', async ({ page }) => {
   await page.route('**/api/tools', route => route.fulfill({
     contentType: 'application/json',
@@ -1397,6 +1436,11 @@ test('Claude supports edit diffs, image sends, and session forks', async ({ page
   await expect.poll(() => page.evaluate(() => window.__claudeSent)).toEqual({
     type: 'claude-input', text: 'Describe this diagram', attachmentIds: ['image-claude-1']
   });
+  await expect(page.locator('#send-btn')).toBeDisabled();
+  await page.evaluate(() => applyClaudeState({ status: 'thinking', canAbort: true }, { providerStateReceived: true }));
+  await expect(page.locator('#send-btn')).toBeDisabled();
+  await page.evaluate(() => applyClaudeState({ status: 'idle', canAbort: false }, { providerStateReceived: true }));
+  await expect(page.locator('#send-btn')).toBeEnabled();
 
   await page.locator('#attachment-file-input').setInputFiles({
     name: 'notes.txt',
@@ -1409,6 +1453,7 @@ test('Claude supports edit diffs, image sends, and session forks', async ({ page
   await expect.poll(() => page.evaluate(() => window.__claudeSent)).toEqual({
     type: 'claude-input', text: 'Review the attachment', attachmentIds: [], fileAttachmentIds: ['file-claude-1']
   });
+  await page.evaluate(() => applyClaudeState({ status: 'idle', canAbort: false }, { providerStateReceived: true }));
 
   await page.evaluate(() => toggleClaudeForkPanel());
   await expect(page.getByText('Fork this Claude work')).toBeVisible();
