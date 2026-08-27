@@ -72,6 +72,132 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
   await page.screenshot({ path: testInfo.outputPath('lobby-and-schedule.png'), fullPage: true });
 });
 
+test('light theme keeps dialogs, subview navigation, and file chips readable', async ({ page }) => {
+  await page.route('**/api/tools', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify([{ key: 'codex', displayName: 'Codex', version: '0.149.0' }])
+  }));
+  await page.route('**/api/usage/sources*', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ sources: [{ id: 'codex', label: 'Codex', badge: 'CX' }] })
+  }));
+  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.evaluate(() => setGladTheme('light'));
+
+  await page.getByTitle('New AI session').click();
+  await expect(page.getByRole('button', { name: 'Close' })).toBeVisible();
+  await expect(page.locator('.tool-item')).toContainText('Codex');
+  const toolColors = await page.locator('.tool-item').evaluate(element => ({
+    background: getComputedStyle(element).backgroundColor,
+    color: getComputedStyle(element).color,
+    iconBackground: getComputedStyle(element.querySelector('.tool-icon')).backgroundColor
+  }));
+  expect(toolColors).toEqual({ background: 'rgb(247, 249, 251)', color: 'rgb(23, 32, 51)', iconBackground: 'rgb(220, 238, 255)' });
+  await page.getByRole('button', { name: 'Close' }).click();
+
+  await page.getByTitle('Usage dashboard').click();
+  await expect(page.locator('.usage-source-copy strong')).toHaveText('Codex');
+  await expect(page.locator('.usage-source-copy strong')).toHaveCSS('color', 'rgb(23, 32, 51)');
+  await page.locator('#usage-source-overlay').click({ position: { x: 5, y: 5 } });
+
+  await page.evaluate(() => {
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    document.getElementById('git-view').classList.add('active');
+  });
+  await expect(page.locator('#git-view .subview-nav')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(page.locator('#git-view .subview-nav-title')).toHaveCSS('color', 'rgb(23, 32, 51)');
+
+  await page.evaluate(() => {
+    activeToolKey = 'codex';
+    codexState = { ...codexState, presentation: 'structured' };
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    document.getElementById('terminal-view').classList.add('active');
+    setClaudeModeEnabled(false);
+    selectedFileAttachments = [{ id: 'file-preview', name: 'notes.txt', sessionId: 'preview', size: 10 }];
+    renderComposerAttachments();
+  });
+  await expect(page.locator('.attachment-chip.file')).toHaveCSS('color', 'rgb(52, 64, 84)');
+  await expect(page.locator('.attachment-chip.file')).toHaveCSS('background-color', 'rgb(242, 244, 247)');
+  await page.evaluate(() => {
+    activeToolKey = 'demo';
+    setClaudeModeEnabled(false);
+    currentSocket = { readyState: 1, send: value => { window.__terminalFileSent = JSON.parse(value); } };
+  });
+  await page.locator('#cmd-input').fill('Inspect this file');
+  await page.locator('#send-btn').click();
+  await expect.poll(() => page.evaluate(() => window.__terminalFileSent)).toEqual({
+    type: 'file-input', text: 'Inspect this file', fileAttachmentIds: ['file-preview']
+  });
+});
+
+test('git change cards use readable surfaces in light and dark themes', async ({ page }) => {
+  await page.route('**/api/sessions/theme-git/git-status', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ success: true, files: [
+      { path: 'src/theme.js', status: ' M' },
+      { path: 'src/new-file.js', status: '??' },
+      { path: 'src/old-file.js', status: ' D' }
+    ] })
+  }));
+  await page.route('**/api/sessions/theme-git/git-diff-numstat**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ success: true, stdout: '3\t1\tsrc/theme.js' })
+  }));
+  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.evaluate(async () => {
+    activeSessionId = 'theme-git';
+    window.activeSessionId = 'theme-git';
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    document.getElementById('git-view').classList.add('active');
+    setGladTheme('light');
+    await loadGitStatus();
+  });
+
+  const firstCard = page.locator('.git-change-card').first();
+  await expect(firstCard).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(firstCard.locator('.git-change-header')).toHaveCSS('color', 'rgb(23, 32, 51)');
+  await expect(page.locator('.git-status-badge.modified')).toHaveCSS('color', 'rgb(154, 103, 0)');
+
+  await page.evaluate(() => setGladTheme('dark'));
+  await expect(firstCard).toHaveCSS('background-color', 'rgb(28, 28, 30)');
+  await expect(firstCard.locator('.git-change-header')).toHaveCSS('color', 'rgb(255, 255, 255)');
+  await expect(page.locator('#git-view .subview-nav')).toHaveCSS('background-color', 'rgb(18, 18, 18)');
+});
+
+test('dark theme keeps modal rows and attachment chips readable', async ({ page }) => {
+  await page.route('**/api/tools', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify([{ key: 'codex', displayName: 'Codex', version: '0.149.0' }])
+  }));
+  await page.route('**/api/usage/sources*', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ sources: [{ id: 'codex', label: 'Codex', badge: 'CX' }] })
+  }));
+  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.evaluate(() => setGladTheme('dark'));
+
+  await page.getByTitle('New AI session').click();
+  await expect(page.locator('.tool-item')).toHaveCSS('color', 'rgb(255, 255, 255)');
+  await expect(page.locator('.tool-icon')).toHaveCSS('background-color', 'rgb(51, 51, 51)');
+  await page.getByRole('button', { name: 'Close' }).click();
+
+  await page.getByTitle('Usage dashboard').click();
+  await expect(page.locator('.usage-source-copy strong')).toHaveCSS('color', 'rgb(255, 255, 255)');
+  await page.locator('#usage-source-overlay').click({ position: { x: 5, y: 5 } });
+
+  await page.evaluate(() => {
+    activeToolKey = 'codex';
+    codexState = { ...codexState, presentation: 'structured' };
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    document.getElementById('terminal-view').classList.add('active');
+    setClaudeModeEnabled(false);
+    selectedFileAttachments = [{ id: 'dark-file', name: 'archive.zip', sessionId: 'preview', size: 10 }];
+    renderComposerAttachments();
+  });
+  await expect(page.locator('.attachment-chip.file')).toHaveCSS('color', 'rgb(255, 255, 255)');
+  await expect(page.locator('.attachment-chip.file')).toHaveCSS('background-color', 'rgba(255, 255, 255, 0.08)');
+});
+
 test('usage dashboard selects week or month and renders model summaries with daily charts', async ({ page }, testInfo) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
@@ -220,7 +346,14 @@ test('approval bubble expands and jumps to its pending request', async ({ page }
   const target = page.locator('[data-codex-permission-id="approval-command-1"]');
   await expect(target).toHaveCount(1);
   await expect(target).not.toBeVisible();
-  await page.getByRole('button', { name: 'Jump to pending approval' }).click();
+  const approvalJump = page.getByRole('button', { name: 'Jump to pending approval' });
+  await expect(approvalJump.locator('xpath=..')).toHaveAttribute('id', 'session-attention-rail');
+  const stripBox = await page.locator('#session-status-strip').boundingBox();
+  const chatBox = await page.locator('#codex-chat-container').boundingBox();
+  expect(stripBox).not.toBeNull();
+  expect(chatBox).not.toBeNull();
+  expect(stripBox.y + stripBox.height).toBeLessThanOrEqual(chatBox.y + 1);
+  await approvalJump.click();
 
   await expect(target).toBeVisible();
   await expect(target).toHaveClass(/codex-approval-focus/);
@@ -349,6 +482,15 @@ test('Codex lazily loads folded tool and subagent details', async ({ page }) => 
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   });
   await expect(subagentGroup).toContainText('Subagent received a running update.');
+  await page.evaluate(() => {
+    document.querySelector('.codex-subagent-group').open = false;
+    applyCodexState({ activeSubagentCount: 1 });
+  });
+  const subagentJump = page.getByRole('button', { name: 'Jump to active subagent' });
+  await expect(subagentJump).toBeVisible();
+  await expect(subagentJump.locator('xpath=..')).toHaveAttribute('id', 'session-attention-rail');
+  await subagentJump.click();
+  await expect(subagentGroup).toHaveAttribute('open', '');
   expect(pageErrors).toEqual([]);
 });
 
@@ -709,7 +851,9 @@ test('Claude approval stays inline and its bubble preserves reading state', asyn
   const target = page.locator('[data-claude-permission-id="claude-approval-1"]');
   await expect(target).toHaveCount(1);
   await expect(target).not.toBeVisible();
-  await page.getByRole('button', { name: 'Jump to pending Claude approval' }).click();
+  const claudeApprovalJump = page.getByRole('button', { name: 'Jump to pending Claude approval' });
+  await expect(claudeApprovalJump.locator('xpath=..')).toHaveAttribute('id', 'session-attention-rail');
+  await claudeApprovalJump.click();
 
   await expect(target).toBeVisible();
   await expect(target).toHaveClass(/claude-approval-focus/);
@@ -1054,6 +1198,11 @@ test('Claude supports edit diffs, image sends, and session forks', async ({ page
     contentType: 'application/json',
     body: JSON.stringify({ success: true, complete: true, attachment: { id: 'image-claude-1', name: 'image.png', size: 12 } })
   }));
+  await page.route('**/api/sessions/test-claude/attachments/files/chunks', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ success: true, complete: true, attachment: { id: 'file-claude-1', name: 'notes.txt', size: 18, kind: 'file' } })
+  }));
   await page.route('**/api/sessions/test-claude/claude-resume-sessions', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -1109,6 +1258,18 @@ test('Claude supports edit diffs, image sends, and session forks', async ({ page
   await page.locator('#send-btn').click();
   await expect.poll(() => page.evaluate(() => window.__claudeSent)).toEqual({
     type: 'claude-input', text: 'Describe this diagram', attachmentIds: ['image-claude-1']
+  });
+
+  await page.locator('#attachment-file-input').setInputFiles({
+    name: 'notes.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('Review these notes')
+  });
+  await expect(page.locator('.attachment-chip.file')).toContainText('notes.txt');
+  await page.locator('#cmd-input').fill('Review the attachment');
+  await page.locator('#send-btn').click();
+  await expect.poll(() => page.evaluate(() => window.__claudeSent)).toEqual({
+    type: 'claude-input', text: 'Review the attachment', attachmentIds: [], fileAttachmentIds: ['file-claude-1']
   });
 
   await page.evaluate(() => toggleClaudeForkPanel());
