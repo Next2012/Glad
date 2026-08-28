@@ -41,6 +41,10 @@
     <div id="lobby-view" class="view active">
         <div id="lobby">
             <div class="header">
+                <button id="skill-hall-button" class="skill-hall-entry-btn" type="button" disabled
+                    onclick="openSkillHall()" title="Skill暂不可用" aria-label="Skill暂不可用">
+                    <svg class="action-icon" aria-hidden="true"><use href="#icon-skills"></use></svg><span>Skills</span>
+                </button>
                 <div class="header-actions">
                     <button class="header-action-btn" onclick="showToolModal()" title="New AI session"><span>+</span><span>Session</span></button>
                     <button id="usage-dashboard-button" class="header-action-btn icon-only" type="button"
@@ -349,7 +353,7 @@
     <!-- Tool Modal -->
     <div id="modal-overlay" onclick="closeToolModal(event)">
         <div id="tool-modal" onclick="event.stopPropagation()">
-            <div class="tool-modal-header"><h2>Create Session</h2><button class="icon-btn" type="button" onclick="closeToolModal()" aria-label="Close">×</button></div>
+            <div class="tool-modal-header"><div><h2 id="tool-modal-title">Create Session</h2><p id="tool-modal-skill" class="tool-modal-skill"></p></div><button class="icon-btn" type="button" onclick="closeToolModal()" aria-label="Close">×</button></div>
             <div style="margin-bottom: 15px;">
                 <label style="display:block; margin-bottom: 8px; font-size: 14px; color: var(--text-dim);">Working Directory (Optional):</label>
                 <div style="margin-bottom: 8px; color: var(--text-dim); font-size: 12px; line-height: 1.4;">
@@ -360,6 +364,19 @@
             <div id="tools-list" style="max-height: 300px; overflow-y: auto;">
                 <p>Detecting tools...</p>
             </div>
+        </div>
+    </div>
+
+    <!-- Skill Hall Modal -->
+    <div id="skill-hall-overlay" onclick="closeSkillHall(event)">
+        <div id="skill-hall-modal" role="dialog" aria-modal="true" aria-labelledby="skill-hall-title" onclick="event.stopPropagation()">
+            <div class="skill-hall-header">
+                <div><h2 id="skill-hall-title">Skill Hall</h2><p>Select a private Skill to start a temporary Codex session.</p></div>
+                <button class="icon-btn" type="button" onclick="closeSkillHall()" aria-label="Close">×</button>
+            </div>
+            <input id="skill-hall-search" class="skill-hall-search" type="search" placeholder="Search skills…" aria-label="Search skills" oninput="filterSkillHall(this.value)">
+            <div id="skill-hall-status" class="skill-hall-status" aria-live="polite"></div>
+            <div id="skill-hall-grid" class="skill-hall-grid"></div>
         </div>
     </div>
 
@@ -430,6 +447,29 @@
                     <button id="serverchan-test-btn" class="small-btn" type="button" onclick="testServerChanSettings()">Send Test</button>
                 </div>
             </section>
+            <section class="settings-section" aria-labelledby="skillhub-settings-title">
+                <div class="settings-section-label" id="skillhub-settings-title">Skills</div>
+                <div class="settings-provider-header">
+                    <div><h3>SkillHub</h3><p>Connect Glad to a private Skill server.</p></div>
+                </div>
+                <div class="form-field">
+                    <label for="skillhub-base-url">Server URL</label>
+                    <input id="skillhub-base-url" type="url" autocomplete="off" placeholder="http://skillhub:10070">
+                    <div class="serverchan-help">Remote servers must use HTTPS.</div>
+                </div>
+                <div class="form-field">
+                    <label for="skillhub-token">API Token</label>
+                    <input id="skillhub-token" type="password" autocomplete="off" placeholder="clh_...">
+                    <div id="skillhub-token-hint" class="serverchan-help"></div>
+                </div>
+                <div id="skillhub-settings-status" class="serverchan-settings-status" aria-live="polite"></div>
+                <div class="serverchan-modal-actions">
+                    <button id="skillhub-remove-btn" class="small-btn danger" type="button" onclick="removeSkillHubSettings()">Remove</button>
+                    <span class="serverchan-action-spacer"></span>
+                    <button id="skillhub-save-btn" class="small-btn primary" type="button" onclick="saveSkillHubSettings()">Save</button>
+                    <button id="skillhub-test-btn" class="small-btn" type="button" onclick="testSkillHubSettings()">Test</button>
+                </div>
+            </section>
         </div>
     </div>
     <div id="app-toast" role="status" aria-live="polite"></div>
@@ -492,6 +532,7 @@
     <script src="core.js"></script>
     <script src="layout.js"></script>
     <script src="notifications.js"></script>
+    <script src="skillhub.js"></script>
     <script src="claude.js"></script>
     <script src="schedules.js"></script>
     <script src="shell.js"></script>
