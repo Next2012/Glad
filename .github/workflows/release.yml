@@ -62,7 +62,6 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-          package-manager-cache: false
       - uses: actions/download-artifact@v4
         with:
           path: dist-artifacts
@@ -80,11 +79,26 @@ jobs:
           # npm uses OIDC and this secret can be removed.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          for package in staged-npm/platforms/*; do npm publish "$package" --access public; done
+          for package in staged-npm/platforms/*; do
+            name="$(node -p "require('./$package/package.json').name")"
+            version="$(node -p "require('./$package/package.json').version")"
+            if npm view "$name@$version" version --json >/dev/null 2>&1; then
+              echo "::notice::$name@$version is already published; skipping"
+              continue
+            fi
+            npm publish "./$package" --access public
+          done
       - name: Publish main package last
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish ./staged-npm/main --access public
+        run: |
+          name="$(node -p "require('./staged-npm/main/package.json').name")"
+          version="$(node -p "require('./staged-npm/main/package.json').version")"
+          if npm view "$name@$version" version --json >/dev/null 2>&1; then
+            echo "::notice::$name@$version is already published; skipping"
+          else
+            npm publish ./staged-npm/main --access public
+          fi
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
