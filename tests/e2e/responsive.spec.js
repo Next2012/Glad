@@ -506,6 +506,62 @@ test('approval bubble expands and jumps to its pending request', async ({ page }
   await page.screenshot({ path: testInfo.outputPath('approval-jump.png'), fullPage: true });
 });
 
+test('scheduled sends stack below session attention', async ({ page }, testInfo) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  const sessionId = await createNamedSession(page, 'codex', 'Scheduled send layout');
+  const now = Date.now();
+  for (const [index, minutes] of [5, 10].entries()) {
+    const response = await page.request.post(`/api/sessions/${sessionId}/timed-inputs`, {
+      data: { text: `Scheduled message ${index + 1}`, sendAt: now + minutes * 60 * 1000 }
+    });
+    expect(response.ok()).toBe(true);
+  }
+
+  await page.evaluate(async id => {
+    activeSessionId = id;
+    window.activeSessionId = id;
+    activeToolKey = 'codex';
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    document.getElementById('terminal-view').classList.add('active');
+    setClaudeModeEnabled(false);
+    renderSessionAttention([
+      '<button type="button" class="session-attention-pill approval">1 approval</button>',
+      '<button type="button" class="session-attention-pill subagent">1 subagent running</button>'
+    ]);
+    await loadTimedInputs();
+  }, sessionId);
+
+  const tags = page.locator('#timed-tag-rail .timed-tag');
+  await expect(tags).toHaveCount(2);
+  await expect(tags.first()).toBeVisible();
+  const geometry = await page.evaluate(() => {
+    const strip = document.getElementById('session-status-strip').getBoundingClientRect();
+    const tagBoxes = Array.from(document.querySelectorAll('#timed-tag-rail .timed-tag'))
+      .map(tag => tag.getBoundingClientRect());
+    return {
+      stripBottom: strip.bottom,
+      firstTop: tagBoxes[0].top,
+      firstBottom: tagBoxes[0].bottom,
+      secondTop: tagBoxes[1].top
+    };
+  });
+  expect(geometry.firstTop).toBeGreaterThanOrEqual(geometry.stripBottom);
+  expect(geometry.secondTop).toBeGreaterThan(geometry.firstBottom);
+
+  await tags.first().click();
+  await expect(page.locator('#timed-send-panel')).toHaveClass(/active/);
+  await expect(page.locator('#cmd-input')).toHaveValue('Scheduled message 1');
+  await expectInsideViewport(tags.first(), page);
+  expect(pageErrors).toEqual([]);
+  await page.screenshot({ path: testInfo.outputPath('scheduled-sends.png'), fullPage: true });
+
+  const deleted = await page.request.delete(`/api/sessions/${sessionId}`);
+  expect(deleted.ok()).toBe(true);
+});
+
 test('Codex lazily loads folded tool and subagent details', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
