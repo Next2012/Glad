@@ -9,7 +9,7 @@ const targets = {
   'linux-arm64': ['glad-web-linux-arm64', 'bin/glad'],
   'darwin-x64': ['glad-web-darwin-x64', 'bin/glad'],
   'darwin-arm64': ['glad-web-darwin-arm64', 'bin/glad'],
-  'win32-x64': ['glad-web-win32-x64', 'bin/glad.exe']
+  'win32-x64': ['glad-web-windows-x64', 'bin/glad.exe']
 };
 
 const key = `${process.platform}-${process.arch}`;

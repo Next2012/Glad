@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-08-30
+
+### Fixed
+
+- Renamed the Windows binary package to `glad-web-windows-x64` after npm rejected the original package name during the first native release.
+- Made npm publishing resumable by skipping package versions that already exist before publishing the main package last.
+
 ## [2.0.0] - 2026-08-30
 
 ### Added

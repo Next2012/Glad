@@ -9,7 +9,7 @@ Glad publishes both standalone binaries and npm packages from the same tag.
 - `glad-web-linux-arm64`
 - `glad-web-darwin-x64`
 - `glad-web-darwin-arm64`
-- `glad-web-win32-x64`
+- `glad-web-windows-x64`
 
 The launcher resolves the matching platform package and forwards arguments, stdio, signals and the child exit code. Platform packages also depend on the matching native ccusage engine.
 
