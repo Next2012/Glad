@@ -25,6 +25,39 @@ async function expectSessionDeleted(page, sessionId) {
   expect((await response.json()).some(session => session.id === sessionId)).toBe(false);
 }
 
+test('structured sessions connect through the canonical WebSocket route', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__webSocketUrls = [];
+    window.WebSocket = class RecordingWebSocket {
+      constructor(url) {
+        this.url = String(url);
+        this.readyState = 0;
+        window.__webSocketUrls.push(this.url);
+      }
+      close() { this.readyState = 3; }
+      send() {}
+    };
+  });
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  await page.evaluate(() => initCodexSession('codex route/id'));
+  await page.evaluate(() => initClaudeSession('claude route/id'));
+
+  const host = await page.evaluate(() => window.location.host);
+  await expect.poll(() => page.evaluate(() => window.__webSocketUrls.map(value => {
+    const url = new URL(value);
+    return {
+      protocol: url.protocol,
+      host: url.host,
+      pathname: url.pathname,
+      sessionId: url.searchParams.get('sessionId')
+    };
+  }))).toEqual([
+    { protocol: 'ws:', host, pathname: '/ws', sessionId: 'codex route/id' },
+    { protocol: 'ws:', host, pathname: '/ws', sessionId: 'claude route/id' }
+  ]);
+});
+
 test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));

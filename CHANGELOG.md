@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-08-30
+
 ### Added
 
 - Native Go daemon with embedded browser assets.
@@ -25,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - npm is now a binary distribution layer; the published package no longer contains backend source.
 - Existing browser HTTP/WebSocket behavior is retained while the backend moves from Node.js to Go.
 - GitHub releases now build Linux x64/arm64, Windows x64, and macOS x64/arm64 native artifacts.
+
+### Fixed
+
+- Restored browser-to-daemon WebSocket connectivity after the Go migration and retained compatibility with cached clients that still connect on the legacy root path.
 
 ### Security
 

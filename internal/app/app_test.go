@@ -14,6 +14,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/coder/websocket"
 )
 
 func TestParseWebArgsAcceptsDirectoryBeforePort(t *testing.T) {
@@ -29,6 +32,48 @@ func TestEmbeddedFrontendIsServed(t *testing.T) {
 	server.serveEmbedded(recorder, "lib/web/index.html")
 	if recorder.Code != 200 || !bytes.Contains(recorder.Body.Bytes(), []byte("Glad - AI Sessions")) {
 		t.Fatalf("frontend response is invalid: %d", recorder.Code)
+	}
+}
+
+func TestWebSocketRoutesAcceptCanonicalAndLegacyPaths(t *testing.T) {
+	manager := NewSessionManager(t.TempDir())
+	session := newSession(
+		"ws-contract",
+		"Codex",
+		"codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"},
+		manager.baseDir,
+	)
+	manager.sessions[session.ID] = session
+	server := &Server{sessions: manager, assets: os.DirFS("../..")}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /ws", server.websocket)
+	mux.HandleFunc("GET /", server.serveRoot)
+	httpServer := httptest.NewServer(mux)
+	t.Cleanup(httpServer.Close)
+
+	for _, route := range []string{"/ws", "/"} {
+		t.Run(route, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			address := "ws" + strings.TrimPrefix(httpServer.URL, "http") + route + "?sessionId=" + session.ID
+			connection, _, err := websocket.Dial(ctx, address, nil)
+			if err != nil {
+				t.Fatalf("connect to %s: %v", route, err)
+			}
+			defer connection.Close(websocket.StatusNormalClosure, "")
+			_, payload, err := connection.Read(ctx)
+			if err != nil {
+				t.Fatalf("read snapshot from %s: %v", route, err)
+			}
+			var snapshot map[string]any
+			if err := json.Unmarshal(payload, &snapshot); err != nil {
+				t.Fatal(err)
+			}
+			if snapshot["type"] != "codex-snapshot" {
+				t.Fatalf("unexpected snapshot from %s: %#v", route, snapshot)
+			}
+		})
 	}
 }
 

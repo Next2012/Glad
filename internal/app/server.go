@@ -381,20 +381,29 @@ func (server *Server) registerStaticRoutes(mux *http.ServeMux) {
 			},
 		)
 	})
-	mux.HandleFunc("GET /", func(writer http.ResponseWriter, request *http.Request) {
-		requested := strings.TrimPrefix(path.Clean(request.URL.Path), "/")
-		if requested == "." || requested == "" {
-			requested = "index.html"
-		}
-		if strings.Contains(requested, "/") {
-			requested = path.Base(requested)
-		}
-		filename := "lib/web/" + requested
-		if _, err := fs.Stat(server.assets, filename); err != nil {
-			filename = "lib/web/index.html"
-		}
-		server.serveEmbedded(writer, filename)
-	})
+	mux.HandleFunc("GET /", server.serveRoot)
+}
+
+func (server *Server) serveRoot(writer http.ResponseWriter, request *http.Request) {
+	// The Node runtime accepted WebSocket upgrades on the root path. Keep that
+	// route working for browser tabs cached before the Go migration while /ws is
+	// the canonical endpoint used by the current frontend.
+	if strings.EqualFold(request.Header.Get("Upgrade"), "websocket") {
+		server.websocket(writer, request)
+		return
+	}
+	requested := strings.TrimPrefix(path.Clean(request.URL.Path), "/")
+	if requested == "." || requested == "" {
+		requested = "index.html"
+	}
+	if strings.Contains(requested, "/") {
+		requested = path.Base(requested)
+	}
+	filename := "lib/web/" + requested
+	if _, err := fs.Stat(server.assets, filename); err != nil {
+		filename = "lib/web/index.html"
+	}
+	server.serveEmbedded(writer, filename)
 }
 
 func (server *Server) serveEmbedded(writer http.ResponseWriter, filename string) {
