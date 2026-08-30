@@ -17,11 +17,13 @@ The launcher resolves the matching platform package and forwards arguments, stdi
 
 New platform package names must be bootstrapped once:
 
-1. Add a granular npm automation token as the `NPM_TOKEN` GitHub secret.
+1. Add a short-lived granular npm automation token as the `NPM_TOKEN` GitHub secret.
 2. Push the first release tag so the platform packages are created.
-3. Configure `.github/workflows/release.yml` as the npm Trusted Publisher for every package.
-4. Verify an OIDC release.
-5. Remove `NPM_TOKEN` after all packages publish through OIDC.
+3. Configure `release.yml` as the npm Trusted Publisher for every package, with publish permission.
+4. Remove the `NODE_AUTH_TOKEN` environment from the workflow and verify an OIDC release.
+5. Delete the `NPM_TOKEN` secret and revoke the bootstrap token after all packages publish through OIDC.
+
+Normal releases are tokenless. The workflow uses npm 11.16 or newer, a GitHub-hosted runner and `id-token: write`; npm exchanges the workflow identity for short-lived publishing credentials and generates provenance automatically.
 
 The repository URL in every package manifest must exactly match `https://github.com/Next2012/Glad` for provenance generation.
 
