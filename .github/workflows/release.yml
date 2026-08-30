@@ -62,6 +62,8 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+      - name: Use npm with trusted publishing support
+        run: npm install --global npm@11.16.0
       - uses: actions/download-artifact@v4
         with:
           path: dist-artifacts
@@ -73,11 +75,6 @@ jobs:
       - name: Stage npm platform packages
         run: node scripts/stage-npm-packages.js "${GITHUB_REF_NAME#v}" dist staged-npm
       - name: Publish platform packages first
-        env:
-          # Bootstrap fallback for the first publication of new platform packages.
-          # After all packages have this workflow configured as a trusted publisher,
-          # npm uses OIDC and this secret can be removed.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           for package in staged-npm/platforms/*; do
             name="$(node -p "require('./$package/package.json').name")"
@@ -89,8 +86,6 @@ jobs:
             npm publish "./$package" --access public
           done
       - name: Publish main package last
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           name="$(node -p "require('./staged-npm/main/package.json').name")"
           version="$(node -p "require('./staged-npm/main/package.json').version")"
