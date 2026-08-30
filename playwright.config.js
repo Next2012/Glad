@@ -13,7 +13,7 @@ module.exports = defineConfig({
     trace: 'retain-on-failure'
   },
   webServer: {
-    command: 'node bin/cli.js . --port 3001',
+    command: 'go run . --port 3001',
     url: 'http://127.0.0.1:3001/api/config',
     reuseExistingServer: !process.env.CI,
     timeout: 120000

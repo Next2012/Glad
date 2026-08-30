@@ -2,154 +2,91 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
-
+  build:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest, goos: linux, goarch: amd64, artifact: glad-linux-amd64, smoke: true }
+          - { runner: ubuntu-latest, goos: linux, goarch: arm64, artifact: glad-linux-arm64, smoke: false }
+          - { runner: windows-latest, goos: windows, goarch: amd64, artifact: glad-windows-amd64.exe, smoke: true }
+          - { runner: macos-15-intel, goos: darwin, goarch: amd64, artifact: glad-macos-x64, smoke: true }
+          - { runner: macos-14, goos: darwin, goarch: arm64, artifact: glad-macos-arm64, smoke: true }
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
         with:
-          node-version: 20
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build Linux binary
-        run: npm run build:linux
-
-      - name: Upload Linux artifact
-        uses: actions/upload-artifact@v4
+      - run: npm ci
+      - name: Build ${{ matrix.artifact }}
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v}" -o ${{ matrix.artifact }} .
+      - if: matrix.goos != 'windows'
+        shell: bash
+        run: chmod 755 ${{ matrix.artifact }}
+      - name: Smoke test native binary
+        if: matrix.smoke
+        shell: bash
+        run: ./${{ matrix.artifact }} --version
+      - uses: actions/upload-artifact@v4
         with:
-          name: glad-linux-amd64
-          path: glad-linux-amd64
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
 
-  build-windows:
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build Windows binary
-        run: npm run build:windows
-
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: glad-windows-amd64
-          path: glad-windows-amd64.exe
-
-  build-macos-x64:
-    runs-on: macos-15-intel
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build macOS Intel binary
-        run: npm run build:macos:x64
-
-      - name: Upload macOS Intel artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: glad-macos-x64
-          path: glad-macos-x64
-
-  build-macos-arm64:
-    runs-on: macos-14
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build macOS Apple Silicon binary
-        run: npm run build:macos:arm64
-
-      - name: Upload macOS Apple Silicon artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: glad-macos-arm64
-          path: glad-macos-arm64
-
-  release:
+  publish:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs:
-      - build-linux
-      - build-windows
-      - build-macos-x64
-      - build-macos-arm64
+    needs: build
     runs-on: ubuntu-latest
-
     steps:
-      - name: Download Linux artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          name: glad-linux-amd64
-          path: dist
-
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - uses: actions/download-artifact@v4
         with:
-          name: glad-windows-amd64
-          path: dist
-
-      - name: Download macOS Intel artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: glad-macos-x64
-          path: dist
-
-      - name: Download macOS Apple Silicon artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: glad-macos-arm64
-          path: dist
-
-      - name: Publish release
+          path: dist-artifacts
+      - name: Flatten build artifacts
+        run: |
+          mkdir -p dist
+          find dist-artifacts -maxdepth 2 -type f -exec cp {} dist/ \;
+          sha256sum dist/* > dist/SHA256SUMS
+      - name: Stage npm platform packages
+        run: node scripts/stage-npm-packages.js "${GITHUB_REF_NAME#v}" dist staged-npm
+      - name: Publish platform packages first
+        env:
+          # Bootstrap fallback for the first publication of new platform packages.
+          # After all packages have this workflow configured as a trusted publisher,
+          # npm uses OIDC and this secret can be removed.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for package in staged-npm/platforms/*; do npm publish "$package" --access public; done
+      - name: Publish main package last
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish ./staged-npm/main --access public
+      - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: |
-            dist/glad-linux-amd64
-            dist/glad-windows-amd64.exe
-            dist/glad-macos-x64
-            dist/glad-macos-arm64
+          files: dist/*

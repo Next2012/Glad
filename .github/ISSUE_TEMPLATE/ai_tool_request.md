@@ -1,21 +1,21 @@
 ---
-name: AI Tool Support Request
-about: Request support for a new AI coding tool
-title: '[AI TOOL] Support for '
-labels: ai-tool, enhancement
+name: Provider Integration Proposal
+about: Propose a structured coding-agent provider integration
+title: '[PROVIDER] Integration proposal for '
+labels: provider, enhancement
 assignees: ''
 ---
 
-## AI Tool Information
+## Provider Information
 
 **Tool Name:**
 **Website:**
 **Installation:**
-**Command to run:**
+**Local command or service:**
 
 ## Tool Description
 
-Describe what this AI tool does and why you'd like to use it with Glad.
+Describe what this provider does and why it belongs alongside Glad's maintained Codex and Claude integrations.
 
 ## Installation Instructions
 
@@ -25,30 +25,32 @@ How do users install this tool?
 # Installation commands
 ```
 
-## Command Line Interface
+## Structured protocol
 
-What command launches this tool in interactive mode?
+Document the machine-readable protocol Glad can integrate with.
 
 ```bash
-# Example: aider
-# Example: claude code
+# Example command, SDK, JSON-RPC endpoint, or protocol documentation
 ```
 
 Does it support:
-- [ ] Interactive terminal (stdin/stdout)
-- [ ] TTY/PTY mode
-- [ ] ANSI colors and escape sequences
+- [ ] Streaming structured events
+- [ ] Interactive approvals or user input
+- [ ] Interruption/cancellation
+- [ ] Session resume
+- [ ] Session fork
+- [ ] Machine-readable model and usage metadata
 
 ## Verification
 
-Have you verified that this tool works in a terminal?
+Have you verified the structured protocol independently?
 
-- [ ] Yes, I've tested it works interactively
+- [ ] Yes, with a minimal protocol client
 - [ ] No, just requesting
 
 ## Additional Context
 
-Any other information about compatibility, known issues, or special requirements?
+Include protocol stability, authentication, licensing, process cleanup, and cross-platform constraints.
 
 ## Popularity
 

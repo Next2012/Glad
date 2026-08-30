@@ -1,54 +1,48 @@
 {
   "name": "glad-web",
+  "private": true,
   "version": "1.0.46",
-  "description": "Glad transforms terminal-based AI coding tools into a polished, mobile-friendly local Web interface.",
-  "bin": {
-    "glad": "bin/cli.js"
-  },
+  "description": "A native, local-first Web interface for Codex and Claude.",
   "scripts": {
-    "start": "node bin/cli.js",
+    "start": "go run .",
     "test:e2e": "playwright test",
-    "build:linux": "npx caxa -i . -e \".git\" \".github\" \"assets/Demo.mp4\" \"assets/demo.gif\" \"assets/demo.jpg\" \"assets/wechat.jpg\" \"glad-*\" \"*.tgz\" -m \"Extracting Glad...\" --output \"glad-linux-amd64\" -- \"{{caxa}}/node_modules/.bin/node\" \"{{caxa}}/bin/cli.js\"",
-    "build:macos:x64": "npx caxa -i . -e \".git\" \".github\" \"assets/Demo.mp4\" \"assets/demo.gif\" \"assets/demo.jpg\" \"assets/wechat.jpg\" \"glad-*\" \"*.tgz\" -m \"Extracting Glad...\" --output \"glad-macos-x64\" -- \"{{caxa}}/node_modules/.bin/node\" \"{{caxa}}/bin/cli.js\"",
-    "build:macos:arm64": "npx caxa -i . -e \".git\" \".github\" \"assets/Demo.mp4\" \"assets/demo.gif\" \"assets/demo.jpg\" \"assets/wechat.jpg\" \"glad-*\" \"*.tgz\" -m \"Extracting Glad...\" --output \"glad-macos-arm64\" -- \"{{caxa}}/node_modules/.bin/node\" \"{{caxa}}/bin/cli.js\"",
-    "build:windows": "npx caxa -i . -e \".git\" \".github\" \"assets/Demo.mp4\" \"assets/demo.gif\" \"assets/demo.jpg\" \"assets/wechat.jpg\" \"glad-*\" \"*.tgz\" -m \"Extracting Glad...\" --output \"glad-windows-amd64.exe\" -- \"{{caxa}}/node_modules/.bin/node\" \"{{caxa}}/bin/cli.js\"",
-    "test": "node --test lib/**/*.test.js",
+    "build:linux": "node scripts/build-go.js linux amd64 glad-linux-amd64",
+    "build:linux:arm64": "node scripts/build-go.js linux arm64 glad-linux-arm64",
+    "build:macos:x64": "node scripts/build-go.js darwin amd64 glad-macos-x64",
+    "build:macos:arm64": "node scripts/build-go.js darwin arm64 glad-macos-arm64",
+    "build:windows": "node scripts/build-go.js windows amd64 glad-windows-amd64.exe",
+    "test": "npm run test:node && npm run test:go",
+    "test:node": "node --test lib/**/*.test.js",
+    "test:go": "go test ./internal/app .",
     "check": "node scripts/check-syntax.js"
   },
   "keywords": [
-    "terminal",
     "remote",
     "ai",
     "coding",
     "assistant",
     "claude",
-    "aider",
-    "copilot",
+    "codex",
+    "go",
     "web-ui"
   ],
   "author": "Glad Team",
   "license": "MIT",
-  "homepage": "https://github.com/Anonymous/Glad",
+  "homepage": "https://github.com/Next2012/Glad",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Anonymous/Glad.git"
+    "url": "git+https://github.com/Next2012/Glad.git"
   },
   "bugs": {
-    "url": "https://github.com/Anonymous/Glad/issues"
+    "url": "https://github.com/Next2012/Glad/issues"
   },
   "engines": {
     "node": ">=18.0.0"
   },
-  "files": [
-    "bin/",
-    "lib/",
-    "scripts/",
-    "!lib/**/*.test.js",
-    "assets/logo.svg",
-    "README.md"
-  ],
-  "dependencies": {
+  "dependencies": {},
+  "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.201",
+    "@playwright/test": "^1.61.1",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/headless": "^6.0.0",
     "@xterm/xterm": "^5.5.0",
@@ -61,11 +55,7 @@
     "uuid": "^11.1.1",
     "ws": "^8.19.0",
     "yaml": "^2.8.1",
-    "yauzl": "^3.2.0"
-  },
-  "devDependencies": {
-    "@playwright/test": "^1.61.1",
-    "caxa": "^3.0.1",
+    "yauzl": "^3.2.0",
     "yazl": "^3.3.1"
   }
 }

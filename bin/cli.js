@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+// Legacy Node entrypoint retained while the migration fixtures remain in lib/.
+// Production builds and npm releases start the native Go binary from main.go.
+
 const { Command } = require('commander');
 const chalk = require('chalk');
 const packageJson = require('../package.json');

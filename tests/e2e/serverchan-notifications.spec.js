@@ -89,7 +89,7 @@ test('configures ServerChan separately from the per-session notification toggle'
   await page.locator('#serverchan-client-type').selectOption('pushdeer');
   await page.locator('#serverchan-send-key').fill('SCT_E2E_TEST_1234');
 
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.locator('#serverchan-save-btn').click();
   await expect(page.locator('#serverchan-settings-status')).toContainText('Configuration saved');
   expect(saveCount).toBe(1);
   expect(testCount).toBe(0);

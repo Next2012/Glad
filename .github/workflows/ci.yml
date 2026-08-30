@@ -2,47 +2,45 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [main, master]
   pull_request:
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [18, 20, 22]
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
         with:
-          node-version: ${{ matrix.node-version }}
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Validate package metadata
-        run: npm pack --dry-run
-
+      - run: npm ci
+      - name: Check Go formatting
+        run: test -z "$(gofmt -l *.go internal/app/*.go)"
+      - name: Vet Go backend
+        run: go vet ./internal/app .
+      - name: Run backend tests
+        run: npm test
+      - name: Run Go race detector
+        run: go test -race ./internal/app
       - name: Check JavaScript syntax
         run: npm run check
-
-      - name: Run tests
-        run: npm test
-
-      - name: Install Playwright browser
-        if: matrix.node-version == 20
-        run: npx playwright install --with-deps chromium
-
-      - name: Run responsive browser tests
-        if: matrix.node-version == 20
-        run: npm run test:e2e
-
+      - name: Build native backend
+        run: npm run build:linux
       - name: Verify CLI boots
-        run: node bin/cli.js --version
+        run: ./glad-linux-amd64 --version
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Run browser contract tests on port 3001
+        run: npm run test:e2e
+      - name: Validate npm package templates
+        run: |
+          mkdir -p dist-ci
+          for artifact in glad-linux-amd64 glad-linux-arm64 glad-windows-amd64.exe glad-macos-x64 glad-macos-arm64; do cp glad-linux-amd64 "dist-ci/$artifact"; done
+          node scripts/stage-npm-packages.js "$(node -p 'require("./package.json").version')" dist-ci staged-npm-ci
+          npm pack ./staged-npm-ci/main --dry-run
+          for package in staged-npm-ci/platforms/*; do npm pack "$package" --dry-run; done

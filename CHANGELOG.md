@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > Note:
 > Parts of the historical changelog reflect the earlier upstream lineage of the project. Current Glad releases should be interpreted in the context of the local-first Web interface described in the README.
 
+## [Unreleased]
+
+### Added
+
+- Native Go daemon with embedded browser assets.
+- Structured Codex App Server adapter over stdio JSON-RPC.
+- Structured Claude adapter with streaming input, approvals, resume, fork, usage, and context commands.
+- OS/CPU-specific npm binary packages and a small cross-platform launcher.
+- Native process-tree cleanup for Unix and Windows.
+- Go contract tests, race checks, cross-platform release builds, and npm package staging validation.
+
+### Changed
+
+- Runtime provider support is intentionally limited to Codex and Claude.
+- npm is now a binary distribution layer; the published package no longer contains backend source.
+- Existing browser HTTP/WebSocket behavior is retained while the backend moves from Node.js to Go.
+- GitHub releases now build Linux x64/arm64, Windows x64, and macOS x64/arm64 native artifacts.
+
+### Security
+
+- Provider processes run in dedicated process groups and are terminated with their complete process tree.
+- ServerChan transport errors are sanitized so SendKeys cannot appear in API error messages.
+- SkillHub encryption remains compatible with existing AES-256-GCM configuration envelopes.
+
 ## [1.3.0] - 2025-01-12
 
 ### Changed
@@ -138,7 +162,7 @@ See git history for detailed changes in earlier versions.
 
 To update:
 ```bash
-npm install -g glad-cli
+npm install -g glad-web
 ```
 
 ## Upgrade Guide
