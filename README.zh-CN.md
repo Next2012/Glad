@@ -5,7 +5,7 @@
 
 Glad 是一个面向终端 AI 编码工具的本地优先 Web 界面。
 
-它让你可以在自己的机器上运行 **Claude Code**、**Aider**、**GitHub Copilot CLI**、**Codex** 等交互式命令行工具，并通过一个适合桌面和移动端访问的浏览器界面来使用它们。
+它在你的机器上运行官方 **Claude Code** 和 **Codex** CLI，并通过适合桌面和移动端的浏览器界面使用结构化会话。
 
 ![Glad AI 移动端界面](./assets/demo.jpg)
 
@@ -23,7 +23,7 @@ Glad 是一个面向终端 AI 编码工具的本地优先 Web 界面。
 ![Glad 架构图](./assets/architecture.svg)
 
 Glad 的核心工作原理：
-1. Glad 运行在你装好 Claude、Codex、Aider 等终端工具的服务器上。
+1. Glad 运行在已安装并登录官方 Claude 和/或 Codex CLI 的机器上。
 2. 启动 Glad 后，在本机和局域网可通过 3000 端口访问。
 3. 如果使用 Tailscale 或者 ZeroTier 做了内网穿透，就可以进行远程操控。
 4. 所有终端任务在本地的 Glad 守护进程中运行，不怕手机断网影响程序执行。
@@ -37,11 +37,11 @@ Glad 的初衷是开发一款完全运行在本地的、足够简单的，且登
 - **响应式工作区**：宽屏提供可调宽度的会话侧边栏，手机使用大厅与对话双页面，并支持亮色、暗色主题。
 - **文件附件**：可从输入区上传图片或普通文件；附件仅保存于当前会话的私有临时目录，并会自动清理。
 - **本地用量看板**：通过内置的只读 `ccusage` 引擎选择某周或某月，查看按模型汇总及每日 token，并用按模型堆叠的柱状图比较 token 和费用；费用完全采用 `ccusage` 估算，且只对 Codex 使用的 GPT 模型显示。
-- **高还原度的 terminal 交互**：专为手机优化的终端体验与快捷按键。
-- **极致性能的历史查看**：快速流畅的终端历史记录浏览。
+- **结构化 Provider 会话**：原生支持 Codex/Claude 流式输出、审批、恢复、分叉、模型、推理强度、沙箱和上下文控制。
+- **高性能历史查看**：快速流畅的结构化历史，以及按需加载的工具详情。
 - **简单但足够好用的改动检查**：内置 Git 改动预览功能。
 - **断线保护**：服务端任务不受移动端网络断开影响。
-- **开箱即用**：一条命令启动 Web UI，自动检测多种主流 AI CLI。
+- **开箱即用**：一条命令启动 Web UI，自动检测 Codex 和 Claude。
 - **独立二进制**：支持打包 Linux、macOS 和 Windows 独立可执行文件。
 
 ## 快速开始
@@ -50,7 +50,8 @@ Glad 的初衷是开发一款完全运行在本地的、足够简单的，且登
 
 要求：
 
-- Node.js `>=18`
+- npm 安装需要 Node.js `>=18`
+- 已安装并登录官方 `codex` 和/或 `claude` CLI
 
 ```bash
 npm install -g glad-web
@@ -63,13 +64,14 @@ glad
 
 要求：
 
-- Node.js `>=18`
+- Go `>=1.24`
+- 前端测试及发布打包需要 Node.js `>=18`
 
 ```bash
-git clone https://github.com/Anonymous/Glad.git
+git clone https://github.com/Next2012/Glad.git
 cd glad
-npm install
-node bin/cli.js
+npm ci
+go run .
 ```
 
 ### 以二进制运行
@@ -125,32 +127,12 @@ glad tools detect
 
 ## 支持的工具
 
-Glad 当前会自动检测代码注册表中定义的 20 个终端 AI 工具。下面的名称严格使用 Glad 注册表里的 `displayName`：
+Glad 现在有意只支持下面两个结构化编码 Agent：
 
 | 工具 | 检测命令 |
 | --- | --- |
 | Claude | `claude` |
-| Aider | `aider` |
 | Codex | `codex` |
-| Copilot | `copilot` |
-| Cody | `cody chat` |
-| Antigravity | `agy` |
-| Continue | `cn` |
-| Cursor | `cursor-agent` |
-| ChatGPT | `chatgpt` |
-| ShellGPT | `sgpt --repl temp` |
-| Mentat | `mentat` |
-| Grok | `grok` |
-| Ollama | `ollama run codellama` |
-| OpenHands | `openhands` |
-| OpenCode | `opencode` |
-| Blackbox AI | `blackboxai` |
-| Amazon Q | `q` |
-| Pi | `pi` |
-| Kilo | `kilo` |
-| Qoder | `qodercli` |
-
-Glad 还内置了用于测试的 `demo` 工具，但 demo 模式不计入自动检测列表。
 
 ## 打包
 
@@ -178,7 +160,13 @@ npm run build:macos:x64
 npm run build:macos:arm64
 ```
 
-构建后会分别生成 `glad-linux-amd64`、`glad-windows-amd64.exe`、`glad-macos-x64` 和 `glad-macos-arm64` 文件。GitHub release workflow 会在 `macos-15-intel` 构建 macOS Intel 版本，并在 `macos-14` 构建 macOS Apple Silicon 版本。
+Go 发布流水线会交叉构建 Linux x64/arm64、Windows x64 和 macOS x64/arm64 的 stripped 独立二进制。npm 发布一个小型启动器和对应 OS/CPU 的二进制包，安装结果不再包含 Go 后端源码。
+
+开发者文档：
+
+- [架构说明](docs/architecture.md)
+- [开发与测试](docs/development.md)
+- [发布流程](docs/releasing.md)
 
 ## 安全模型
 
@@ -195,4 +183,4 @@ Glad 面向受信任的本机或局域网环境使用。
 
 ## 开源协议
 
-本项目使用 MIT 协议，由 [anonymous](https://github.com/Anonymous/Glad) 维护。
+本项目使用 MIT 协议，由 [Next2012](https://github.com/Next2012/Glad) 维护。

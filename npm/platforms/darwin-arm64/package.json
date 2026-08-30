@@ -1,0 +1,1 @@
+{"name":"glad-web-darwin-arm64","version":"0.0.0","description":"Glad native binary for macOS arm64","license":"MIT","os":["darwin"],"cpu":["arm64"],"files":["bin/glad","LICENSE","THIRD_PARTY_NOTICES.md"],"dependencies":{"@ccusage/ccusage-darwin-arm64":"20.0.20"},"repository":{"type":"git","url":"git+https://github.com/Next2012/Glad.git"}}

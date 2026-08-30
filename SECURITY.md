@@ -2,7 +2,7 @@
 
 ## Scope
 
-Glad is a local-first Web interface for terminal-based AI tools. It is designed to run on your machine and expose a browser UI on your local network.
+Glad is a local-first Web interface for the official Codex and Claude CLIs. It is designed to run on your machine and expose a browser UI on your local network.
 
 This project does not provide a hosted relay service, remote account system, or managed multi-tenant backend.
 
@@ -31,7 +31,7 @@ Only the latest released version is supported for security fixes.
 Glad's security model is intentionally simple:
 
 - the server runs locally on the machine where Glad is started
-- terminal I/O stays on that machine
+- provider I/O stays on that machine apart from the official CLI's own service requests
 - the browser UI communicates with the local Glad process
 - file access is scoped to the selected working directory in the current implementation
 
@@ -39,7 +39,7 @@ Glad's security model is intentionally simple:
 
 - Anyone who can access the exposed Glad port may be able to interact with the active UI.
 - Glad is intended for trusted local or private-network environments.
-- Terminal sessions may expose secrets already visible to the local shell or AI tool.
+- Provider sessions may expose secrets already visible to the local shell or coding agent.
 - Security also depends on the behavior of third-party AI CLIs launched through Glad.
 
 ## Recommended Usage
@@ -52,7 +52,7 @@ Glad's security model is intentionally simple:
 
 ## Dependency and Supply Chain Notes
 
-Glad depends on Node.js packages and external AI CLI tools. Vulnerabilities in those dependencies may affect Glad deployments.
+The native daemon is implemented in Go and embeds its browser assets. npm is a distribution wrapper; Glad still depends on the separately installed official Codex and Claude CLIs. Vulnerabilities in the Go modules, embedded frontend dependencies, npm launcher dependencies, or provider CLIs may affect Glad deployments.
 
 When updating or packaging Glad:
 

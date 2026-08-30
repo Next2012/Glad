@@ -22,12 +22,13 @@ Please describe the tests that you ran to verify your changes. Provide instructi
 - [ ] Tested on macOS
 - [ ] Tested on Linux
 - [ ] Tested on Windows
-- [ ] Tested with multiple AI tools
+- [ ] Tested with Codex and/or Claude as applicable
 
 **Test Configuration:**
-- Node.js version:
+- Go version:
+- Node.js version (frontend tooling):
 - OS:
-- AI tools tested:
+- Providers tested:
 
 ## Checklist
 

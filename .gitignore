@@ -117,5 +117,8 @@ dist
 .kiro/
 AGENTS.md
 
-glad-linux-amd64
-glad-windows-amd64.exe
+/glad-linux-*
+/glad-macos-*
+/glad-windows-*.exe
+/dist-ci/
+/staged-npm*/

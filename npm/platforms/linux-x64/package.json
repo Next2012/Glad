@@ -1,0 +1,1 @@
+{"name":"glad-web-linux-x64","version":"0.0.0","description":"Glad native binary for Linux x64","license":"MIT","os":["linux"],"cpu":["x64"],"files":["bin/glad","LICENSE","THIRD_PARTY_NOTICES.md"],"dependencies":{"@ccusage/ccusage-linux-x64":"20.0.20"},"repository":{"type":"git","url":"git+https://github.com/Next2012/Glad.git"}}

@@ -1,0 +1,29 @@
+{
+  "name": "glad-web",
+  "version": "0.0.0",
+  "description": "A local-first Web interface for Codex and Claude",
+  "license": "MIT",
+  "bin": {
+    "glad": "bin/glad.cjs"
+  },
+  "files": [
+    "bin/glad.cjs",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "glad-web-linux-x64": "0.0.0",
+    "glad-web-linux-arm64": "0.0.0",
+    "glad-web-darwin-x64": "0.0.0",
+    "glad-web-darwin-arm64": "0.0.0",
+    "glad-web-win32-x64": "0.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Next2012/Glad.git"
+  }
+}

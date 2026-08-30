@@ -32,7 +32,7 @@ What actually happened instead.
 - OS: [e.g., macOS 14.1, Windows 11, Ubuntu 22.04]
 - Node.js version: [run `node --version`]
 - Glad version: [run `glad --version`]
-- AI tool: [e.g., Claude Code, Aider, GitHub Copilot]
+- AI tool: [Claude Code or Codex]
 - Environment: [Production / Development / Local]
 
 ## Logs

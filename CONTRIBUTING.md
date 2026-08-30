@@ -2,7 +2,7 @@
 
 Thanks for your interest in contributing to Glad.
 
-Glad is a local-first Web interface for terminal-based AI coding tools. Contributions that improve stability, UX, compatibility, documentation, and release quality are welcome.
+Glad is a local-first Web interface for the official Codex and Claude CLIs. Contributions that improve stability, UX, compatibility, documentation, and release quality are welcome.
 
 ## Code of Conduct
 
@@ -13,35 +13,36 @@ Be respectful, specific, and constructive.
 1. Fork the repository.
 2. Clone your fork:
    ```bash
-   git clone https://gitee.com/YOUR_USERNAME/glad.git
+   git clone https://github.com/YOUR_USERNAME/Glad.git
    cd glad
    ```
 3. Install dependencies:
    ```bash
-   npm install
+   npm ci
    ```
 4. Start Glad locally:
    ```bash
-   node bin/cli.js
+   go run . --port 3001
    ```
 
 ## Project Structure
 
-- `bin/` CLI entrypoint
-- `lib/commands/` top-level CLI commands
-- `lib/session/` PTY and terminal session management
-- `lib/ai-tools/` tool registry and installation detection
-- `lib/config/` persisted user settings
-- `lib/utils/` shared utilities
-- `lib/web/` bundled Web UI
-- `scripts/` build and maintenance scripts
+- `main.go` native entrypoint and embedded frontend declaration
+- `internal/app/` Go runtime, provider adapters, HTTP and WebSocket contracts
+- `lib/web/` browser UI
+- `lib/` legacy Node compatibility implementation and tests during migration
+- `npm/` npm launcher and platform-package templates
+- `scripts/` native build and release staging scripts
+- `docs/` architecture, development and release documentation
 
 ## Development Guidelines
 
 - Keep changes focused and easy to review.
 - Preserve existing runtime behavior unless the change intentionally alters it.
 - Prefer small, explicit modules over broad refactors.
-- Follow the existing CommonJS style used in the project.
+- Format Go with `gofmt`; retain the existing CommonJS style in browser and compatibility code.
+- Keep provider-specific wire details inside `internal/app/claude.go` or `internal/app/codex.go`.
+- Preserve the browser HTTP/WebSocket contract unless the UI and tests change in the same pull request.
 - Update user-facing docs when behavior changes.
 
 ## Testing
@@ -51,8 +52,9 @@ Before opening a pull request, run the checks that apply to your change:
 ```bash
 npm run check
 npm test
-node bin/cli.js --version
-npm pack --dry-run
+go test -race ./internal/app
+go vet ./internal/app .
+go run . --version
 ```
 
 For Web UI or responsive layout changes, install Chromium once and run the browser suite. The suite starts Glad on port `3001` and covers the maintained phone, tablet, and desktop viewports.
@@ -62,7 +64,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-If you changed the packaged binary flow, also test:
+If you changed the packaged binary flow, build the affected targets and stage the npm package as described in `docs/releasing.md`.
 
 ```bash
 npm run build:linux
@@ -85,16 +87,16 @@ When submitting a pull request:
 4. Update screenshots or GIFs if the UI changed.
 5. Keep unrelated cleanup out of the same PR.
 
-## AI Tool Support
+## Provider Support
 
-If you add support for a new AI tool, make sure:
+Glad intentionally supports Codex and Claude. A proposal to add another provider must include:
 
-- the tool can run interactively in a terminal
-- it works correctly under PTY control
-- detection is reliable
-- the launch command and description are accurate
+- a stable structured protocol rather than terminal scraping
+- interactive approval, interruption, resume and cleanup behavior
+- browser contract and provider fixture tests
+- native-process lifecycle checks on supported operating systems
 
-Registry changes belong in `lib/ai-tools/registry.js`.
+Provider implementations belong in `internal/app`.
 
 ## Documentation
 
@@ -103,6 +105,8 @@ Please update these files when appropriate:
 - `README.md` for user-facing behavior
 - `README.zh-CN.md` for Chinese documentation parity
 - `CHANGELOG.md` for release-facing changes
+- `docs/architecture.md` for runtime boundaries
+- `docs/releasing.md` for packaging changes
 
 ## Issues
 

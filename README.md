@@ -5,7 +5,7 @@
 
 Glad is a local-first Web interface for terminal-based AI coding tools.
 
-It lets you run interactive CLI tools such as **Claude Code**, **Aider**, **GitHub Copilot CLI**, and **Codex** on your machine, then access them through a clean browser UI from desktop or mobile devices on your local network.
+It runs the official **Claude Code** and **Codex** CLIs on your machine, then exposes their structured sessions through a clean browser UI on desktop or mobile devices.
 
 ![Glad AI mobile interface](./assets/demo.jpg)
 
@@ -23,8 +23,8 @@ Watch how Glad brings terminal AI tools to your mobile device seamlessly:
 ![Glad Architecture](./assets/architecture.svg)
 
 Glad's core working principle:
-1. Glad runs on your server or local machine where Claude, Codex, Aider, and other CLI tools are installed.
-2. Once started, Glad is accessible on your local machine and LAN via port 3000.
+1. Glad runs on the machine where the official Claude and/or Codex CLI is installed.
+2. Once started, Glad is accessible on your local machine and LAN via port 3000 (or a port selected with `--port`).
 3. If you use Tailscale or ZeroTier for intranet penetration, you can control it remotely from anywhere.
 4. All terminal tasks run locally within the Glad daemon, so your mobile device disconnecting won't affect task execution.
 
@@ -37,11 +37,11 @@ Our design philosophy is **Easy to use, Stable, and Restrained**. Glad focuses s
 - **Responsive workspace:** Use a resizable session sidebar on wide screens and focused lobby/chat pages on mobile, with light and dark themes.
 - **File attachments:** Upload images or arbitrary local files from the composer; Glad stores them privately for the active session and cleans them up automatically.
 - **Local usage dashboard:** Select a week or month, compare per-model and daily token totals, and inspect model-stacked token and cost charts through the bundled read-only `ccusage` engine. Costs use `ccusage` estimates and are shown only for GPT models used by Codex.
-- **High-fidelity terminal interaction:** A mobile-friendly terminal experience with touch shortcuts.
-- **Extreme performance history viewing:** Fast and responsive text history.
+- **Structured provider sessions:** Native streaming, approvals, resume, fork, model, effort, sandbox, and context controls for Codex and Claude.
+- **Fast history viewing:** Responsive structured conversation history with lazy tool details.
 - **Simple but effective change checking:** Integrated Git changes preview.
 - **Resilient execution:** Client (mobile) disconnections will not interrupt running tasks on the host machine.
-- **Simplicity:** One-command Web UI with built-in detection for many popular AI CLIs.
+- **Simplicity:** One-command Web UI with built-in detection for Codex and Claude.
 - **Standalone binaries:** Linux, macOS, and Windows standalone packaging available.
 
 ## Quick Start
@@ -50,7 +50,8 @@ Our design philosophy is **Easy to use, Stable, and Restrained**. Glad focuses s
 
 Requirements:
 
-- Node.js `>=18`
+- Node.js `>=18` for npm installation
+- the official `codex` and/or `claude` CLI, already authenticated
 
 ```bash
 npm install -g glad-web
@@ -63,13 +64,14 @@ After installation, the package name is `glad-web` and the command is `glad`.
 
 Requirements:
 
-- Node.js `>=18`
+- Go `>=1.24`
+- Node.js `>=18` for frontend tests and release packaging
 
 ```bash
-git clone https://github.com/Anonymous/Glad.git
+git clone https://github.com/Next2012/Glad.git
 cd glad
-npm install
-node bin/cli.js
+npm ci
+go run .
 ```
 
 ### Run as a binary
@@ -125,32 +127,12 @@ glad tools detect
 
 ## Supported Tools
 
-Glad currently auto-detects the 20 terminal AI tools defined in the code registry. The names below are the registry `displayName` values used by Glad:
+Glad intentionally supports the two structured coding-agent integrations below:
 
 | Tool | Detected command |
 | --- | --- |
 | Claude | `claude` |
-| Aider | `aider` |
 | Codex | `codex` |
-| Copilot | `copilot` |
-| Cody | `cody chat` |
-| Antigravity | `agy` |
-| Continue | `cn` |
-| Cursor | `cursor-agent` |
-| ChatGPT | `chatgpt` |
-| ShellGPT | `sgpt --repl temp` |
-| Mentat | `mentat` |
-| Grok | `grok` |
-| Ollama | `ollama run codellama` |
-| OpenHands | `openhands` |
-| OpenCode | `opencode` |
-| Blackbox AI | `blackboxai` |
-| Amazon Q | `q` |
-| Pi | `pi` |
-| Kilo | `kilo` |
-| Qoder | `qodercli` |
-
-Glad also includes a built-in `demo` tool for testing, but demo mode is not included in auto-detection.
 
 ## Packaging
 
@@ -178,7 +160,13 @@ Build a macOS Apple Silicon standalone binary on an Apple Silicon macOS runner w
 npm run build:macos:arm64
 ```
 
-After building, `glad-linux-amd64`, `glad-windows-amd64.exe`, `glad-macos-x64`, and `glad-macos-arm64` files will be generated respectively. The GitHub release workflow builds macOS Intel on `macos-15-intel` and macOS Apple Silicon on `macos-14`.
+The Go release pipeline cross-builds stripped, standalone binaries for Linux x64/arm64, Windows x64, and macOS x64/arm64. npm publishes a small launcher plus one OS/CPU-specific binary package, so installations do not contain the Go backend source.
+
+Developer references:
+
+- [Architecture](docs/architecture.md)
+- [Development and testing](docs/development.md)
+- [Release process](docs/releasing.md)
 
 ## Security Model
 
@@ -195,4 +183,4 @@ See [SECURITY.md](./SECURITY.md) for details.
 
 ## License
 
-MIT. Glad is maintained by [anonymous](https://github.com/Anonymous/Glad).
+MIT. Glad is maintained by [Next2012](https://github.com/Next2012/Glad).
