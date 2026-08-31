@@ -12,10 +12,12 @@ async function expectInsideViewport(locator, page) {
 
 async function createNamedSession(page, toolKey, name) {
   const created = await page.request.post('/api/sessions', { data: { toolKey } });
-  expect(created.ok()).toBe(true);
-  const { id } = await created.json();
+  const createdBody = await created.text();
+  expect(created.ok(), `Unable to create ${toolKey} session (${created.status()}): ${createdBody}`).toBe(true);
+  const { id } = JSON.parse(createdBody);
   const renamed = await page.request.patch(`/api/sessions/${id}`, { data: { name } });
-  expect(renamed.ok()).toBe(true);
+  const renamedBody = await renamed.text();
+  expect(renamed.ok(), `Unable to rename session ${id} (${renamed.status()}): ${renamedBody}`).toBe(true);
   return id;
 }
 

@@ -1,0 +1,45 @@
+#!/usr/bin/env node
+
+'use strict';
+
+const readline = require('node:readline');
+
+if (process.argv.includes('--version')) {
+  process.stdout.write('codex-cli 0.0.0-e2e\n');
+  process.exit(0);
+}
+
+if (process.argv[2] !== 'app-server') {
+  process.stderr.write(`Unsupported fake Codex command: ${process.argv.slice(2).join(' ')}\n`);
+  process.exit(1);
+}
+
+const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+
+input.on('line', line => {
+  let request;
+  try {
+    request = JSON.parse(line);
+  } catch (_) {
+    return;
+  }
+  if (request.id == null) return;
+
+  let result = {};
+  if (request.method === 'config/read') {
+    result = { config: { model: 'gpt-e2e', model_reasoning_effort: 'medium' } };
+  } else if (request.method === 'model/list') {
+    result = {
+      data: [{
+        id: 'gpt-e2e',
+        displayName: 'GPT E2E',
+        isDefault: true,
+        contextWindow: 128000,
+        defaultReasoningEffort: 'medium',
+        supportedReasoningEfforts: ['low', 'medium', 'high']
+      }]
+    };
+  }
+
+  process.stdout.write(`${JSON.stringify({ id: request.id, result })}\n`);
+});
