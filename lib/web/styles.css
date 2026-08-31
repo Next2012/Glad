@@ -81,6 +81,13 @@
         #app-toast.visible { opacity: 1; transform: translate(-50%, 0); }
         .tool-item { padding: 12px; border-bottom: 1px solid #333; cursor: pointer; display: flex; align-items: center; border-radius: 8px; margin-top: 4px; }
         .tool-item:hover { background: rgba(255,255,255,0.05); }
+        .tool-item-content { min-width: 0; flex: 1; }
+        .tool-version { margin-top: 2px; color: #888; font-size: 12px; }
+        .tool-item.unavailable { cursor: not-allowed; opacity: .62; }
+        .tool-item.unavailable:hover { background: transparent; }
+        .tool-install-link { flex: 0 0 auto; margin-left: 12px; color: var(--primary); font-size: 12px; font-weight: 700; text-decoration: none; }
+        .tool-install-link:hover { text-decoration: underline; }
+        .tool-empty-state { margin-bottom: 10px; padding: 10px 12px; border: 1px solid rgba(255,159,10,.4); border-radius: 9px; background: rgba(255,159,10,.1); color: #ffd59a; font-size: 12px; line-height: 1.45; }
         .tool-icon { width: 32px; height: 32px; background: #333; border-radius: 8px; margin-right: 12px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
         #usage-source-overlay { position: fixed; inset: 0; z-index: 10030; display: none; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; background: rgba(0,0,0,0.82); }
         #usage-source-modal { width: 100%; max-width: 420px; max-height: min(680px, 90dvh); overflow-y: auto; padding: 20px; box-sizing: border-box; border-radius: 16px; background: var(--card-bg); box-shadow: 0 20px 40px rgba(0,0,0,0.45); }
@@ -887,6 +894,8 @@ html[data-theme="light"] .tool-modal-header { border-color: #e0e5ec; }
 html[data-theme="light"] .tool-item { border: 1px solid #e0e5ec; background: #f7f9fb; color: #172033; }
 html[data-theme="light"] .tool-item:hover,
 html[data-theme="light"] .tool-item:active { border-color: #99c8f7; background: #eaf4ff; }
+html[data-theme="light"] .tool-item.unavailable:hover { border-color: #e0e5ec; background: #f7f9fb; }
+html[data-theme="light"] .tool-empty-state { border-color: #e5b34c; background: #fff6df; color: #715000; }
 html[data-theme="light"] .tool-icon { background: #dceeff; color: #006acb; }
 html[data-theme="light"] #default-cwd { color: #526174 !important; }
 html[data-theme="light"] .usage-source-item { border: 1px solid #e1e6ed; background: #f7f9fb; color: #172033; }

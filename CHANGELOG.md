@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added acknowledged, idempotent structured-message sends so disconnected sockets, missing attachments, and provider failures preserve the draft instead of silently losing it.
 - Kept Codex file-attachment prompts as one user-visible message without leaking the internal provider prompt or temporary path into history.
 - Rejected whitespace-only messages, serialized per-session WebSocket commands, and retained failed timed messages for review and retry.
+- Disabled unavailable Codex and Claude entries in the session menu while keeping installation guidance visible.
 
 ## [2.0.3] - 2026-08-31
 

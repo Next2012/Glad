@@ -123,6 +123,32 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
   await page.screenshot({ path: testInfo.outputPath('lobby-and-schedule.png'), fullPage: true });
 });
 
+test('session menu explains and disables unavailable providers', async ({ page }) => {
+  let createRequests = 0;
+  page.on('request', request => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/sessions') createRequests += 1;
+  });
+  await page.route('**/api/tools', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify([
+      { key: 'codex', displayName: 'Codex', installed: false, website: 'https://developers.openai.com/codex' },
+      { key: 'claude-code', displayName: 'Claude', installed: false, website: 'https://code.claude.com' }
+    ])
+  }));
+  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.getByTitle('New AI session').click();
+  await expect(page.locator('.tool-empty-state')).toContainText('No supported AI CLI is installed');
+  const tools = page.locator('.tool-item.unavailable');
+  await expect(tools).toHaveCount(2);
+  expect(await tools.evaluateAll(items => items.every(item => item.getAttribute('aria-disabled') === 'true'))).toBe(true);
+  await expect(tools).toContainText(['Codex', 'Claude']);
+  await expect(tools).toContainText(['Not installed', 'Not installed']);
+  await expect(tools.first().getByRole('link', { name: 'Install guide' }))
+    .toHaveAttribute('href', 'https://developers.openai.com/codex');
+  await tools.first().dispatchEvent('click');
+  expect(createRequests).toBe(0);
+});
+
 test('desktop sidebar identifies and deletes the active structured session', async ({ page }) => {
   test.skip(page.viewportSize().width < 920, 'Desktop split layout only');
 
@@ -255,7 +281,7 @@ test('structured execution disables send until the provider returns to idle', as
 test('light theme keeps dialogs, subview navigation, and file chips readable', async ({ page }) => {
   await page.route('**/api/tools', route => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify([{ key: 'codex', displayName: 'Codex', version: '0.149.0' }])
+    body: JSON.stringify([{ key: 'codex', displayName: 'Codex', version: '0.149.0', installed: true }])
   }));
   await page.route('**/api/usage/sources*', route => route.fulfill({
     contentType: 'application/json',
@@ -346,7 +372,7 @@ test('git change cards use readable surfaces in light and dark themes', async ({
 test('dark theme keeps modal rows and attachment chips readable', async ({ page }) => {
   await page.route('**/api/tools', route => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify([{ key: 'codex', displayName: 'Codex', version: '0.149.0' }])
+    body: JSON.stringify([{ key: 'codex', displayName: 'Codex', version: '0.149.0', installed: true }])
   }));
   await page.route('**/api/usage/sources*', route => route.fulfill({
     contentType: 'application/json',
