@@ -92,6 +92,7 @@ test('provider rejection keeps the draft and unlocks send', async ({ page }) => 
   await page.locator('#cmd-input').fill(text);
   const rejection = page.waitForEvent('dialog');
   await page.locator('#send-btn').click();
+  await page.locator('#cmd-input').fill('');
   const dialog = await rejection;
   expect(dialog.message()).toContain('forced send failure');
   await dialog.dismiss();

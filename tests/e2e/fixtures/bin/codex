@@ -37,7 +37,7 @@ input.on('line', line => {
     const text = (request.params?.input || [])
       .filter(item => item?.type === 'text').map(item => item.text || '').join('\n');
     if (text.includes('__GLAD_E2E_FAIL_SEND__')) {
-      write({ id: request.id, error: { message: 'forced send failure' } });
+      setTimeout(() => write({ id: request.id, error: { message: 'forced send failure' } }), 25);
       return;
     }
     const turnNumber = ++turnSequence;
