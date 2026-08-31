@@ -55,7 +55,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-Playwright reuses a server already listening on 3001 outside CI. In CI it starts `go run . --port 3001` itself.
+Playwright reuses a server already listening on 3001 outside CI. The manually triggered `Browser E2E` GitHub Actions workflow starts `go run . --port 3001` itself. Browser tests are intentionally separate from the required PR checks; run them locally before release.
 
 ## Native builds
 
