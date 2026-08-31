@@ -895,7 +895,8 @@ func (provider *CodexProvider) refreshModelsLocked(ctx context.Context) error {
 			),
 			"isDefault":     boolValue(item["isDefault"]),
 			"contextWindow": item["contextWindow"],
-			"efforts":       item["supportedReasoningEfforts"],
+			"efforts":       codexReasoningEfforts(item["supportedReasoningEfforts"]),
+			"defaultEffort": stringValue(item["defaultReasoningEffort"]),
 		})
 	}
 	if provider.options["model"] == nil {
@@ -907,6 +908,27 @@ func (provider *CodexProvider) refreshModelsLocked(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func codexReasoningEfforts(value any) []string {
+	efforts := []string{}
+	for _, raw := range sliceValue(value) {
+		effort := ""
+		if item, ok := raw.(map[string]any); ok {
+			effort = firstNonEmpty(
+				stringValue(item["reasoningEffort"]),
+				stringValue(item["reasoning_effort"]),
+				stringValue(item["value"]),
+				stringValue(item["id"]),
+			)
+		} else {
+			effort = stringValue(raw)
+		}
+		if effort != "" {
+			efforts = append(efforts, effort)
+		}
+	}
+	return efforts
 }
 func (provider *CodexProvider) applyConfig(config map[string]any) {
 	if provider.options["model"] == nil {

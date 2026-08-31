@@ -17,11 +17,11 @@ Go application (internal/app)
   └─ Claude provider ─ claude --print --input-format stream-json
 ```
 
-The repository root contains only the native entrypoint and its `go:embed` declaration. `internal/app` owns runtime behavior. Existing browser assets remain under `lib/web` so the UI can evolve independently of the daemon.
+The repository root contains only the native entrypoint and its `go:embed` declaration. `internal/app` owns all server-side runtime behavior. Browser assets remain under `lib/web` so the UI can evolve independently of the daemon.
 
 ## Browser contract
 
-The migration intentionally preserves the existing HTTP routes and WebSocket event shapes. Structured sessions receive a `codex-snapshot` or `claude-snapshot` on connection and incremental provider events afterward.
+The HTTP and WebSocket contracts are implemented entirely by the Go daemon. Structured sessions receive a `codex-snapshot` or `claude-snapshot` on connection and incremental provider events afterward.
 
 Provider output is normalized into a small set of message kinds:
 

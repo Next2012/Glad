@@ -23,7 +23,7 @@ jobs:
         run: test -z "$(gofmt -l *.go internal/app/*.go)"
       - name: Vet Go backend
         run: go vet ./internal/app .
-      - name: Run backend tests
+      - name: Run Go backend and packaging tests
         run: npm test
       - name: Run Go race detector
         run: go test -race ./internal/app

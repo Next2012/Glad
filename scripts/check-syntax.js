@@ -3,7 +3,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const projectRoot = path.resolve(__dirname, '..');
-const sourceRoots = ['bin', 'lib', 'scripts', 'tests'];
+const sourceRoots = ['lib/web', 'lib/npm', 'scripts', 'tests'];
 const standaloneFiles = ['playwright.config.js'];
 
 function collectJavaScriptFiles(directory) {

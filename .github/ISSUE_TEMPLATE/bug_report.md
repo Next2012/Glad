@@ -30,7 +30,8 @@ What actually happened instead.
 **Please complete the following information:**
 
 - OS: [e.g., macOS 14.1, Windows 11, Ubuntu 22.04]
-- Node.js version: [run `node --version`]
+- Go version: [run `go version`, for source builds]
+- Node.js version: [only relevant to frontend tooling or npm installation]
 - Glad version: [run `glad --version`]
 - AI tool: [Claude Code or Codex]
 - Environment: [Production / Development / Local]
