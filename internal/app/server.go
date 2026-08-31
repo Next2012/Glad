@@ -385,8 +385,7 @@ func (server *Server) registerStaticRoutes(mux *http.ServeMux) {
 }
 
 func (server *Server) serveRoot(writer http.ResponseWriter, request *http.Request) {
-	// The Node runtime accepted WebSocket upgrades on the root path. Keep that
-	// route working for browser tabs cached before the Go migration while /ws is
+	// Keep the root WebSocket alias working for cached browser tabs while /ws is
 	// the canonical endpoint used by the current frontend.
 	if strings.EqualFold(request.Header.Get("Upgrade"), "websocket") {
 		server.websocket(writer, request)

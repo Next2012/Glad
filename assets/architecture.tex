@@ -46,26 +46,24 @@
 ]
 
 % --- SERVER NODE ---
-\node[glad_box] (glad) {\textbf{Glad Server}\\[3pt] \footnotesize\color{cText} Node.js Process (Port 3000)};
+\node[glad_box] (glad) {\textbf{Glad Server}\\[3pt] \footnotesize\color{cText} Native Go Process (Port 3000)};
 
 % Sessions
-\node[session_box, below=2cm of glad, xshift=-1.6cm] (s2) {Codex};
+\node[session_box, below=2cm of glad, xshift=1.55cm] (s2) {Codex};
 \node[session_box, left=0.5cm of s2] (s1) {Claude};
-\node[session_box, right=0.5cm of s2] (s3) {Gemini};
-\node[session_box, right=0.5cm of s3] (s4) {\dots};
 
-\foreach \n in {s1, s2, s3, s4} {
+\foreach \n in {s1, s2} {
     \node[always_online_label, anchor=north west, xshift=2pt, yshift=-2pt] at (\n.north west) {Always Online};
 }
 
-\node[fit=(s1)(s2)(s3)(s4), inner sep=0pt] (sessions) {};
+\node[fit=(s1)(s2), inner sep=0pt] (sessions) {};
 
 \draw[arrow] (glad.south) -- node[right, font=\footnotesize\color{cTextMuted}, align=center, xshift=5pt] {Spawns \& Manages} (sessions.north);
 
 % Server Wrapper (Stretching top with a dummy coordinate to fit the title)
 \coordinate (server_top) at ([yshift=1.4cm]glad.north);
 \coordinate (server_bottom) at ([yshift=-0.2cm]sessions.south);
-\node[server_wrapper, fit=(server_top)(server_bottom)(s1)(s4)] (server) {};
+\node[server_wrapper, fit=(server_top)(server_bottom)(s1)(s2)] (server) {};
 \node[anchor=north west, font=\large\bfseries\color{cServerAccent}, xshift=15pt, yshift=-15pt] at (server.north west) {Server / Host Machine};
 
 

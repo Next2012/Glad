@@ -1,7 +1,7 @@
 {
   "name": "glad-web",
   "private": true,
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "A native, local-first Web interface for Codex and Claude.",
   "scripts": {
     "start": "go run .",
@@ -11,8 +11,8 @@
     "build:macos:x64": "node scripts/build-go.js darwin amd64 glad-macos-x64",
     "build:macos:arm64": "node scripts/build-go.js darwin arm64 glad-macos-arm64",
     "build:windows": "node scripts/build-go.js windows amd64 glad-windows-amd64.exe",
-    "test": "npm run test:node && npm run test:go",
-    "test:node": "node --test lib/**/*.test.js",
+    "test": "npm run test:tooling && npm run test:go",
+    "test:tooling": "node --test lib/npm/*.test.js",
     "test:go": "go test ./internal/app .",
     "check": "node scripts/check-syntax.js"
   },
@@ -41,21 +41,9 @@
   },
   "dependencies": {},
   "devDependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.201",
     "@playwright/test": "^1.61.1",
     "@xterm/addon-fit": "^0.10.0",
-    "@xterm/headless": "^6.0.0",
     "@xterm/xterm": "^5.5.0",
-    "ccusage": "20.0.20",
-    "chalk": "^4.1.2",
-    "commander": "^11.0.0",
-    "conf": "^10.2.0",
-    "express": "^5.2.1",
-    "node-pty": "npm:@lydell/node-pty@^1.1.0",
-    "uuid": "^11.1.1",
-    "ws": "^8.19.0",
-    "yaml": "^2.8.1",
-    "yauzl": "^3.2.0",
-    "yazl": "^3.3.1"
+    "ccusage": "20.0.20"
   }
 }

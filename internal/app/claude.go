@@ -38,6 +38,7 @@ type ClaudeProvider struct {
 	stdin           io.WriteCloser
 	pending         map[string]chan map[string]any
 	permissions     map[string]claudePending
+	expectedStops   map[*exec.Cmd]struct{}
 	turns           []claudeTurn
 	closed          bool
 	initialized     bool
@@ -52,20 +53,42 @@ func NewClaudeProvider(session *Session, options map[string]any) *ClaudeProvider
 		options = map[string]any{}
 	}
 	return &ClaudeProvider{
-		session:      session,
-		options:      options,
-		pending:      map[string]chan map[string]any{},
-		permissions:  map[string]claudePending{},
-		allowedTools: map[string]bool{},
-		resumeID:     stringValue(options["resume"]),
+		session:       session,
+		options:       options,
+		pending:       map[string]chan map[string]any{},
+		permissions:   map[string]claudePending{},
+		expectedStops: map[*exec.Cmd]struct{}{},
+		allowedTools:  map[string]bool{},
+		resumeID:      stringValue(options["resume"]),
 	}
 }
 
 func claudeRuntimeConfig() map[string]any {
+	defaultModel := strings.TrimSpace(os.Getenv("ANTHROPIC_MODEL"))
+	models := []map[string]any{
+		{"value": "default", "label": "Default", "resolved": nil, "source": "Claude default"},
+	}
+	if defaultModel != "" {
+		models = append(models, map[string]any{
+			"value": defaultModel, "label": "Environment (" + defaultModel + ")", "resolved": defaultModel, "source": "ANTHROPIC_MODEL",
+		})
+	}
+	for _, item := range []struct {
+		value, label, environment string
+	}{
+		{value: "sonnet", label: "Sonnet", environment: "ANTHROPIC_DEFAULT_SONNET_MODEL"},
+		{value: "opus", label: "Opus", environment: "ANTHROPIC_DEFAULT_OPUS_MODEL"},
+		{value: "haiku", label: "Haiku", environment: "ANTHROPIC_DEFAULT_HAIKU_MODEL"},
+	} {
+		resolved := firstNonEmpty(strings.TrimSpace(os.Getenv(item.environment)), item.value)
+		models = append(models, map[string]any{
+			"value": item.value, "label": item.label, "resolved": resolved, "source": item.environment,
+		})
+	}
 	return map[string]any{
-		"defaultModel":  os.Getenv("ANTHROPIC_MODEL"),
+		"defaultModel":  firstNonEmpty(defaultModel, "default"),
 		"defaultEffort": os.Getenv("CLAUDE_CODE_EFFORT_LEVEL"),
-		"models":        []string{"default", "sonnet", "opus", "haiku"},
+		"models":        models,
 		"efforts":       []string{"low", "medium", "high", "xhigh"},
 	}
 }
@@ -260,8 +283,13 @@ func (provider *ClaudeProvider) readStderr(reader io.Reader) {
 }
 
 func (provider *ClaudeProvider) wait(command *exec.Cmd) {
-	err := command.Wait()
+	provider.handleProcessExit(command, command.Wait())
+}
+
+func (provider *ClaudeProvider) handleProcessExit(command *exec.Cmd, err error) {
 	provider.mu.Lock()
+	_, expected := provider.expectedStops[command]
+	delete(provider.expectedStops, command)
 	if provider.cmd == command {
 		provider.cmd = nil
 		provider.stdin = nil
@@ -269,7 +297,7 @@ func (provider *ClaudeProvider) wait(command *exec.Cmd) {
 	}
 	closed := provider.closed
 	provider.mu.Unlock()
-	if !closed && err != nil {
+	if !closed && !expected && err != nil {
 		provider.session.appendMessage(
 			map[string]any{"kind": "event", "level": "error", "text": "Claude session error: " + err.Error()},
 		)
@@ -857,6 +885,9 @@ func (provider *ClaudeProvider) Close(context.Context) error {
 	return nil
 }
 func (provider *ClaudeProvider) stopLocked() {
+	if provider.cmd != nil {
+		provider.expectedStops[provider.cmd] = struct{}{}
+	}
 	if provider.stdin != nil {
 		_ = provider.stdin.Close()
 	}

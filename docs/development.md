@@ -20,21 +20,21 @@ Run Glad on the browser-test port:
 go run . --port 3001
 ```
 
-The production default remains port 3000. Port 3001 is reserved by the Playwright configuration and local migration checks.
+The production default remains port 3000. Port 3001 is reserved by the Playwright configuration and local browser checks.
 
 ## Source layout
 
 - `main.go`: thin native entrypoint and embedded Web assets
 - `internal/app/`: Go runtime and provider adapters
-- `lib/web/`: existing browser UI
-- `lib/`: legacy Node implementation and compatibility tests retained during migration
+- `lib/web/`: browser UI
+- `lib/npm/`: npm packaging tests
 - `npm/main/`: npm launcher template
 - `npm/platforms/`: platform package templates
 - `scripts/`: native build and package staging scripts
 
 ## Checks
 
-Run the complete backend suite:
+Run the complete Go backend and packaging-tooling suite:
 
 ```bash
 npm test

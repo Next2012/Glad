@@ -30,7 +30,7 @@ Be respectful, specific, and constructive.
 - `main.go` native entrypoint and embedded frontend declaration
 - `internal/app/` Go runtime, provider adapters, HTTP and WebSocket contracts
 - `lib/web/` browser UI
-- `lib/` legacy Node compatibility implementation and tests during migration
+- `lib/npm/` npm packaging tests
 - `npm/` npm launcher and platform-package templates
 - `scripts/` native build and release staging scripts
 - `docs/` architecture, development and release documentation
@@ -40,7 +40,7 @@ Be respectful, specific, and constructive.
 - Keep changes focused and easy to review.
 - Preserve existing runtime behavior unless the change intentionally alters it.
 - Prefer small, explicit modules over broad refactors.
-- Format Go with `gofmt`; retain the existing CommonJS style in browser and compatibility code.
+- Format Go with `gofmt`; retain the existing script style in browser and packaging code.
 - Keep provider-specific wire details inside `internal/app/claude.go` or `internal/app/codex.go`.
 - Preserve the browser HTTP/WebSocket contract unless the UI and tests change in the same pull request.
 - Update user-facing docs when behavior changes.

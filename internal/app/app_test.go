@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -115,6 +116,31 @@ func TestParsersMatchFrontendContracts(t *testing.T) {
 	context, err := parseClaudeContext("**Model:** sonnet\n**Tokens:** 45,000 / 200,000 (22.5%)")
 	if err != nil || numberInt64(context["remainingTokens"]) != 155000 {
 		t.Fatalf("unexpected context: %#v %v", context, err)
+	}
+}
+
+func TestProviderModelConfigMatchesFrontendContract(t *testing.T) {
+	t.Setenv("ANTHROPIC_MODEL", "claude-custom-model")
+	t.Setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "claude-sonnet-custom")
+	config := claudeRuntimeConfig()
+	models, ok := config["models"].([]map[string]any)
+	if !ok || config["defaultModel"] != "claude-custom-model" || len(models) != 5 {
+		t.Fatalf("unexpected Claude model config: %#v", config)
+	}
+	if models[1]["value"] != "claude-custom-model" || models[1]["resolved"] != "claude-custom-model" {
+		t.Fatalf("environment model was not preserved: %#v", models[1])
+	}
+	if models[2]["value"] != "sonnet" || models[2]["resolved"] != "claude-sonnet-custom" {
+		t.Fatalf("Sonnet alias was not resolved: %#v", models[2])
+	}
+
+	efforts := codexReasoningEfforts([]any{
+		map[string]any{"reasoningEffort": "low"},
+		map[string]any{"reasoning_effort": "high"},
+		"xhigh",
+	})
+	if strings.Join(efforts, ",") != "low,high,xhigh" {
+		t.Fatalf("unexpected Codex efforts: %#v", efforts)
 	}
 }
 
@@ -251,6 +277,49 @@ func TestClaudeControlApprovalRoundTrip(t *testing.T) {
 	decision := mapValue(mapValue(response["response"])["response"])
 	if decision["behavior"] != "allow" || decision["toolUseID"] != "tool-1" {
 		t.Fatalf("unexpected Claude approval response: %#v", response)
+	}
+}
+
+func TestClaudeExpectedProcessStopDoesNotSurfaceSessionError(t *testing.T) {
+	session := newSession(
+		"session",
+		"Claude",
+		"claude-structured",
+		ToolInfo{Key: "claude-code", DisplayName: "Claude"},
+		t.TempDir(),
+	)
+	provider := NewClaudeProvider(session, nil)
+	command := exec.Command("claude")
+	provider.cmd = command
+	provider.expectedStops[command] = struct{}{}
+
+	provider.handleProcessExit(command, errors.New("signal: killed"))
+
+	if len(session.Messages) != 0 || session.StatusValue != "idle" {
+		t.Fatalf("expected stop surfaced as an error: status=%s messages=%#v", session.StatusValue, session.Messages)
+	}
+	if len(provider.expectedStops) != 0 {
+		t.Fatalf("expected stop marker was not cleared: %#v", provider.expectedStops)
+	}
+}
+
+func TestClaudeUnexpectedProcessExitStillSurfacesSessionError(t *testing.T) {
+	session := newSession(
+		"session",
+		"Claude",
+		"claude-structured",
+		ToolInfo{Key: "claude-code", DisplayName: "Claude"},
+		t.TempDir(),
+	)
+	provider := NewClaudeProvider(session, nil)
+	command := exec.Command("claude")
+	provider.cmd = command
+
+	provider.handleProcessExit(command, errors.New("signal: killed"))
+
+	if session.StatusValue != "error" || len(session.Messages) != 1 ||
+		stringValue(session.Messages[0]["text"]) != "Claude session error: signal: killed" {
+		t.Fatalf("unexpected process exit was not surfaced: status=%s messages=%#v", session.StatusValue, session.Messages)
 	}
 }
 

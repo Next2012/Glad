@@ -10,6 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-08-31
+
+### Changed
+
+- Removed the legacy Node.js server, provider adapters, session runtime, routes, tests, and backend-only dependencies; the Go daemon now owns all server-side behavior.
+- Updated development, contribution, CI, and architecture documentation for the Go-only backend.
+
+### Fixed
+
+- Normalized Claude model configuration and Codex reasoning-effort payloads so the compact model pickers show concrete provider options without `[object Object]` entries.
+- Prevented intentional Claude process restarts for effort, resume, and fork changes from surfacing a false `Claude session error: signal: killed` message while preserving real exit errors.
+
 ## [2.0.2] - 2026-08-30
 
 ### Changed

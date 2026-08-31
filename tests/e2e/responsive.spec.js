@@ -1261,6 +1261,68 @@ test('responsive shell, bottom composer, and themes follow the new layout', asyn
   expect(pageErrors).toEqual([]);
 });
 
+test('model pickers stay compact and normalize provider model data', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  await page.evaluate(() => {
+    activeToolKey = 'codex';
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    document.getElementById('terminal-view').classList.add('active');
+    setClaudeModeEnabled(false);
+    applyCodexState({
+      model: 'gpt-5.6-sol',
+      effort: 'high',
+      status: 'idle',
+      models: [{
+        id: 'gpt-5.6-sol',
+        label: 'GPT-5.6-Sol',
+        efforts: [
+          { reasoningEffort: 'low', description: 'Fast' },
+          { reasoningEffort: 'high', description: 'Deep' }
+        ]
+      }]
+    });
+  });
+
+  const codexButton = page.locator('#codex-model-btn');
+  await expect(codexButton).toHaveText('Model');
+  await expect(codexButton).toHaveAttribute('title', 'Model and effort');
+  expect(Math.round((await codexButton.boundingBox()).width)).toBe(40);
+  await codexButton.click();
+  await expect(page.locator('#codex-model-panel')).toContainText('GPT-5.6-Sol');
+  await expect(page.locator('#codex-model-panel')).toContainText('low');
+  await expect(page.locator('#codex-model-panel')).toContainText('high');
+  await expect(page.locator('#codex-model-panel')).not.toContainText('[object Object]');
+
+  await page.evaluate(() => {
+    activeToolKey = 'claude-code';
+    setClaudeModeEnabled(true);
+    applyClaudeRuntimeConfig({
+      defaultModel: 'deepseek-v4-pro[1m]',
+      defaultEffort: 'max',
+      models: [
+        { value: 'default', label: 'Default', resolved: '' },
+        { value: 'deepseek-v4-pro[1m]', label: 'Environment', resolved: 'deepseek-v4-pro[1m]' }
+      ]
+    });
+    applyClaudeState({ model: 'deepseek-v4-pro[1m]', effort: 'max', status: 'idle' });
+  });
+
+  const claudeButton = page.locator('#claude-model-picker-btn');
+  await expect(claudeButton).toHaveText('Model');
+  await expect(claudeButton).toHaveAttribute('title', 'deepseek-v4-pro[1m] · Max');
+  expect(Math.round((await claudeButton.boundingBox()).width)).toBe(40);
+  await page.evaluate(() => {
+    claudePickerOpen = 'model';
+    renderClaudePicker('model');
+  });
+  await expect(page.locator('#claude-picker-panel')).toContainText('Environment');
+  await expect(page.locator('#claude-picker-panel')).toContainText('deepseek-v4-pro[1m]');
+  expect(pageErrors).toEqual([]);
+});
+
 test('Claude combines model and effort and renders separate CLI usage and context cards', async ({ page }, testInfo) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
