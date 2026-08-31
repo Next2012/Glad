@@ -566,13 +566,18 @@ func (server *Server) createSkillHubSession(w http.ResponseWriter, r *http.Reque
 		stringValue(skill["defaultPrompt"]),
 		"请先用中文介绍这个 Skill 能完成什么、适合哪些任务，以及用户接下来应该如何使用。这一轮只做使用引导。",
 	)
-	_ = session.Provider.Send(
+	if err := session.Provider.Send(
 		r.Context(),
 		ProviderInput{
-			Text:      "$" + stringValue(skill["name"]) + "\n\n" + prompt,
-			AgentText: "$" + stringValue(skill["name"]) + "\n\n" + prompt,
-			Skills:    []map[string]any{skill},
+			ClientMessageID: "skillhub-" + newUUID(),
+			Text:            "$" + stringValue(skill["name"]) + "\n\n" + prompt,
+			AgentText:       "$" + stringValue(skill["name"]) + "\n\n" + prompt,
+			Skills:          []map[string]any{skill},
 		},
-	)
+	); err != nil {
+		server.sessions.Delete(r.Context(), session.ID)
+		respondError(w, 502, err)
+		return
+	}
 	respondJSON(w, 201, map[string]any{"id": session.ID, "name": session.Name})
 }

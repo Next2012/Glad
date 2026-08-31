@@ -240,6 +240,32 @@ type bufferWriteCloser struct{ bytes.Buffer }
 
 func (buffer *bufferWriteCloser) Close() error { return nil }
 
+type failingWriteCloser struct{}
+
+func (failingWriteCloser) Write([]byte) (int, error) { return 0, errors.New("forced write failure") }
+func (failingWriteCloser) Close() error              { return nil }
+
+type stubProvider struct {
+	sendErr error
+	inputs  []ProviderInput
+}
+
+func (provider *stubProvider) Start(context.Context) error { return nil }
+func (provider *stubProvider) Send(_ context.Context, input ProviderInput) error {
+	provider.inputs = append(provider.inputs, input)
+	return provider.sendErr
+}
+func (provider *stubProvider) Approve(context.Context, string, string, map[string]any) error {
+	return nil
+}
+func (provider *stubProvider) UpdateSettings(context.Context, map[string]any) error { return nil }
+func (provider *stubProvider) Interrupt(context.Context) error                      { return nil }
+func (provider *stubProvider) Resume(context.Context, string) error                 { return nil }
+func (provider *stubProvider) Fork(context.Context, string) (string, error)         { return "", nil }
+func (provider *stubProvider) Compact(context.Context) error                        { return nil }
+func (provider *stubProvider) Status(context.Context) error                         { return nil }
+func (provider *stubProvider) Close(context.Context) error                          { return nil }
+
 func TestClaudeControlApprovalRoundTrip(t *testing.T) {
 	session := newSession(
 		"session",
@@ -320,6 +346,101 @@ func TestClaudeUnexpectedProcessExitStillSurfacesSessionError(t *testing.T) {
 	if session.StatusValue != "error" || len(session.Messages) != 1 ||
 		stringValue(session.Messages[0]["text"]) != "Claude session error: signal: killed" {
 		t.Fatalf("unexpected process exit was not surfaced: status=%s messages=%#v", session.StatusValue, session.Messages)
+	}
+}
+
+func TestClaudeRejectedWriteDoesNotRecordAcceptedMessage(t *testing.T) {
+	session := newSession(
+		"session",
+		"Claude",
+		"claude-structured",
+		ToolInfo{Key: "claude-code", DisplayName: "Claude"},
+		t.TempDir(),
+	)
+	provider := NewClaudeProvider(session, nil)
+	provider.cmd = exec.Command("claude")
+	provider.stdin = failingWriteCloser{}
+	err := provider.Send(
+		context.Background(),
+		ProviderInput{ClientMessageID: "client-1", Text: "keep me", AgentText: "keep me"},
+	)
+	if err == nil || len(session.Messages) != 0 || len(provider.turns) != 0 || session.StatusValue != "idle" {
+		t.Fatalf(
+			"failed write mutated the session: err=%v messages=%#v turns=%#v status=%s",
+			err,
+			session.Messages,
+			provider.turns,
+			session.StatusValue,
+		)
+	}
+}
+
+func TestCodexUserEchoMatchesProviderTextWithoutDuplicating(t *testing.T) {
+	session := newSession(
+		"session",
+		"Codex",
+		"codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"},
+		t.TempDir(),
+	)
+	provider := NewCodexProvider(session, nil)
+	agentText := "Review this\n\nThe user attached the following local files. Read them if relevant:\n- notes.txt: /tmp/notes.txt"
+	session.appendMessage(
+		map[string]any{
+			"kind": "user", "text": "Review this", "agentText": agentText,
+			"clientMessageId": "client-1", "attachments": []map[string]any{{"name": "notes.txt"}},
+		},
+	)
+	provider.applyItem(
+		map[string]any{
+			"id": "provider-user-1", "type": "userMessage",
+			"content": []any{map[string]any{"type": "text", "text": agentText}},
+		},
+		"completed",
+	)
+	if len(session.Messages) != 1 || session.Messages[0]["providerId"] != "provider-user-1" ||
+		session.Messages[0]["text"] != "Review this" {
+		t.Fatalf("Codex user echo was duplicated or changed: %#v", session.Messages)
+	}
+	if publicMessage(session.Messages[0], session.Kind)["agentText"] != nil {
+		t.Fatalf("provider-only prompt leaked to the browser: %#v", session.Messages[0])
+	}
+}
+
+func TestTimedInputFailureRemainsVisible(t *testing.T) {
+	session := newSession(
+		"session",
+		"Codex",
+		"codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"},
+		t.TempDir(),
+	)
+	provider := &stubProvider{sendErr: errors.New("provider busy")}
+	session.Provider = provider
+	item, err := scheduleTimed(
+		session,
+		"",
+		map[string]any{"text": "later", "sendAt": time.Now().Add(50 * time.Millisecond).UnixMilli()},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		session.mu.RLock()
+		current := session.TimedInputs[item.ID]
+		failed := current != nil && current.Status == "failed" && current.Error == "provider busy"
+		session.mu.RUnlock()
+		if failed {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	session.mu.RLock()
+	current := session.TimedInputs[item.ID]
+	session.mu.RUnlock()
+	if current == nil || current.Status != "failed" || len(provider.inputs) != 1 {
+		t.Fatalf("timed failure disappeared: item=%#v inputs=%#v", current, provider.inputs)
 	}
 }
 

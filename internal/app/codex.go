@@ -158,7 +158,10 @@ func (provider *CodexProvider) Send(ctx context.Context, input ProviderInput) er
 		)
 	}
 	provider.session.appendMessage(
-		map[string]any{"kind": "user", "text": input.Text, "attachments": attachments, "skills": input.Skills},
+		map[string]any{
+			"kind": "user", "text": input.Text, "agentText": input.AgentText,
+			"attachments": attachments, "skills": input.Skills, "clientMessageId": input.ClientMessageID,
+		},
 	)
 	params := map[string]any{
 		"threadId": provider.threadID,
@@ -170,6 +173,7 @@ func (provider *CodexProvider) Send(ctx context.Context, input ProviderInput) er
 	started, err := provider.requestLocked(ctx, "turn/start", params)
 	if err != nil {
 		provider.mu.Unlock()
+		provider.session.removeMessagesByClientMessageID(input.ClientMessageID)
 		provider.session.appendMessage(
 			map[string]any{"kind": "event", "level": "error", "text": "Unable to send message: " + err.Error()},
 		)
@@ -480,9 +484,12 @@ func (provider *CodexProvider) applyItem(raw map[string]any, inferred string) {
 	}
 	provider.session.mu.RLock()
 	existingID := ""
+	preserveUserText := false
 	for _, message := range provider.session.Messages {
 		if stringValue(message["providerId"]) == providerID && providerID != "" {
 			existingID = stringValue(message["id"])
+			preserveUserText = kind == "user" &&
+				(stringValue(message["clientMessageId"]) != "" || stringValue(message["agentText"]) != "")
 			break
 		}
 	}
@@ -492,14 +499,19 @@ func (provider *CodexProvider) applyItem(raw map[string]any, inferred string) {
 		for index := len(provider.session.Messages) - 1; index >= 0; index-- {
 			message := provider.session.Messages[index]
 			if stringValue(message["kind"]) == "user" && message["providerId"] == nil &&
-				stringValue(message["text"]) == stringValue(patch["text"]) {
+				(stringValue(message["text"]) == stringValue(patch["text"]) ||
+					stringValue(message["agentText"]) == stringValue(patch["text"])) {
 				existingID = stringValue(message["id"])
+				preserveUserText = true
 				break
 			}
 		}
 		provider.session.mu.RUnlock()
 	}
 	if existingID != "" {
+		if preserveUserText {
+			delete(patch, "text")
+		}
 		provider.session.patchMessage(existingID, patch)
 	} else {
 		provider.session.appendMessage(patch)

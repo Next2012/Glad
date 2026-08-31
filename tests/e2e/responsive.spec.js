@@ -123,6 +123,32 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
   await page.screenshot({ path: testInfo.outputPath('lobby-and-schedule.png'), fullPage: true });
 });
 
+test('session menu explains and disables unavailable providers', async ({ page }) => {
+  let createRequests = 0;
+  page.on('request', request => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/sessions') createRequests += 1;
+  });
+  await page.route('**/api/tools', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify([
+      { key: 'codex', displayName: 'Codex', installed: false, website: 'https://developers.openai.com/codex' },
+      { key: 'claude-code', displayName: 'Claude', installed: false, website: 'https://code.claude.com' }
+    ])
+  }));
+  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.getByTitle('New AI session').click();
+  await expect(page.locator('.tool-empty-state')).toContainText('No supported AI CLI is installed');
+  const tools = page.locator('.tool-item.unavailable');
+  await expect(tools).toHaveCount(2);
+  expect(await tools.evaluateAll(items => items.every(item => item.getAttribute('aria-disabled') === 'true'))).toBe(true);
+  await expect(tools).toContainText(['Codex', 'Claude']);
+  await expect(tools).toContainText(['Not installed', 'Not installed']);
+  await expect(tools.first().getByRole('link', { name: 'Install guide' }))
+    .toHaveAttribute('href', 'https://developers.openai.com/codex');
+  await tools.first().dispatchEvent('click');
+  expect(createRequests).toBe(0);
+});
+
 test('desktop sidebar identifies and deletes the active structured session', async ({ page }) => {
   test.skip(page.viewportSize().width < 920, 'Desktop split layout only');
 
@@ -219,6 +245,7 @@ test('structured execution disables send until the provider returns to idle', as
     applyClaudeState(claudeState);
     window.__composerMessages = [];
     currentSocket = { readyState: 1, send: message => window.__composerMessages.push(JSON.parse(message)) };
+    handleComposerSocketOpen();
     document.getElementById('cmd-input').value = 'Run once';
     performSend();
   });
@@ -230,6 +257,11 @@ test('structured execution disables send until the provider returns to idle', as
   await expect(sendButton).toBeDisabled();
 
   await page.evaluate(() => applyClaudeState({ status: 'thinking', canAbort: true }, { providerStateReceived: true }));
+  await expect(sendButton).toBeDisabled();
+  await page.evaluate(() => handleComposerSendResult({
+    type: 'send-result', accepted: true,
+    clientMessageId: window.__composerMessages[0].clientMessageId
+  }));
   await expect(sendButton).toBeDisabled();
   await page.evaluate(() => applyClaudeState({ status: 'idle', canAbort: false }, { providerStateReceived: true }));
   await expect(sendButton).toBeEnabled();
@@ -249,7 +281,7 @@ test('structured execution disables send until the provider returns to idle', as
 test('light theme keeps dialogs, subview navigation, and file chips readable', async ({ page }) => {
   await page.route('**/api/tools', route => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify([{ key: 'codex', displayName: 'Codex', version: '0.149.0' }])
+    body: JSON.stringify([{ key: 'codex', displayName: 'Codex', version: '0.149.0', installed: true }])
   }));
   await page.route('**/api/usage/sources*', route => route.fulfill({
     contentType: 'application/json',
@@ -340,7 +372,7 @@ test('git change cards use readable surfaces in light and dark themes', async ({
 test('dark theme keeps modal rows and attachment chips readable', async ({ page }) => {
   await page.route('**/api/tools', route => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify([{ key: 'codex', displayName: 'Codex', version: '0.149.0' }])
+    body: JSON.stringify([{ key: 'codex', displayName: 'Codex', version: '0.149.0', installed: true }])
   }));
   await page.route('**/api/usage/sources*', route => route.fulfill({
     contentType: 'application/json',
@@ -1006,15 +1038,19 @@ test('Codex selects a skill with a removable floating bubble and sends structure
 
   await page.evaluate(() => {
     currentSocket = { readyState: 1, send: value => { window.__codexSkillSent = JSON.parse(value); } };
+    handleComposerSocketOpen();
   });
   await page.locator('#cmd-input').fill('Analyze the attached report');
   await page.locator('#send-btn').click();
-  await expect.poll(() => page.evaluate(() => window.__codexSkillSent)).toEqual({
+  await expect.poll(() => page.evaluate(() => window.__codexSkillSent)).toMatchObject({
     type: 'codex-input',
     text: 'Analyze the attached report',
     attachmentIds: [],
     skills: [{ name: 'pdf', path: '/workspace/.agents/skills/pdf/SKILL.md' }]
   });
+  await page.evaluate(() => handleComposerSendResult({
+    type: 'send-result', accepted: true, clientMessageId: window.__codexSkillSent.clientMessageId
+  }));
   await expect(bubble).toHaveCount(0);
 
   await page.evaluate(() => {
@@ -1571,6 +1607,7 @@ test('Claude supports edit diffs, image sends, and session forks', async ({ page
     applyClaudeState(claudeState);
     commitClaudeChatRender();
     currentSocket = { readyState: 1, send: value => { window.__claudeSent = JSON.parse(value); } };
+    handleComposerSocketOpen();
   });
 
   const editTool = page.locator('[data-claude-key="tool-edit-tool"]');
@@ -1586,12 +1623,15 @@ test('Claude supports edit diffs, image sends, and session forks', async ({ page
   await expect(page.locator('.attachment-chip')).toContainText('diagram.png');
   await page.locator('#cmd-input').fill('Describe this diagram');
   await page.locator('#send-btn').click();
-  await expect.poll(() => page.evaluate(() => window.__claudeSent)).toEqual({
+  await expect.poll(() => page.evaluate(() => window.__claudeSent)).toMatchObject({
     type: 'claude-input', text: 'Describe this diagram', attachmentIds: ['image-claude-1']
   });
   await expect(page.locator('#send-btn')).toBeDisabled();
   await page.evaluate(() => applyClaudeState({ status: 'thinking', canAbort: true }, { providerStateReceived: true }));
   await expect(page.locator('#send-btn')).toBeDisabled();
+  await page.evaluate(() => handleComposerSendResult({
+    type: 'send-result', accepted: true, clientMessageId: window.__claudeSent.clientMessageId
+  }));
   await page.evaluate(() => applyClaudeState({ status: 'idle', canAbort: false }, { providerStateReceived: true }));
   await expect(page.locator('#send-btn')).toBeEnabled();
 
@@ -1603,9 +1643,12 @@ test('Claude supports edit diffs, image sends, and session forks', async ({ page
   await expect(page.locator('.attachment-chip.file')).toContainText('notes.txt');
   await page.locator('#cmd-input').fill('Review the attachment');
   await page.locator('#send-btn').click();
-  await expect.poll(() => page.evaluate(() => window.__claudeSent)).toEqual({
+  await expect.poll(() => page.evaluate(() => window.__claudeSent)).toMatchObject({
     type: 'claude-input', text: 'Review the attachment', attachmentIds: [], fileAttachmentIds: ['file-claude-1']
   });
+  await page.evaluate(() => handleComposerSendResult({
+    type: 'send-result', accepted: true, clientMessageId: window.__claudeSent.clientMessageId
+  }));
   await page.evaluate(() => applyClaudeState({ status: 'idle', canAbort: false }, { providerStateReceived: true }));
 
   await page.evaluate(() => toggleClaudeForkPanel());

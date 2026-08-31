@@ -283,29 +283,73 @@ func (server *Server) websocket(writer http.ResponseWriter, request *http.Reques
 		if json.Unmarshal(data, &payload) != nil {
 			continue
 		}
-		go server.handleWebsocketMessage(session, connection, payload)
+		server.handleWebsocketMessage(session, connection, payload)
 	}
 }
 
 func (server *Server) handleWebsocketMessage(session *Session, connection *websocket.Conn, payload map[string]any) {
+	session.commandMu.Lock()
+	defer session.commandMu.Unlock()
 	ctx := context.Background()
 	messageType := stringValue(payload["type"])
 	switch messageType {
 	case "claude-input", "codex-input":
-		images := server.attachments.Resolve(session, stringsFromAny(payload["attachmentIds"]))
-		files := server.attachments.Resolve(session, stringsFromAny(payload["fileAttachmentIds"]))
+		clientMessageID := strings.TrimSpace(stringValue(payload["clientMessageId"]))
+		if clientMessageID != "" {
+			session.mu.RLock()
+			cached, ok := session.sendResults[clientMessageID]
+			session.mu.RUnlock()
+			if ok {
+				server.writeSendResult(ctx, connection, clientMessageID, cached)
+				return
+			}
+		}
+		finish := func(result sendResult) {
+			if clientMessageID != "" {
+				session.mu.Lock()
+				if len(session.sendResults) >= 512 {
+					session.sendResults = map[string]sendResult{}
+				}
+				session.sendResults[clientMessageID] = result
+				session.mu.Unlock()
+			}
+			server.writeSendResult(ctx, connection, clientMessageID, result)
+		}
+		if len(clientMessageID) > 128 {
+			finish(sendResult{Error: "Invalid message ID"})
+			return
+		}
+		imageIDs := uniqueStrings(stringsFromAny(payload["attachmentIds"]))
+		fileIDs := uniqueStrings(stringsFromAny(payload["fileAttachmentIds"]))
+		images := server.attachments.Resolve(session, imageIDs)
+		files := server.attachments.Resolve(session, fileIDs)
+		if len(images) != len(imageIDs) || len(files) != len(fileIDs) {
+			finish(sendResult{Error: "One or more attachments are no longer available. Reattach them and try again."})
+			return
+		}
 		text := stringValue(payload["text"])
+		skills := mapsFromAny(payload["skills"])
+		if strings.TrimSpace(text) == "" && len(images) == 0 && len(files) == 0 && len(skills) == 0 {
+			finish(sendResult{Error: "Message text is required"})
+			return
+		}
 		agentText := promptWithFiles(text, files)
-		_ = session.Provider.Send(
+		err := session.Provider.Send(
 			ctx,
 			ProviderInput{
-				Text:      text,
-				AgentText: agentText,
-				Images:    images,
-				Files:     files,
-				Skills:    mapsFromAny(payload["skills"]),
+				ClientMessageID: clientMessageID,
+				Text:            text,
+				AgentText:       agentText,
+				Images:          images,
+				Files:           files,
+				Skills:          skills,
 			},
 		)
+		if err != nil {
+			finish(sendResult{Error: err.Error()})
+			return
+		}
+		finish(sendResult{Accepted: true})
 	case "claude-permission":
 		decision := "denied"
 		if boolValue(payload["approved"]) {
@@ -350,6 +394,34 @@ func (server *Server) handleWebsocketMessage(session *Session, connection *webso
 			},
 		)
 	}
+}
+
+func (server *Server) writeSendResult(
+	ctx context.Context,
+	connection *websocket.Conn,
+	clientMessageID string,
+	result sendResult,
+) {
+	message := map[string]any{
+		"type": "send-result", "clientMessageId": clientMessageID, "accepted": result.Accepted,
+	}
+	if result.Error != "" {
+		message["error"] = result.Error
+	}
+	_ = writeWSJSON(ctx, connection, message)
+}
+
+func uniqueStrings(values []string) []string {
+	result := []string{}
+	seen := map[string]bool{}
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
 }
 
 func (server *Server) registerStaticRoutes(mux *http.ServeMux) {
