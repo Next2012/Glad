@@ -71,7 +71,9 @@ func (server *Server) deleteTimedInput(writer http.ResponseWriter, request *http
 	session.mu.Lock()
 	item := session.TimedInputs[request.PathValue("inputId")]
 	if item != nil {
-		item.Timer.Stop()
+		if item.Timer != nil {
+			item.Timer.Stop()
+		}
 		delete(session.TimedInputs, item.ID)
 	}
 	session.mu.Unlock()
@@ -101,17 +103,43 @@ func scheduleTimed(session *Session, id string, input map[string]any) (*TimedInp
 		return nil, errors.New("Timed input not found")
 	}
 	if item == nil {
-		item = &TimedInput{ID: newUUID(), CreatedAt: millis()}
+		item = &TimedInput{ID: newUUID(), CreatedAt: millis(), Status: "pending"}
 	} else {
-		item.Timer.Stop()
+		if item.Timer != nil {
+			item.Timer.Stop()
+		}
 	}
 	item.Text = text
 	item.SendAt = sendAt
+	item.Status = "pending"
+	item.Error = ""
+	revision := newUUID()
+	item.revision = revision
 	item.Timer = time.AfterFunc(delay, func() {
+		err := session.Provider.Send(
+			context.Background(),
+			ProviderInput{ClientMessageID: "timed-" + item.ID + "-" + revision, Text: text, AgentText: text},
+		)
 		session.mu.Lock()
-		delete(session.TimedInputs, item.ID)
+		current := session.TimedInputs[item.ID]
+		if current == item && item.revision == revision {
+			item.Timer = nil
+			if err == nil {
+				delete(session.TimedInputs, item.ID)
+			} else {
+				item.Status = "failed"
+				item.Error = err.Error()
+			}
+		}
 		session.mu.Unlock()
-		_ = session.Provider.Send(context.Background(), ProviderInput{Text: item.Text, AgentText: item.Text})
+		if err != nil {
+			session.appendMessage(
+				map[string]any{
+					"kind": "event", "level": "error",
+					"text": "Scheduled message failed: " + err.Error(),
+				},
+			)
+		}
 	})
 	session.TimedInputs[item.ID] = item
 	copy := *item

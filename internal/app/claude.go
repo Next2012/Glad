@@ -193,7 +193,6 @@ func (provider *ClaudeProvider) Send(ctx context.Context, input ProviderInput) e
 		}
 	}
 	turn := claudeTurn{ID: newUUID(), Started: millis()}
-	provider.turns = append(provider.turns, turn)
 	blocks := []any{}
 	if strings.TrimSpace(input.AgentText) != "" {
 		blocks = append(blocks, map[string]any{"type": "text", "text": input.AgentText})
@@ -234,20 +233,27 @@ func (provider *ClaudeProvider) Send(ctx context.Context, input ProviderInput) e
 		"session_id":         "",
 		"message":            map[string]any{"role": "user", "content": content},
 	}
-	provider.session.appendMessage(map[string]any{"kind": "turn-start", "turnId": turn.ID, "createdAt": turn.Started})
+	if err := provider.writeLocked(message); err != nil {
+		provider.mu.Unlock()
+		return err
+	}
+	provider.turns = append(provider.turns, turn)
 	provider.session.appendMessage(
 		map[string]any{
-			"kind":        "user",
-			"text":        input.Text,
-			"attachments": attachments,
-			"turnId":      turn.ID,
-			"createdAt":   turn.Started,
+			"kind": "turn-start", "turnId": turn.ID, "createdAt": turn.Started,
+			"clientMessageId": input.ClientMessageID,
+		},
+	)
+	provider.session.appendMessage(
+		map[string]any{
+			"kind": "user", "text": input.Text, "agentText": input.AgentText,
+			"attachments": attachments, "turnId": turn.ID, "createdAt": turn.Started,
+			"clientMessageId": input.ClientMessageID,
 		},
 	)
 	provider.session.setState(map[string]any{"status": "thinking", "canAbort": true})
-	err := provider.writeLocked(message)
 	provider.mu.Unlock()
-	return err
+	return nil
 }
 
 func (provider *ClaudeProvider) readStdout(reader io.Reader) {

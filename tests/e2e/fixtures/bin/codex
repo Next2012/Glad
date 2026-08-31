@@ -15,6 +15,11 @@ if (process.argv[2] !== 'app-server') {
 }
 
 const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+let turnSequence = 0;
+
+function write(message) {
+  process.stdout.write(`${JSON.stringify(message)}\n`);
+}
 
 input.on('line', line => {
   let request;
@@ -26,7 +31,34 @@ input.on('line', line => {
   if (request.id == null) return;
 
   let result = {};
-  if (request.method === 'config/read') {
+  if (request.method === 'thread/start') {
+    result = { thread: { id: 'thread-e2e' } };
+  } else if (request.method === 'turn/start') {
+    const text = (request.params?.input || [])
+      .filter(item => item?.type === 'text').map(item => item.text || '').join('\n');
+    if (text.includes('__GLAD_E2E_FAIL_SEND__')) {
+      write({ id: request.id, error: { message: 'forced send failure' } });
+      return;
+    }
+    const turnNumber = ++turnSequence;
+    const turnId = `turn-e2e-${turnNumber}`;
+    write({ id: request.id, result: { turn: { id: turnId } } });
+    setImmediate(() => {
+      write({ method: 'turn/started', params: { threadId: 'thread-e2e', turn: { id: turnId } } });
+      write({
+        method: 'item/completed',
+        params: {
+          threadId: 'thread-e2e', turnId,
+          item: { id: `user-e2e-${turnNumber}`, type: 'userMessage', content: request.params?.input || [] }
+        }
+      });
+      write({
+        method: 'turn/completed',
+        params: { threadId: 'thread-e2e', turn: { id: turnId, status: 'completed' } }
+      });
+    });
+    return;
+  } else if (request.method === 'config/read') {
     result = { config: { model: 'gpt-e2e', model_reasoning_effort: 'medium' } };
   } else if (request.method === 'model/list') {
     result = {
@@ -41,5 +73,5 @@ input.on('line', line => {
     };
   }
 
-  process.stdout.write(`${JSON.stringify({ id: request.id, result })}\n`);
+  write({ id: request.id, result });
 });

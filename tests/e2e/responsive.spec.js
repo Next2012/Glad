@@ -219,6 +219,7 @@ test('structured execution disables send until the provider returns to idle', as
     applyClaudeState(claudeState);
     window.__composerMessages = [];
     currentSocket = { readyState: 1, send: message => window.__composerMessages.push(JSON.parse(message)) };
+    handleComposerSocketOpen();
     document.getElementById('cmd-input').value = 'Run once';
     performSend();
   });
@@ -230,6 +231,11 @@ test('structured execution disables send until the provider returns to idle', as
   await expect(sendButton).toBeDisabled();
 
   await page.evaluate(() => applyClaudeState({ status: 'thinking', canAbort: true }, { providerStateReceived: true }));
+  await expect(sendButton).toBeDisabled();
+  await page.evaluate(() => handleComposerSendResult({
+    type: 'send-result', accepted: true,
+    clientMessageId: window.__composerMessages[0].clientMessageId
+  }));
   await expect(sendButton).toBeDisabled();
   await page.evaluate(() => applyClaudeState({ status: 'idle', canAbort: false }, { providerStateReceived: true }));
   await expect(sendButton).toBeEnabled();
@@ -1006,15 +1012,19 @@ test('Codex selects a skill with a removable floating bubble and sends structure
 
   await page.evaluate(() => {
     currentSocket = { readyState: 1, send: value => { window.__codexSkillSent = JSON.parse(value); } };
+    handleComposerSocketOpen();
   });
   await page.locator('#cmd-input').fill('Analyze the attached report');
   await page.locator('#send-btn').click();
-  await expect.poll(() => page.evaluate(() => window.__codexSkillSent)).toEqual({
+  await expect.poll(() => page.evaluate(() => window.__codexSkillSent)).toMatchObject({
     type: 'codex-input',
     text: 'Analyze the attached report',
     attachmentIds: [],
     skills: [{ name: 'pdf', path: '/workspace/.agents/skills/pdf/SKILL.md' }]
   });
+  await page.evaluate(() => handleComposerSendResult({
+    type: 'send-result', accepted: true, clientMessageId: window.__codexSkillSent.clientMessageId
+  }));
   await expect(bubble).toHaveCount(0);
 
   await page.evaluate(() => {
@@ -1571,6 +1581,7 @@ test('Claude supports edit diffs, image sends, and session forks', async ({ page
     applyClaudeState(claudeState);
     commitClaudeChatRender();
     currentSocket = { readyState: 1, send: value => { window.__claudeSent = JSON.parse(value); } };
+    handleComposerSocketOpen();
   });
 
   const editTool = page.locator('[data-claude-key="tool-edit-tool"]');
@@ -1586,12 +1597,15 @@ test('Claude supports edit diffs, image sends, and session forks', async ({ page
   await expect(page.locator('.attachment-chip')).toContainText('diagram.png');
   await page.locator('#cmd-input').fill('Describe this diagram');
   await page.locator('#send-btn').click();
-  await expect.poll(() => page.evaluate(() => window.__claudeSent)).toEqual({
+  await expect.poll(() => page.evaluate(() => window.__claudeSent)).toMatchObject({
     type: 'claude-input', text: 'Describe this diagram', attachmentIds: ['image-claude-1']
   });
   await expect(page.locator('#send-btn')).toBeDisabled();
   await page.evaluate(() => applyClaudeState({ status: 'thinking', canAbort: true }, { providerStateReceived: true }));
   await expect(page.locator('#send-btn')).toBeDisabled();
+  await page.evaluate(() => handleComposerSendResult({
+    type: 'send-result', accepted: true, clientMessageId: window.__claudeSent.clientMessageId
+  }));
   await page.evaluate(() => applyClaudeState({ status: 'idle', canAbort: false }, { providerStateReceived: true }));
   await expect(page.locator('#send-btn')).toBeEnabled();
 
@@ -1603,9 +1617,12 @@ test('Claude supports edit diffs, image sends, and session forks', async ({ page
   await expect(page.locator('.attachment-chip.file')).toContainText('notes.txt');
   await page.locator('#cmd-input').fill('Review the attachment');
   await page.locator('#send-btn').click();
-  await expect.poll(() => page.evaluate(() => window.__claudeSent)).toEqual({
+  await expect.poll(() => page.evaluate(() => window.__claudeSent)).toMatchObject({
     type: 'claude-input', text: 'Review the attachment', attachmentIds: [], fileAttachmentIds: ['file-claude-1']
   });
+  await page.evaluate(() => handleComposerSendResult({
+    type: 'send-result', accepted: true, clientMessageId: window.__claudeSent.clientMessageId
+  }));
   await page.evaluate(() => applyClaudeState({ status: 'idle', canAbort: false }, { providerStateReceived: true }));
 
   await page.evaluate(() => toggleClaudeForkPanel());

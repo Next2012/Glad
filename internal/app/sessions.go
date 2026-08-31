@@ -28,11 +28,12 @@ type Provider interface {
 }
 
 type ProviderInput struct {
-	Text      string
-	AgentText string
-	Images    []Attachment
-	Files     []Attachment
-	Skills    []map[string]any
+	ClientMessageID string
+	Text            string
+	AgentText       string
+	Images          []Attachment
+	Files           []Attachment
+	Skills          []map[string]any
 }
 
 type Attachment struct {
@@ -65,11 +66,20 @@ type TimedInput struct {
 	Text      string      `json:"text"`
 	SendAt    int64       `json:"sendAt"`
 	CreatedAt int64       `json:"createdAt"`
+	Status    string      `json:"status"`
+	Error     string      `json:"error,omitempty"`
 	Timer     *time.Timer `json:"-"`
+	revision  string
+}
+
+type sendResult struct {
+	Accepted bool
+	Error    string
 }
 
 type Session struct {
 	mu                            sync.RWMutex
+	commandMu                     sync.Mutex
 	ID                            string
 	Name                          string
 	Kind                          string
@@ -90,6 +100,7 @@ type Session struct {
 	Provider                      Provider
 	dispose                       func()
 	eventHook                     func(*Session, map[string]any)
+	sendResults                   map[string]sendResult
 }
 
 func newSession(id, name, kind string, tool ToolInfo, workingDirectory string) *Session {
@@ -99,7 +110,8 @@ func newSession(id, name, kind string, tool ToolInfo, workingDirectory string) *
 		Messages: []map[string]any{}, Permissions: map[string]Permission{},
 		CompletedPermissions: []Permission{}, TimedInputs: map[string]*TimedInput{},
 		Attachments: map[string]Attachment{}, Uploads: map[string]*ChunkUpload{},
-		Clients: map[*websocket.Conn]struct{}{},
+		Clients:     map[*websocket.Conn]struct{}{},
+		sendResults: map[string]sendResult{},
 	}
 }
 
@@ -108,7 +120,7 @@ func (session *Session) listItem() map[string]any {
 	defer session.mu.RUnlock()
 	timed := 0
 	for _, item := range session.TimedInputs {
-		if item.SendAt > millis() {
+		if item.SendAt > millis() || item.Status == "failed" {
 			timed++
 		}
 	}
@@ -144,6 +156,7 @@ func (session *Session) snapshot() map[string]any {
 
 func publicMessage(message map[string]any, kind string) map[string]any {
 	copy := cloneMap(message)
+	delete(copy, "agentText")
 	hasDetail := false
 	if kind == "codex-structured" {
 		if copy["kind"] == "tool" {
@@ -165,6 +178,31 @@ func publicMessage(message map[string]any, kind string) map[string]any {
 		}
 	}
 	return copy
+}
+
+func (session *Session) removeMessagesByClientMessageID(id string) {
+	if id == "" {
+		return
+	}
+	session.mu.Lock()
+	kept := session.Messages[:0]
+	removed := false
+	for _, message := range session.Messages {
+		if stringValue(message["clientMessageId"]) == id {
+			removed = true
+			continue
+		}
+		kept = append(kept, message)
+	}
+	session.Messages = kept
+	messages := make([]map[string]any, len(session.Messages))
+	for index, message := range session.Messages {
+		messages[index] = publicMessage(message, session.Kind)
+	}
+	session.mu.Unlock()
+	if removed {
+		session.emit(map[string]any{"type": "history-reset", "messages": messages})
+	}
 }
 
 func (session *Session) appendMessage(message map[string]any) map[string]any {
@@ -382,7 +420,9 @@ func (manager *SessionManager) Delete(ctx context.Context, id string) bool {
 		return false
 	}
 	for _, item := range session.TimedInputs {
-		item.Timer.Stop()
+		if item.Timer != nil {
+			item.Timer.Stop()
+		}
 	}
 	_ = session.Provider.Close(ctx)
 	if session.dispose != nil {

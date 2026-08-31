@@ -187,6 +187,7 @@
         #timed-tag-rail { position: absolute; grid-row: 3; grid-column: 1; align-self: start; justify-self: start; left: 4px; top: 6px; display: flex; flex-direction: column; gap: 6px; z-index: 2400; pointer-events: none; }
         .timed-tag { width: 54px; min-height: 34px; border: 1px solid rgba(255,255,255,0.14); border-left: 0; border-radius: 0 11px 11px 0; background: rgba(0,122,255,0.24); color: #fff; backdrop-filter: blur(12px); font-size: 12px; font-weight: 800; letter-spacing: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.08; white-space: pre-line; box-shadow: 0 8px 20px rgba(0,0,0,0.25); pointer-events: auto; }
         .timed-tag.active { background: rgba(0,122,255,0.42); border-color: rgba(255,255,255,0.28); }
+        .timed-tag.failed { background: rgba(255,59,48,0.34); border-color: rgba(255,120,110,0.55); }
         .timed-tag:active { transform: scale(0.96); }
         #shortcut-rail { display: flex; gap: 28px; overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; scrollbar-width: none; scroll-snap-type: x mandatory; padding: 0 14px 12px 14px; box-sizing: border-box; scroll-padding-left: 14px; scroll-padding-right: 14px; }
         #shortcut-rail::-webkit-scrollbar { display: none; }

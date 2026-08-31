@@ -239,10 +239,16 @@ func (store *ScheduleStore) run(
 			case "sleep":
 				time.Sleep(time.Duration(numberInt64(step["seconds"])) * time.Second)
 			case "sendText":
-				_ = session.Provider.Send(
+				if err := session.Provider.Send(
 					context.Background(),
-					ProviderInput{Text: stringValue(step["text"]), AgentText: stringValue(step["text"])},
-				)
+					ProviderInput{
+						ClientMessageID: "schedule-" + copy.ID + "-" + newUUID(),
+						Text:            stringValue(step["text"]), AgentText: stringValue(step["text"]),
+					},
+				); err != nil {
+					store.finish(id, "failed", "Message failed: "+err.Error(), session.ID)
+					return
+				}
 			case "stop":
 				store.finish(id, "success", "Started session "+session.ID, session.ID)
 				return

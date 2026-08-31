@@ -23,6 +23,8 @@ The repository root contains only the native entrypoint and its `go:embed` decla
 
 The HTTP and WebSocket contracts are implemented entirely by the Go daemon. Structured sessions receive a `codex-snapshot` or `claude-snapshot` on connection and incremental provider events afterward.
 
+Structured user inputs carry a `clientMessageId`. The daemon serializes commands per session, validates every attachment, and replies with `send-result`; repeated IDs return the cached result without starting a second provider turn. The browser keeps its draft and attachments until the daemon accepts the message.
+
 Provider output is normalized into a small set of message kinds:
 
 - `user` and `assistant`
