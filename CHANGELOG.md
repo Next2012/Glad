@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.5] - 2026-09-04
+
+### Fixed
+
+- Restored automatic Codex interruption after reconnect attempt 4/5.
+- Restored Codex account limits and updated the status card for duration-based labels and current multi-bucket responses.
+- Queued Codex status requests made while a new session WebSocket is still connecting.
+
 ## [2.0.4] - 2026-08-31
 
 ### Fixed

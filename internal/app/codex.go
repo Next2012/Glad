@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,21 +28,24 @@ type codexPendingPermission struct {
 }
 
 type CodexProvider struct {
-	mu          sync.Mutex
-	session     *Session
-	options     map[string]any
-	cmd         *exec.Cmd
-	stdin       io.WriteCloser
-	pending     map[int64]chan codexRPCResult
-	permissions map[string]codexPendingPermission
-	requestID   atomic.Int64
-	threadID    string
-	turnID      string
-	turnStarted int64
-	models      []map[string]any
-	tokenUsage  map[string]any
-	closed      bool
+	mu                   sync.Mutex
+	session              *Session
+	options              map[string]any
+	cmd                  *exec.Cmd
+	stdin                io.WriteCloser
+	pending              map[int64]chan codexRPCResult
+	permissions          map[string]codexPendingPermission
+	requestID            atomic.Int64
+	threadID             string
+	turnID               string
+	turnStarted          int64
+	models               []map[string]any
+	tokenUsage           map[string]any
+	reconnectAbortTurnID string
+	closed               bool
 }
+
+var codexReconnectPattern = regexp.MustCompile(`(?i)\bReconnecting(?:\.\.\.)?\s*(\d+)\s*/\s*(\d+)\b`)
 
 func NewCodexProvider(session *Session, options map[string]any) *CodexProvider {
 	if options == nil {
@@ -392,6 +397,10 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 	case "error":
 		text := firstNonEmpty(stringValue(mapValue(params["error"])["message"]), "Codex reported an error.")
 		provider.session.appendMessage(map[string]any{"kind": "event", "level": "error", "text": text})
+		attempt, maximum := codexReconnectProgress(text)
+		if boolValue(params["willRetry"]) && attempt == 4 && maximum == 5 {
+			provider.abortAfterReconnect(threadID, turnID)
+		}
 		if !boolValue(params["willRetry"]) {
 			provider.updatePublicState("idle")
 		}
@@ -745,6 +754,52 @@ func (provider *CodexProvider) Interrupt(ctx context.Context) error {
 	provider.mu.Unlock()
 	return err
 }
+
+func codexReconnectProgress(message string) (int, int) {
+	match := codexReconnectPattern.FindStringSubmatch(message)
+	if len(match) != 3 {
+		return 0, 0
+	}
+	attempt, attemptErr := strconv.Atoi(match[1])
+	maximum, maximumErr := strconv.Atoi(match[2])
+	if attemptErr != nil || maximumErr != nil {
+		return 0, 0
+	}
+	return attempt, maximum
+}
+
+func (provider *CodexProvider) abortAfterReconnect(threadID, turnID string) {
+	provider.mu.Lock()
+	threadID = firstNonEmpty(threadID, provider.threadID)
+	turnID = firstNonEmpty(turnID, provider.turnID)
+	if threadID == "" || turnID == "" || provider.reconnectAbortTurnID == turnID {
+		provider.mu.Unlock()
+		return
+	}
+	provider.reconnectAbortTurnID = turnID
+	provider.mu.Unlock()
+
+	const reason = "Aborted after Codex reconnect attempt 4/5."
+	provider.session.appendMessage(map[string]any{"kind": "event", "level": "info", "text": reason})
+	provider.session.emit(map[string]any{"type": "runtime-disconnected", "activeTurn": true, "turnId": turnID})
+
+	// Notifications are read on the same goroutine that resolves JSON-RPC
+	// responses, so the interrupt must wait for its response asynchronously.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		provider.mu.Lock()
+		_, err := provider.requestLocked(
+			ctx,
+			"turn/interrupt",
+			map[string]any{"threadId": threadID, "turnId": turnID},
+		)
+		provider.mu.Unlock()
+		if err != nil {
+			logDebug("[codex-app-server] automatic turn/interrupt failed for %s/%s: %v", threadID, turnID, err)
+		}
+	}()
+}
 func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
 	provider.mu.Lock()
 	result, err := provider.requestLocked(
@@ -859,14 +914,32 @@ func (provider *CodexProvider) Status(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	accountDetails := mapValue(account["account"])
+	var rateLimits any
+	var rateLimitsByLimitID any
+	if stringValue(accountDetails["type"]) == "chatgpt" {
+		provider.mu.Lock()
+		result, rateLimitErr := provider.requestLocked(ctx, "account/rateLimits/read", map[string]any{})
+		provider.mu.Unlock()
+		if rateLimitErr != nil {
+			logDebug("[codex-app-server] account/rateLimits/read failed: %v", rateLimitErr)
+		} else if limits := mapValue(result["rateLimits"]); len(limits) > 0 {
+			rateLimits = limits
+		}
+		if buckets := mapValue(result["rateLimitsByLimitId"]); len(buckets) > 0 {
+			rateLimitsByLimitID = buckets
+		}
+	}
 	provider.session.appendMessage(
 		map[string]any{
-			"kind":    "status",
-			"title":   "Codex status",
-			"model":   provider.options["model"],
-			"effort":  provider.options["effort"],
-			"account": account["account"],
-			"context": provider.contextStatus(),
+			"kind":                "status",
+			"title":               "Codex status",
+			"model":               provider.options["model"],
+			"effort":              provider.options["effort"],
+			"account":             accountDetails,
+			"rateLimits":          rateLimits,
+			"rateLimitsByLimitId": rateLimitsByLimitID,
+			"context":             provider.contextStatus(),
 		},
 	)
 	return nil

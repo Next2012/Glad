@@ -240,6 +240,16 @@ type bufferWriteCloser struct{ bytes.Buffer }
 
 func (buffer *bufferWriteCloser) Close() error { return nil }
 
+type channelWriteCloser struct{ writes chan []byte }
+
+func (writer *channelWriteCloser) Write(value []byte) (int, error) {
+	copyValue := append([]byte(nil), value...)
+	writer.writes <- copyValue
+	return len(value), nil
+}
+
+func (writer *channelWriteCloser) Close() error { return nil }
+
 type failingWriteCloser struct{}
 
 func (failingWriteCloser) Write([]byte) (int, error) { return 0, errors.New("forced write failure") }
@@ -404,6 +414,149 @@ func TestCodexUserEchoMatchesProviderTextWithoutDuplicating(t *testing.T) {
 	}
 	if publicMessage(session.Messages[0], session.Kind)["agentText"] != nil {
 		t.Fatalf("provider-only prompt leaked to the browser: %#v", session.Messages[0])
+	}
+}
+
+func TestCodexStopsAfterFourthReconnectAttemptOnce(t *testing.T) {
+	session := newSession(
+		"session",
+		"Codex",
+		"codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"},
+		t.TempDir(),
+	)
+	provider := NewCodexProvider(session, nil)
+	writes := make(chan []byte, 4)
+	provider.stdin = &channelWriteCloser{writes: writes}
+	provider.threadID = "thread-reconnect"
+	provider.turnID = "turn-reconnect"
+
+	provider.handleNotification("error", map[string]any{
+		"threadId":  "thread-reconnect",
+		"turnId":    "turn-reconnect",
+		"error":     map[string]any{"message": "Reconnecting... 4/5"},
+		"willRetry": true,
+	})
+
+	var request map[string]any
+	select {
+	case encoded := <-writes:
+		if err := json.Unmarshal(bytes.TrimSpace(encoded), &request); err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("automatic turn/interrupt was not sent")
+	}
+	if request["method"] != "turn/interrupt" ||
+		stringValue(mapValue(request["params"])["threadId"]) != "thread-reconnect" ||
+		stringValue(mapValue(request["params"])["turnId"]) != "turn-reconnect" {
+		t.Fatalf("unexpected automatic interrupt: %#v", request)
+	}
+	provider.handleRPC(map[string]any{"id": request["id"], "result": map[string]any{}})
+
+	provider.handleNotification("error", map[string]any{
+		"threadId":  "thread-reconnect",
+		"turnId":    "turn-reconnect",
+		"error":     map[string]any{"message": "Reconnecting... 4/5"},
+		"willRetry": true,
+	})
+	select {
+	case duplicate := <-writes:
+		t.Fatalf("automatic interrupt was sent twice: %s", duplicate)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	reasonCount := 0
+	for _, message := range session.Messages {
+		if stringValue(message["text"]) == "Aborted after Codex reconnect attempt 4/5." {
+			reasonCount++
+		}
+	}
+	if reasonCount != 1 {
+		t.Fatalf("expected one automatic-abort message, got %d: %#v", reasonCount, session.Messages)
+	}
+}
+
+func TestCodexStatusIncludesCurrentChatGPTRateLimits(t *testing.T) {
+	session := newSession(
+		"session",
+		"Codex",
+		"codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"},
+		t.TempDir(),
+	)
+	provider := NewCodexProvider(session, map[string]any{"model": "gpt-test", "effort": "high"})
+	writes := make(chan []byte, 4)
+	provider.stdin = &channelWriteCloser{writes: writes}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- provider.Status(ctx) }()
+
+	readRequest := func(method string) map[string]any {
+		t.Helper()
+		select {
+		case encoded := <-writes:
+			var request map[string]any
+			if err := json.Unmarshal(bytes.TrimSpace(encoded), &request); err != nil {
+				t.Fatal(err)
+			}
+			if request["method"] != method {
+				t.Fatalf("expected %s, got %#v", method, request)
+			}
+			return request
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for %s", method)
+			return nil
+		}
+	}
+
+	accountRequest := readRequest("account/read")
+	provider.handleRPC(map[string]any{
+		"id": accountRequest["id"],
+		"result": map[string]any{"account": map[string]any{
+			"type": "chatgpt", "email": "user@example.com", "planType": "plus",
+		}},
+	})
+	rateLimitRequest := readRequest("account/rateLimits/read")
+	provider.handleRPC(map[string]any{
+		"id": rateLimitRequest["id"],
+		"result": map[string]any{
+			"rateLimits": map[string]any{
+				"limitId": "codex",
+				"primary": map[string]any{"usedPercent": float64(48), "windowDurationMins": float64(10080), "resetsAt": float64(100)},
+			},
+			"rateLimitsByLimitId": map[string]any{
+				"codex": map[string]any{
+					"limitId": "codex",
+					"primary": map[string]any{"usedPercent": float64(48), "windowDurationMins": float64(10080), "resetsAt": float64(100)},
+				},
+				"codex_spark": map[string]any{
+					"limitId":   "codex_spark",
+					"limitName": "GPT-Codex-Spark",
+					"primary":   map[string]any{"usedPercent": float64(20), "windowDurationMins": float64(300), "resetsAt": float64(150)},
+					"secondary": map[string]any{"usedPercent": float64(10), "windowDurationMins": float64(10080), "resetsAt": float64(200)},
+				},
+			},
+		},
+	})
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+
+	var status map[string]any
+	for _, message := range session.Messages {
+		if message["kind"] == "status" {
+			status = message
+		}
+	}
+	limits := mapValue(status["rateLimits"])
+	buckets := mapValue(status["rateLimitsByLimitId"])
+	if mapValue(limits["primary"])["windowDurationMins"] != float64(10080) ||
+		mapValue(mapValue(buckets["codex_spark"])["primary"])["windowDurationMins"] != float64(300) ||
+		mapValue(mapValue(buckets["codex_spark"])["secondary"])["windowDurationMins"] != float64(10080) {
+		t.Fatalf("current Codex rate-limit shape was not preserved: %#v", status)
 	}
 }
 

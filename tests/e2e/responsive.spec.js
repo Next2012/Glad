@@ -794,6 +794,78 @@ test('Codex unlocks resume controls after the server rejects recovery', async ({
   expect(pageErrors).toEqual([]);
 });
 
+test('Codex status renders current primary and secondary rate-limit windows', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  await page.evaluate(() => {
+    activeToolKey = 'codex';
+    codexMessages = [{
+      id: 'status-current-schema',
+      kind: 'status',
+      title: 'Codex status',
+      model: 'gpt-test',
+      effort: 'high',
+      account: { type: 'chatgpt', email: 'user@example.com', planType: 'plus' },
+      rateLimits: {
+        limitId: 'codex',
+        primary: { usedPercent: 48, windowDurationMins: 10080, resetsAt: 2000000000 },
+        secondary: null
+      },
+      rateLimitsByLimitId: {
+        codex: {
+          limitId: 'codex',
+          primary: { usedPercent: 48, windowDurationMins: 10080, resetsAt: 2000000000 },
+          secondary: null
+        },
+        codex_spark: {
+          limitId: 'codex_spark',
+          limitName: 'GPT-Codex-Spark',
+          primary: { usedPercent: 20, windowDurationMins: 300, resetsAt: 2000100000 },
+          secondary: { usedPercent: 10, windowDurationMins: 10080, resetsAt: 2000600000 }
+        }
+      }
+    }];
+    codexPendingPermissions = [];
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    document.getElementById('terminal-view').classList.add('active');
+    setClaudeModeEnabled(false);
+    commitCodexChatRender();
+  });
+
+  const card = page.locator('.codex-status-card');
+  await expect(card).toContainText('user@example.com · plus');
+  const items = card.locator('.codex-status-item');
+  await expect(items.filter({ hasText: 'Weekly limit' }).filter({ hasText: '52% left' })).toHaveCount(1);
+  await expect(items.filter({ hasText: 'GPT-Codex-Spark · 5h limit' }).filter({ hasText: '80% left' })).toHaveCount(1);
+  await expect(items.filter({ hasText: 'GPT-Codex-Spark · Weekly limit' }).filter({ hasText: '90% left' })).toHaveCount(1);
+  expect(pageErrors).toEqual([]);
+});
+
+test('Codex queues a status request until a new session socket opens', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__codexSocketSends = [];
+    window.WebSocket = class DeferredWebSocket {
+      constructor() { this.readyState = 0; window.__codexSocket = this; }
+      send(value) { window.__codexSocketSends.push(JSON.parse(value)); }
+      close() { this.readyState = 3; }
+      open() { this.readyState = 1; this.onopen?.(); }
+    };
+  });
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  await page.evaluate(() => {
+    activeToolKey = 'codex';
+    initCodexSession('new-empty-session');
+    requestCodexStatus();
+  });
+  await expect.poll(() => page.evaluate(() => window.__codexSocketSends)).toEqual([]);
+
+  await page.evaluate(() => window.__codexSocket.open());
+  await expect.poll(() => page.evaluate(() => window.__codexSocketSends)).toEqual([{ type: 'codex-status' }]);
+});
+
 test('Codex shows per-turn context energy and context compaction controls', async ({ page }, testInfo) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
