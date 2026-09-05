@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -27,7 +28,9 @@ func OpenConfigStore() (*ConfigStore, error) {
 	store := &ConfigStore{path: filepath.Join(directory, "config.json"), data: map[string]any{}}
 	bytes, err := os.ReadFile(store.path)
 	if err == nil {
-		_ = json.Unmarshal(bytes, &store.data)
+		if err := json.Unmarshal(bytes, &store.data); err != nil {
+			return nil, fmt.Errorf("parse Glad configuration %s: %w", store.path, err)
+		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
@@ -38,32 +41,44 @@ func (store *ConfigStore) Get(key string) any {
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 	if key == "" {
-		copy := make(map[string]any, len(store.data))
-		for name, value := range store.data {
-			copy[name] = value
-		}
+		copy, _ := cloneConfigValue(store.data)
 		return copy
 	}
-	return store.data[key]
+	copy, _ := cloneConfigValue(store.data[key])
+	return copy
 }
 
 func (store *ConfigStore) Set(key string, value any) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	store.data[key] = value
-	store.data["lastUpdated"] = time.Now().UTC().Format(time.RFC3339)
-	return store.saveLocked()
+	next := cloneConfigData(store.data)
+	copy, err := cloneConfigValue(value)
+	if err != nil {
+		return err
+	}
+	next[key] = copy
+	next["lastUpdated"] = time.Now().UTC().Format(time.RFC3339)
+	if err := store.saveLocked(next); err != nil {
+		return err
+	}
+	store.data = next
+	return nil
 }
 
 func (store *ConfigStore) Delete(key string) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	delete(store.data, key)
-	return store.saveLocked()
+	next := cloneConfigData(store.data)
+	delete(next, key)
+	if err := store.saveLocked(next); err != nil {
+		return err
+	}
+	store.data = next
+	return nil
 }
 
-func (store *ConfigStore) saveLocked() error {
-	bytes, err := json.MarshalIndent(store.data, "", "  ")
+func (store *ConfigStore) saveLocked(data map[string]any) error {
+	bytes, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -72,4 +87,27 @@ func (store *ConfigStore) saveLocked() error {
 		return err
 	}
 	return os.Rename(temporary, store.path)
+}
+
+func cloneConfigData(source map[string]any) map[string]any {
+	copy := make(map[string]any, len(source))
+	for key, value := range source {
+		copy[key] = value
+	}
+	return copy
+}
+
+func cloneConfigValue(value any) (any, error) {
+	if value == nil {
+		return nil, nil
+	}
+	bytes, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	var copy any
+	if err := json.Unmarshal(bytes, &copy); err != nil {
+		return nil, err
+	}
+	return copy, nil
 }

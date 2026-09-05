@@ -20,13 +20,13 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Check Go formatting
-        run: test -z "$(gofmt -l *.go internal/app/*.go)"
+        run: test -z "$(gofmt -l *.go internal/app/*.go internal/session/*.go)"
       - name: Vet Go backend
-        run: go vet ./internal/app .
+        run: go vet ./...
       - name: Run Go backend and packaging tests
         run: npm test
       - name: Run Go race detector
-        run: go test -race ./internal/app
+        run: go test -race ./...
       - name: Check JavaScript syntax
         run: npm run check
       - name: Build native backend

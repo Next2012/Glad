@@ -91,8 +91,10 @@ test('provider rejection keeps the draft and unlocks send', async ({ page }) => 
   const text = '__GLAD_E2E_FAIL_SEND__ keep this draft';
   await page.locator('#cmd-input').fill(text);
   const rejection = page.waitForEvent('dialog');
-  await page.locator('#send-btn').click();
-  await page.locator('#cmd-input').fill('');
+  await page.evaluate(() => {
+    document.getElementById('send-btn').click();
+    document.getElementById('cmd-input').value = '';
+  });
   const dialog = await rejection;
   expect(dialog.message()).toContain('forced send failure');
   await dialog.dismiss();

@@ -45,6 +45,7 @@ func TestWebSocketRoutesAcceptCanonicalAndLegacyPaths(t *testing.T) {
 		ToolInfo{Key: "codex", DisplayName: "Codex"},
 		manager.baseDir,
 	)
+	session.events = manager.events
 	manager.sessions[session.ID] = session
 	server := &Server{sessions: manager, assets: os.DirFS("../..")}
 	mux := http.NewServeMux()
@@ -73,6 +74,18 @@ func TestWebSocketRoutesAcceptCanonicalAndLegacyPaths(t *testing.T) {
 			}
 			if snapshot["type"] != "codex-snapshot" {
 				t.Fatalf("unexpected snapshot from %s: %#v", route, snapshot)
+			}
+			session.appendMessage(map[string]any{"kind": "assistant", "text": "event stream"})
+			_, payload, err = connection.Read(ctx)
+			if err != nil {
+				t.Fatalf("read event from %s: %v", route, err)
+			}
+			var event map[string]any
+			if err := json.Unmarshal(payload, &event); err != nil {
+				t.Fatal(err)
+			}
+			if event["type"] != "codex-event" || stringValue(mapValue(event["event"])["type"]) != "message" {
+				t.Fatalf("unexpected event from %s: %#v", route, event)
 			}
 		})
 	}
@@ -731,5 +744,99 @@ func TestUsageNormalizationOnlyPricesCodexGPTModels(t *testing.T) {
 		if model.ModelName == "claude-test" && model.Cost != nil {
 			t.Fatalf("non-GPT cost leaked: %#v", model)
 		}
+	}
+}
+
+func TestSessionManagerRejectsDuplicateIDBeforeReplacingSession(t *testing.T) {
+	fixtureDirectory, err := filepath.Abs(filepath.Join("..", "..", "tests", "e2e", "fixtures", "bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fixtureDirectory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	manager := NewSessionManager(t.TempDir())
+	existing := newSession(
+		"duplicate", "Existing", "codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"}, manager.baseDir,
+	)
+	manager.sessions[existing.ID] = existing
+
+	_, err = manager.Create(
+		context.Background(),
+		CreateSessionRequest{ID: existing.ID, ToolKey: "codex"},
+	)
+	if err == nil || manager.Get(existing.ID) != existing {
+		t.Fatalf("duplicate session replaced the live session: err=%v current=%p", err, manager.Get(existing.ID))
+	}
+}
+
+func TestConfigStoreRejectsCorruptionAndClonesValues(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	directory := filepath.Join(home, ".glad")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	filename := filepath.Join(directory, "config.json")
+	if err := os.WriteFile(filename, []byte("{broken"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenConfigStore(); err == nil {
+		t.Fatal("corrupt configuration was silently accepted")
+	}
+	if err := os.WriteFile(filename, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenConfigStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := map[string]any{"nested": map[string]any{"enabled": true}}
+	if err := store.Set("feature", value); err != nil {
+		t.Fatal(err)
+	}
+	value["nested"].(map[string]any)["enabled"] = false
+	stored := mapValue(store.Get("feature"))
+	if !boolValue(mapValue(stored["nested"])["enabled"]) {
+		t.Fatal("caller mutation leaked into persisted configuration")
+	}
+}
+
+func TestLimitedCommandBufferEnforcesBound(t *testing.T) {
+	buffer := &limitedCommandBuffer{limit: 4}
+	if _, err := buffer.Write([]byte("12345")); err == nil || !buffer.exceeded || buffer.String() != "1234" {
+		t.Fatalf("command output limit was not enforced: exceeded=%v value=%q err=%v", buffer.exceeded, buffer.String(), err)
+	}
+}
+
+func TestSessionSnapshotSubscriptionStartsAfterSnapshotState(t *testing.T) {
+	manager := NewSessionManager(t.TempDir())
+	session := newSession(
+		"snapshot-order", "Codex", "codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"}, manager.baseDir,
+	)
+	session.events = manager.events
+	session.appendMessage(map[string]any{"kind": "assistant", "text": "before"})
+	subscription, snapshot := session.subscribeWithSnapshot(2)
+	defer subscription.Close()
+
+	messages, ok := snapshot["messages"].([]map[string]any)
+	if !ok || len(messages) != 1 || stringValue(messages[0]["text"]) != "before" {
+		t.Fatalf("snapshot did not include existing state: %#v", snapshot)
+	}
+	select {
+	case event := <-subscription.Events():
+		t.Fatalf("pre-snapshot event leaked into incremental stream: %#v", event)
+	default:
+	}
+	session.appendMessage(map[string]any{"kind": "assistant", "text": "after"})
+	select {
+	case event := <-subscription.Events():
+		message := mapValue(event.Payload["message"])
+		if stringValue(message["text"]) != "after" {
+			t.Fatalf("unexpected incremental event: %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("post-snapshot event was not delivered")
 	}
 }

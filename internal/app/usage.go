@@ -23,6 +23,8 @@ type UsageService struct {
 	loadedAt time.Time
 	binary   string
 	version  string
+	loading  chan struct{}
+	loadErr  error
 }
 
 func NewUsageService() *UsageService { return &UsageService{version: "20.0.20"} }
@@ -33,6 +35,8 @@ var usageSources = map[string]map[string]any{
 }
 
 func (service *UsageService) findBinary() (string, error) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
 	if service.binary != "" {
 		return service.binary, nil
 	}
@@ -82,7 +86,35 @@ func (service *UsageService) load(ctx context.Context, refresh bool) (map[string
 		service.mu.Unlock()
 		return result, nil
 	}
+	if loading := service.loading; loading != nil {
+		service.mu.Unlock()
+		select {
+		case <-loading:
+			service.mu.Lock()
+			result, err := service.cached, service.loadErr
+			service.mu.Unlock()
+			return result, err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	loading := make(chan struct{})
+	service.loading = loading
 	service.mu.Unlock()
+	result, err := service.loadUncached(ctx)
+	service.mu.Lock()
+	if err == nil {
+		service.cached = result
+		service.loadedAt = time.Now()
+	}
+	service.loadErr = err
+	service.loading = nil
+	close(loading)
+	service.mu.Unlock()
+	return result, err
+}
+
+func (service *UsageService) loadUncached(ctx context.Context) (map[string]any, error) {
 	binary, err := service.findBinary()
 	if err != nil {
 		return nil, err
@@ -114,10 +146,6 @@ func (service *UsageService) load(ctx context.Context, refresh bool) (map[string
 	if json.Unmarshal(stdout.Bytes(), &raw) != nil {
 		return nil, errors.New("ccusage returned invalid JSON")
 	}
-	service.mu.Lock()
-	service.cached = raw
-	service.loadedAt = time.Now()
-	service.mu.Unlock()
 	return raw, nil
 }
 func (service *UsageService) sources(ctx context.Context, refresh bool) (map[string]any, error) {

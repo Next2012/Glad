@@ -13,7 +13,7 @@
     "build:windows": "node scripts/build-go.js windows amd64 glad-windows-amd64.exe",
     "test": "npm run test:tooling && npm run test:go",
     "test:tooling": "node --test lib/npm/*.test.js",
-    "test:go": "go test ./internal/app .",
+    "test:go": "go test ./...",
     "check": "node scripts/check-syntax.js"
   },
   "keywords": [

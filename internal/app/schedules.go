@@ -33,7 +33,9 @@ type ScheduleStore struct {
 	config  *ConfigStore
 	jobs    map[string]*ScheduleJob
 	running map[string]bool
-	stop    chan struct{}
+	ctx     context.Context
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
 }
 
 func NewScheduleStore(config *ConfigStore) *ScheduleStore {
@@ -63,12 +65,12 @@ func NewScheduleStore(config *ConfigStore) *ScheduleStore {
 	}
 	return store
 }
-func (store *ScheduleStore) persistLocked() {
+func (store *ScheduleStore) persistLocked() error {
 	rows := []*ScheduleJob{}
 	for _, job := range store.jobs {
 		rows = append(rows, job)
 	}
-	_ = store.config.Set("schedules", rows)
+	return store.config.Set("schedules", rows)
 }
 func (store *ScheduleStore) list() []*ScheduleJob {
 	store.mu.Lock()
@@ -158,16 +160,19 @@ func computeNextRun(schedule map[string]any, now int64) any {
 	}
 	return nil
 }
-func (store *ScheduleStore) Start(manager *SessionManager) {
+func (store *ScheduleStore) Start(parent context.Context, manager *SessionManager) {
 	store.mu.Lock()
-	if store.stop != nil {
+	if store.cancel != nil {
 		store.mu.Unlock()
 		return
 	}
-	store.stop = make(chan struct{})
-	stop := store.stop
+	ctx, cancel := context.WithCancel(parent)
+	store.ctx = ctx
+	store.cancel = cancel
+	store.wg.Add(1)
 	store.mu.Unlock()
 	go func() {
+		defer store.wg.Done()
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -175,10 +180,10 @@ func (store *ScheduleStore) Start(manager *SessionManager) {
 			case <-ticker.C:
 				for _, job := range store.list() {
 					if job.Enabled && numberInt64(job.NextRunAt) > 0 && numberInt64(job.NextRunAt) <= millis() {
-						go store.run(context.Background(), manager, job.ID, false)
+						_, _ = store.run(ctx, manager, job.ID, false)
 					}
 				}
-			case <-stop:
+			case <-ctx.Done():
 				return
 			}
 		}
@@ -186,11 +191,14 @@ func (store *ScheduleStore) Start(manager *SessionManager) {
 }
 func (store *ScheduleStore) Stop() {
 	store.mu.Lock()
-	if store.stop != nil {
-		close(store.stop)
-		store.stop = nil
-	}
+	cancel := store.cancel
+	store.cancel = nil
+	store.ctx = nil
 	store.mu.Unlock()
+	if cancel != nil {
+		cancel()
+		store.wg.Wait()
+	}
 }
 
 func (store *ScheduleStore) run(
@@ -200,6 +208,10 @@ func (store *ScheduleStore) run(
 	manual bool,
 ) (map[string]any, error) {
 	store.mu.Lock()
+	if store.ctx == nil {
+		store.mu.Unlock()
+		return nil, errors.New("Scheduler is not running")
+	}
 	job := store.jobs[id]
 	if job == nil {
 		store.mu.Unlock()
@@ -210,45 +222,88 @@ func (store *ScheduleStore) run(
 		return map[string]any{"skipped": true, "reason": "Previous run is still active"}, nil
 	}
 	store.running[id] = true
+	previous := *job
 	job.Running = true
 	job.LastRunAt = millis()
 	job.LastRunStatus = "running"
-	store.persistLocked()
+	if err := store.persistLocked(); err != nil {
+		*job = previous
+		delete(store.running, id)
+		store.mu.Unlock()
+		return nil, err
+	}
 	copy := *job
+	runCtx := store.ctx
+	store.wg.Add(1)
 	store.mu.Unlock()
+	createCtx, cancelCreate := context.WithCancel(ctx)
+	stopCancel := context.AfterFunc(runCtx, cancelCreate)
 	session, err := manager.Create(
-		ctx,
+		createCtx,
 		CreateSessionRequest{
 			ToolKey:          stringValue(copy.Target["toolKey"]),
 			WorkingDirectory: stringValue(copy.Target["workingDirectory"]),
 			Name:             copy.Name,
 		},
 	)
+	stopCancel()
+	cancelCreate()
 	if err != nil {
 		store.finish(id, "failed", err.Error(), nil)
+		store.wg.Done()
 		return nil, err
 	}
 	store.mu.Lock()
+	if store.jobs[id] == nil {
+		delete(store.running, id)
+		store.mu.Unlock()
+		manager.Delete(context.Background(), session.ID)
+		store.wg.Done()
+		return nil, errors.New("Scheduled task was deleted while starting")
+	}
 	store.jobs[id].LastSessionID = session.ID
-	store.persistLocked()
+	if err := store.persistLocked(); err != nil {
+		store.mu.Unlock()
+		manager.Delete(context.Background(), session.ID)
+		store.finish(id, "failed", err.Error(), nil)
+		store.wg.Done()
+		return nil, err
+	}
 	store.mu.Unlock()
 	go func() {
-		time.Sleep(time.Second)
+		defer store.wg.Done()
+		if !waitForContext(runCtx, time.Second) {
+			manager.Delete(context.Background(), session.ID)
+			store.finish(id, "cancelled", "Scheduled task stopped", session.ID)
+			return
+		}
 		for _, step := range copy.Steps {
+			if runCtx.Err() != nil {
+				manager.Delete(context.Background(), session.ID)
+				store.finish(id, "cancelled", "Scheduled task stopped", session.ID)
+				return
+			}
 			switch stringValue(step["type"]) {
 			case "sleep":
-				time.Sleep(time.Duration(numberInt64(step["seconds"])) * time.Second)
+				if !waitForContext(runCtx, time.Duration(numberInt64(step["seconds"]))*time.Second) {
+					manager.Delete(context.Background(), session.ID)
+					store.finish(id, "cancelled", "Scheduled task stopped", session.ID)
+					return
+				}
 			case "sendText":
+				sendCtx, cancel := context.WithTimeout(runCtx, 60*time.Second)
 				if err := session.Provider.Send(
-					context.Background(),
+					sendCtx,
 					ProviderInput{
 						ClientMessageID: "schedule-" + copy.ID + "-" + newUUID(),
 						Text:            stringValue(step["text"]), AgentText: stringValue(step["text"]),
 					},
 				); err != nil {
+					cancel()
 					store.finish(id, "failed", "Message failed: "+err.Error(), session.ID)
 					return
 				}
+				cancel()
 			case "stop":
 				store.finish(id, "success", "Started session "+session.ID, session.ID)
 				return
@@ -262,6 +317,20 @@ func (store *ScheduleStore) run(
 	}()
 	return map[string]any{"success": true, "sessionId": session.ID}, nil
 }
+
+func waitForContext(ctx context.Context, duration time.Duration) bool {
+	if duration <= 0 {
+		return ctx.Err() == nil
+	}
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
 func (store *ScheduleStore) finish(id, status, message string, sessionID any) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -273,7 +342,9 @@ func (store *ScheduleStore) finish(id, status, message string, sessionID any) {
 		job.NextRunAt = computeNextRun(job.Schedule, millis())
 	}
 	delete(store.running, id)
-	store.persistLocked()
+	if err := store.persistLocked(); err != nil {
+		logDebug("[scheduler] unable to persist completion for %s: %v", id, err)
+	}
 }
 func (server *Server) registerScheduleRoutes(mux *http.ServeMux) {
 	mux.HandleFunc(
@@ -297,8 +368,15 @@ func (server *Server) createSchedule(w http.ResponseWriter, r *http.Request) {
 	job := normalizeSchedule(input, nil)
 	server.schedules.mu.Lock()
 	server.schedules.jobs[job.ID] = job
-	server.schedules.persistLocked()
+	err := server.schedules.persistLocked()
+	if err != nil {
+		delete(server.schedules.jobs, job.ID)
+	}
 	server.schedules.mu.Unlock()
+	if err != nil {
+		respondError(w, 500, err)
+		return
+	}
 	respondJSON(w, 200, job)
 }
 func (server *Server) getSchedule(w http.ResponseWriter, r *http.Request) {
@@ -319,9 +397,17 @@ func (server *Server) updateSchedule(w http.ResponseWriter, r *http.Request) {
 	_ = decodeJSON(r, &input)
 	job := normalizeSchedule(input, existing)
 	server.schedules.mu.Lock()
+	previous := server.schedules.jobs[job.ID]
 	server.schedules.jobs[job.ID] = job
-	server.schedules.persistLocked()
+	err := server.schedules.persistLocked()
+	if err != nil {
+		server.schedules.jobs[job.ID] = previous
+	}
 	server.schedules.mu.Unlock()
+	if err != nil {
+		respondError(w, 500, err)
+		return
+	}
 	respondJSON(w, 200, job)
 }
 func (server *Server) enableSchedule(w http.ResponseWriter, r *http.Request) {
@@ -337,17 +423,32 @@ func (server *Server) updateScheduleWith(w http.ResponseWriter, r *http.Request,
 	}
 	job := normalizeSchedule(input, existing)
 	server.schedules.mu.Lock()
+	previous := server.schedules.jobs[job.ID]
 	server.schedules.jobs[job.ID] = job
-	server.schedules.persistLocked()
+	err := server.schedules.persistLocked()
+	if err != nil {
+		server.schedules.jobs[job.ID] = previous
+	}
 	server.schedules.mu.Unlock()
+	if err != nil {
+		respondError(w, 500, err)
+		return
+	}
 	respondJSON(w, 200, job)
 }
 func (server *Server) deleteSchedule(w http.ResponseWriter, r *http.Request) {
 	server.schedules.mu.Lock()
-	_, ok := server.schedules.jobs[r.PathValue("id")]
+	previous, ok := server.schedules.jobs[r.PathValue("id")]
 	delete(server.schedules.jobs, r.PathValue("id"))
-	server.schedules.persistLocked()
+	err := server.schedules.persistLocked()
+	if err != nil && previous != nil {
+		server.schedules.jobs[r.PathValue("id")] = previous
+	}
 	server.schedules.mu.Unlock()
+	if err != nil {
+		respondError(w, 500, err)
+		return
+	}
 	respondJSON(w, 200, map[string]any{"success": ok})
 }
 func (server *Server) duplicateSchedule(w http.ResponseWriter, r *http.Request) {
@@ -368,8 +469,15 @@ func (server *Server) duplicateSchedule(w http.ResponseWriter, r *http.Request) 
 	existing.NextRunAt = nil
 	server.schedules.mu.Lock()
 	server.schedules.jobs[existing.ID] = existing
-	server.schedules.persistLocked()
+	err := server.schedules.persistLocked()
+	if err != nil {
+		delete(server.schedules.jobs, existing.ID)
+	}
 	server.schedules.mu.Unlock()
+	if err != nil {
+		respondError(w, 500, err)
+		return
+	}
 	respondJSON(w, 200, existing)
 }
 func (server *Server) runSchedule(w http.ResponseWriter, r *http.Request) {

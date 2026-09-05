@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Decoupled session events from WebSocket connections with bounded per-consumer queues, asynchronous notification delivery, and atomic snapshot subscriptions.
+- Reduced the common provider interface to lifecycle and send operations; optional provider features now use capability interfaces.
+- Made scheduler workers and timed inputs follow application and session cancellation, and wait for scheduler shutdown.
+- Serialized browser E2E workers because all projects share one stateful Glad daemon.
+
+### Fixed
+
+- Rejected duplicate or concurrent session IDs and kept initializing sessions private until their provider is ready.
+- Added time and output limits to Git commands, bounded workspace file reads, and coalesced concurrent usage report loads.
+- Made configuration updates copy-on-write, surfaced persistence failures, and rejected corrupt configuration instead of silently replacing it.
+
 ## [2.1.0] - 2026-09-05
 
 ### Added

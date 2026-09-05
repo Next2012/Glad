@@ -25,7 +25,8 @@ The production default remains port 3000. Port 3001 is reserved by the Playwrigh
 ## Source layout
 
 - `main.go`: thin native entrypoint and embedded Web assets
-- `internal/app/`: Go runtime and provider adapters
+- `internal/app/`: composition, use cases, HTTP/WebSocket adapters and provider adapters
+- `internal/session/`: transport-independent session event contracts and bounded fan-out
 - `lib/web/`: browser UI
 - `lib/npm/`: npm packaging tests
 - `npm/main/`: npm launcher template
@@ -43,9 +44,9 @@ npm test
 Run Go's race detector and static checks:
 
 ```bash
-go test -race ./internal/app
-go vet ./internal/app .
-test -z "$(gofmt -l *.go internal/app/*.go)"
+go test -race ./...
+go vet ./...
+test -z "$(gofmt -l *.go internal/app/*.go internal/session/*.go)"
 ```
 
 Run browser tests against port 3001:
