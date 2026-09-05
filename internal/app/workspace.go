@@ -2,15 +2,24 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
+
+const maxWorkspaceCommandOutput = 16 << 20
+const maxWorkspaceFileBytes = 4 << 20
+
+var gitObjectPattern = regexp.MustCompile(`^[0-9a-fA-F]{4,64}$`)
 
 func (server *Server) registerWorkspaceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions/{id}/git-show/{hash}", server.gitShow)
@@ -30,15 +39,44 @@ type commandResult struct {
 	Stderr  string `json:"stderr"`
 }
 
-func runCommand(cwd, name string, args ...string) commandResult {
-	command := exec.Command(name, args...)
+type limitedCommandBuffer struct {
+	bytes.Buffer
+	limit    int
+	exceeded bool
+}
+
+func (buffer *limitedCommandBuffer) Write(value []byte) (int, error) {
+	remaining := buffer.limit - buffer.Len()
+	if remaining <= 0 {
+		buffer.exceeded = true
+		return 0, errors.New("command output limit exceeded")
+	}
+	if len(value) > remaining {
+		_, _ = buffer.Buffer.Write(value[:remaining])
+		buffer.exceeded = true
+		return remaining, errors.New("command output limit exceeded")
+	}
+	return buffer.Buffer.Write(value)
+}
+
+func runCommand(ctx context.Context, cwd, name string, args ...string) commandResult {
+	commandCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	command := exec.CommandContext(commandCtx, name, args...)
 	command.Dir = cwd
-	var stdout, stderr bytes.Buffer
-	command.Stdout = &stdout
-	command.Stderr = &stderr
+	stdout := &limitedCommandBuffer{limit: maxWorkspaceCommandOutput}
+	stderr := &limitedCommandBuffer{limit: maxWorkspaceCommandOutput}
+	command.Stdout = stdout
+	command.Stderr = stderr
 	err := command.Run()
 	result := commandResult{Success: err == nil, Stdout: stdout.String(), Stderr: stderr.String()}
-	if err != nil {
+	if stdout.exceeded || stderr.exceeded {
+		result.Success = false
+		result.Error = "Command output exceeded 16 MB"
+	} else if errors.Is(commandCtx.Err(), context.DeadlineExceeded) {
+		result.Success = false
+		result.Error = "Command timed out after 30 seconds"
+	} else if err != nil {
 		result.Error = err.Error()
 	}
 	return result
@@ -56,14 +94,20 @@ func (server *Server) gitShow(writer http.ResponseWriter, request *http.Request)
 	if !ok {
 		return
 	}
+	hash := request.PathValue("hash")
+	if !gitObjectPattern.MatchString(hash) {
+		respondError(writer, 400, errors.New("Invalid Git object id"))
+		return
+	}
 	result := runCommand(
+		request.Context(),
 		session.WorkingDirectory,
 		"git",
 		"show",
 		"--format=fuller",
 		"--stat",
 		"-p",
-		request.PathValue("hash"),
+		hash,
 	)
 	respondJSON(writer, 200, result)
 }
@@ -72,13 +116,19 @@ func (server *Server) gitBranch(writer http.ResponseWriter, request *http.Reques
 	if !ok {
 		return
 	}
+	hash := request.PathValue("hash")
+	if !gitObjectPattern.MatchString(hash) {
+		respondError(writer, 400, errors.New("Invalid Git object id"))
+		return
+	}
 	result := runCommand(
+		request.Context(),
 		session.WorkingDirectory,
 		"git",
 		"name-rev",
 		"--name-only",
 		"--exclude=tags/*",
-		request.PathValue("hash"),
+		hash,
 	)
 	respondJSON(writer, 200, result)
 }
@@ -88,7 +138,14 @@ func (server *Server) gitLog(writer http.ResponseWriter, request *http.Request) 
 		return
 	}
 	count := atoiDefault(request.URL.Query().Get("maxCount"), 100)
+	if count < 1 {
+		count = 1
+	}
+	if count > 500 {
+		count = 500
+	}
 	result := runCommand(
+		request.Context(),
 		session.WorkingDirectory,
 		"git",
 		"log",
@@ -151,7 +208,7 @@ func (server *Server) gitStatus(writer http.ResponseWriter, request *http.Reques
 	if !ok {
 		return
 	}
-	result := runCommand(session.WorkingDirectory, "git", "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	result := runCommand(request.Context(), session.WorkingDirectory, "git", "status", "--porcelain=v1", "-z", "--untracked-files=all")
 	if !result.Success {
 		respondJSON(writer, 500, map[string]any{"error": result.Error, "stderr": result.Stderr})
 		return
@@ -168,7 +225,7 @@ func (server *Server) gitDiffNumstat(writer http.ResponseWriter, request *http.R
 		args = append(args, "--cached")
 	}
 	args = append(args, "--numstat")
-	respondJSON(writer, 200, runCommand(session.WorkingDirectory, "git", args...))
+	respondJSON(writer, 200, runCommand(request.Context(), session.WorkingDirectory, "git", args...))
 }
 func (server *Server) gitDiffFile(writer http.ResponseWriter, request *http.Request) {
 	session, ok := server.sessionForRoute(writer, request)
@@ -185,7 +242,7 @@ func (server *Server) gitDiffFile(writer http.ResponseWriter, request *http.Requ
 		args = append(args, "--cached")
 	}
 	args = append(args, "--no-ext-diff", "--", filename)
-	respondJSON(writer, 200, runCommand(session.WorkingDirectory, "git", args...))
+	respondJSON(writer, 200, runCommand(request.Context(), session.WorkingDirectory, "git", args...))
 }
 func resolveInside(root, target string) (string, error) {
 	realRoot, err := filepath.EvalSymlinks(root)
@@ -218,9 +275,24 @@ func (server *Server) workspaceFile(writer http.ResponseWriter, request *http.Re
 		respondJSON(writer, 200, map[string]any{"success": false, "error": err.Error()})
 		return
 	}
-	content, err := os.ReadFile(resolved)
+	info, err := os.Stat(resolved)
 	if err != nil {
 		respondJSON(writer, 200, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	if info.IsDir() || info.Size() > maxWorkspaceFileBytes {
+		respondJSON(writer, 200, map[string]any{"success": false, "error": "File is not a regular text file or exceeds 4 MB"})
+		return
+	}
+	file, err := os.Open(resolved)
+	if err != nil {
+		respondJSON(writer, 200, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, maxWorkspaceFileBytes+1))
+	if err != nil || len(content) > maxWorkspaceFileBytes {
+		respondJSON(writer, 200, map[string]any{"success": false, "error": "Unable to read file within the 4 MB limit"})
 		return
 	}
 	respondJSON(writer, 200, map[string]any{"success": true, "content": string(content)})
@@ -243,7 +315,7 @@ func (server *Server) workspaceDirectory(writer http.ResponseWriter, request *ht
 	}
 	files := []map[string]any{}
 	gitStatuses := map[string]string{}
-	if result := runCommand(session.WorkingDirectory, "git", "status", "--porcelain=v1", "-z", "--untracked-files=all"); result.Success {
+	if result := runCommand(request.Context(), session.WorkingDirectory, "git", "status", "--porcelain=v1", "-z", "--untracked-files=all"); result.Success {
 		for _, item := range parseGitStatus(result.Stdout) {
 			gitStatuses[stringValue(item["path"])] = stringValue(item["status"])
 		}

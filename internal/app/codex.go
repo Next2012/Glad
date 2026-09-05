@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
 type codexRPCResult struct {
@@ -27,8 +28,46 @@ type codexPendingPermission struct {
 	Params map[string]any
 }
 
+const maxCodexToolOutputBytes = 8 << 20
+const defaultCodexAbortGrace = 5 * time.Second
+
+const codexOutputTruncatedMarker = "\n… output truncated by Glad …\n"
+
+type codexDeltaStream struct {
+	messageID string
+	builder   strings.Builder
+	limit     int
+	truncated bool
+}
+
+func (stream *codexDeltaStream) append(delta string) bool {
+	if delta == "" || stream.truncated {
+		return false
+	}
+	if stream.limit <= 0 || stream.builder.Len()+len(delta) <= stream.limit {
+		stream.builder.WriteString(delta)
+		return true
+	}
+	available := stream.limit - stream.builder.Len() - len(codexOutputTruncatedMarker)
+	if available > len(delta) {
+		available = len(delta)
+	}
+	for available > 0 && !utf8.ValidString(delta[:available]) {
+		available--
+	}
+	if available > 0 {
+		stream.builder.WriteString(delta[:available])
+	}
+	stream.builder.WriteString(codexOutputTruncatedMarker)
+	stream.truncated = true
+	return true
+}
+
+func (stream *codexDeltaStream) text() string { return stream.builder.String() }
+
 type CodexProvider struct {
 	mu                   sync.Mutex
+	streamMu             sync.Mutex
 	session              *Session
 	options              map[string]any
 	cmd                  *exec.Cmd
@@ -42,6 +81,16 @@ type CodexProvider struct {
 	models               []map[string]any
 	tokenUsage           map[string]any
 	reconnectAbortTurnID string
+	streams              map[string]*codexDeltaStream
+	expectedStops        map[*exec.Cmd]struct{}
+	resumeCancel         context.CancelFunc
+	resuming             bool
+	resumeInFlight       bool
+	resumeAborted        bool
+	aborting             bool
+	needsThreadResume    bool
+	abortSequence        uint64
+	abortGrace           time.Duration
 	closed               bool
 }
 
@@ -52,18 +101,33 @@ func NewCodexProvider(session *Session, options map[string]any) *CodexProvider {
 		options = map[string]any{}
 	}
 	return &CodexProvider{
-		session:     session,
-		options:     options,
-		pending:     map[int64]chan codexRPCResult{},
-		permissions: map[string]codexPendingPermission{},
-		threadID:    stringValue(options["resume"]),
+		session:       session,
+		options:       options,
+		pending:       map[int64]chan codexRPCResult{},
+		permissions:   map[string]codexPendingPermission{},
+		streams:       map[string]*codexDeltaStream{},
+		expectedStops: map[*exec.Cmd]struct{}{},
+		threadID:      stringValue(options["resume"]),
+		abortGrace:    defaultCodexAbortGrace,
 	}
 }
 
 func (provider *CodexProvider) Start(ctx context.Context) error {
 	provider.mu.Lock()
+	err := provider.startLocked(ctx)
+	provider.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	provider.updatePublicState("idle")
+	return nil
+}
+
+func (provider *CodexProvider) startLocked(ctx context.Context) error {
+	if provider.closed {
+		return errors.New("Codex session is closed")
+	}
 	if provider.cmd != nil {
-		provider.mu.Unlock()
 		return nil
 	}
 	command := exec.Command(provider.session.Tool.Command, "app-server", "--stdio")
@@ -72,21 +136,17 @@ func (provider *CodexProvider) Start(ctx context.Context) error {
 	command.Env = os.Environ()
 	stdin, err := command.StdinPipe()
 	if err != nil {
-		provider.mu.Unlock()
 		return err
 	}
 	stdout, err := command.StdoutPipe()
 	if err != nil {
-		provider.mu.Unlock()
 		return err
 	}
 	stderr, err := command.StderrPipe()
 	if err != nil {
-		provider.mu.Unlock()
 		return err
 	}
 	if err := command.Start(); err != nil {
-		provider.mu.Unlock()
 		return err
 	}
 	provider.cmd, provider.stdin = command, stdin
@@ -100,10 +160,10 @@ func (provider *CodexProvider) Start(ctx context.Context) error {
 		"capabilities": map[string]any{"experimentalApi": true},
 	}
 	if _, err := provider.requestLocked(initCtx, "initialize", initializeParams); err != nil {
+		provider.expectedStops[command] = struct{}{}
 		killProcessTree(command)
 		provider.cmd = nil
 		provider.stdin = nil
-		provider.mu.Unlock()
 		return err
 	}
 	_ = provider.notifyLocked("initialized", map[string]any{})
@@ -114,16 +174,20 @@ func (provider *CodexProvider) Start(ctx context.Context) error {
 	)
 	provider.applyConfig(mapValue(config["config"]))
 	_ = provider.refreshModelsLocked(initCtx)
-	provider.mu.Unlock()
-	provider.updatePublicState("idle")
 	return nil
 }
 
 func (provider *CodexProvider) Send(ctx context.Context, input ProviderInput) error {
 	provider.mu.Lock()
-	if provider.closed || provider.cmd == nil {
+	if provider.closed || provider.resumeInFlight || provider.aborting {
 		provider.mu.Unlock()
 		return errors.New("Codex session is unavailable")
+	}
+	if provider.cmd == nil {
+		if err := provider.startLocked(ctx); err != nil {
+			provider.mu.Unlock()
+			return err
+		}
 	}
 	if provider.turnID != "" {
 		provider.mu.Unlock()
@@ -141,6 +205,20 @@ func (provider *CodexProvider) Send(ctx context.Context, input ProviderInput) er
 		if provider.threadID == "" {
 			provider.threadID = stringValue(started["threadId"])
 		}
+		provider.needsThreadResume = false
+	} else if provider.needsThreadResume {
+		_, err := provider.requestLocked(
+			ctx,
+			"thread/resume",
+			map[string]any{
+				"threadId": provider.threadID, "cwd": provider.session.WorkingDirectory, "excludeTurns": true,
+			},
+		)
+		if err != nil {
+			provider.mu.Unlock()
+			return fmt.Errorf("resume Codex after restart: %w", err)
+		}
+		provider.needsThreadResume = false
 	}
 	items := []any{}
 	for _, skill := range input.Skills {
@@ -214,19 +292,57 @@ func (provider *CodexProvider) readStderr(reader io.Reader) {
 func (provider *CodexProvider) wait(command *exec.Cmd) {
 	err := command.Wait()
 	provider.mu.Lock()
-	if provider.cmd == command {
+	_, expected := provider.expectedStops[command]
+	delete(provider.expectedStops, command)
+	current := provider.cmd == command
+	if current {
 		provider.cmd = nil
 		provider.stdin = nil
+		if provider.resumeCancel != nil {
+			provider.resumeCancel()
+		}
+		provider.resumeCancel = nil
+		provider.resuming = false
+		provider.resumeInFlight = false
+		provider.aborting = false
+		provider.abortSequence++
+		if !provider.closed && provider.threadID != "" {
+			provider.needsThreadResume = true
+		}
+		provider.failPendingLocked(errors.New("Codex app-server exited"))
 	}
 	closed := provider.closed
 	provider.mu.Unlock()
-	if !closed {
+	if current {
+		provider.clearDeltaStreams()
+	}
+	if !closed && !expected {
 		text := "Codex app-server exited."
 		if err != nil {
 			text += " " + err.Error()
 		}
 		provider.session.appendMessage(map[string]any{"kind": "event", "level": "error", "text": text})
-		provider.session.setState(map[string]any{"status": "idle", "canAbort": false})
+		provider.updatePublicState("idle")
+	}
+}
+
+func (provider *CodexProvider) failPendingLocked(err error) {
+	failCodexRequests(provider.takePendingLocked(), err)
+}
+
+func (provider *CodexProvider) takePendingLocked() []chan codexRPCResult {
+	channels := make([]chan codexRPCResult, 0, len(provider.pending))
+	for id, channel := range provider.pending {
+		delete(provider.pending, id)
+		channels = append(channels, channel)
+	}
+	return channels
+}
+
+func failCodexRequests(channels []chan codexRPCResult, err error) {
+	for _, channel := range channels {
+		channel <- codexRPCResult{Err: err}
+		close(channel)
 	}
 }
 
@@ -335,6 +451,8 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 		provider.turnID = ""
 		provider.turnStarted = 0
 		provider.permissions = map[string]codexPendingPermission{}
+		provider.aborting = false
+		provider.abortSequence++
 		provider.mu.Unlock()
 		status := "completed"
 		if stringValue(turn["status"]) == "failed" || turn["error"] != nil {
@@ -363,6 +481,7 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 		provider.session.Permissions = map[string]Permission{}
 		provider.session.mu.Unlock()
 		provider.updatePublicState("idle")
+		provider.clearDeltaStreams()
 	case "thread/compacted":
 		provider.applyItem(
 			map[string]any{
@@ -382,7 +501,12 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 		provider.updatePublicState(provider.session.StatusValue)
 	case "thread/status/changed":
 		if stringValue(mapValue(params["status"])["type"]) == "idle" {
-			provider.updatePublicState("idle")
+			provider.mu.Lock()
+			aborting := provider.aborting
+			provider.mu.Unlock()
+			if !aborting {
+				provider.updatePublicState("idle")
+			}
 		}
 	case "thread/settings/updated":
 		settings := mapValue(params["threadSettings"])
@@ -488,18 +612,42 @@ func (provider *CodexProvider) applyItem(raw map[string]any, inferred string) {
 		for key, value := range codexToolDetails(raw) {
 			patch[key] = value
 		}
+		if result := stringValue(patch["result"]); result != "" {
+			patch["result"] = limitCodexToolOutput(result)
+		}
 		patch["toolStatus"] = firstNonEmpty(inferred, stringValue(raw["status"]), "running")
 		patch["startedAtMs"] = millis()
 	}
+	streamKind := ""
+	if kind == "assistant" || kind == "reasoning" {
+		streamKind = kind
+	} else if kind == "tool" {
+		streamKind = "tool-output"
+	}
+	streamText, streamMessageID := "", ""
+	if streamKind != "" {
+		streamText, streamMessageID = provider.deltaStreamSnapshot(streamKind, providerID, inferred == "completed")
+	}
+	if streamText != "" {
+		field := "text"
+		if kind == "tool" {
+			field = "result"
+		}
+		if stringValue(patch[field]) == "" {
+			patch[field] = streamText
+		}
+	}
 	provider.session.mu.RLock()
-	existingID := ""
+	existingID := streamMessageID
 	preserveUserText := false
-	for _, message := range provider.session.Messages {
-		if stringValue(message["providerId"]) == providerID && providerID != "" {
-			existingID = stringValue(message["id"])
-			preserveUserText = kind == "user" &&
-				(stringValue(message["clientMessageId"]) != "" || stringValue(message["agentText"]) != "")
-			break
+	if existingID == "" {
+		for _, message := range provider.session.Messages {
+			if stringValue(message["providerId"]) == providerID && providerID != "" {
+				existingID = stringValue(message["id"])
+				preserveUserText = kind == "user" &&
+					(stringValue(message["clientMessageId"]) != "" || stringValue(message["agentText"]) != "")
+				break
+			}
 		}
 	}
 	provider.session.mu.RUnlock()
@@ -523,7 +671,10 @@ func (provider *CodexProvider) applyItem(raw map[string]any, inferred string) {
 		}
 		provider.session.patchMessage(existingID, patch)
 	} else {
-		provider.session.appendMessage(patch)
+		message := provider.session.appendMessage(patch)
+		if message != nil && streamKind != "" {
+			provider.bindDeltaStream(streamKind, providerID, stringValue(message["id"]))
+		}
 	}
 }
 
@@ -575,46 +726,109 @@ func (provider *CodexProvider) appendDelta(method string, params map[string]any)
 	}
 	providerID := firstNonEmpty(stringValue(params["itemId"]), stringValue(params["id"]))
 	delta := stringValue(params["delta"])
-	provider.session.mu.RLock()
-	existingID := ""
-	existingText := ""
-	for _, m := range provider.session.Messages {
-		if stringValue(m["providerId"]) == providerID && stringValue(m["kind"]) == kind {
-			existingID = stringValue(m["id"])
-			existingText = stringValue(m["text"])
-			break
-		}
+	stream := provider.deltaStream(kind, providerID, 0)
+	if !stream.append(delta) {
+		provider.streamMu.Unlock()
+		return
 	}
-	provider.session.mu.RUnlock()
 	patch := map[string]any{
-		"text":     existingText + delta,
+		"text":     stream.text(),
 		"threadId": params["threadId"],
 		"turnId":   firstNonNil(params["turnId"], provider.turnID),
 	}
-	if existingID != "" {
-		provider.session.patchMessage(existingID, patch)
+	if stream.messageID != "" {
+		provider.session.patchMessage(stream.messageID, patch)
 	} else {
 		patch["kind"] = kind
 		patch["providerId"] = providerID
 		patch["streaming"] = true
-		provider.session.appendMessage(patch)
-	}
-}
-func (provider *CodexProvider) patchProviderItem(id, delta string) {
-	provider.session.mu.RLock()
-	targetID := ""
-	result := ""
-	for _, m := range provider.session.Messages {
-		if stringValue(m["providerId"]) == id {
-			targetID = stringValue(m["id"])
-			result = stringValue(m["result"])
-			break
+		message := provider.session.appendMessage(patch)
+		if message != nil {
+			stream.messageID = stringValue(message["id"])
 		}
 	}
-	provider.session.mu.RUnlock()
-	if targetID != "" {
-		provider.session.patchMessage(targetID, map[string]any{"result": result + delta})
+	provider.streamMu.Unlock()
+}
+func (provider *CodexProvider) patchProviderItem(id, delta string) {
+	stream := provider.deltaStream("tool-output", id, maxCodexToolOutputBytes)
+	if !stream.append(delta) {
+		provider.streamMu.Unlock()
+		return
 	}
+	if stream.messageID != "" {
+		provider.session.patchMessage(stream.messageID, map[string]any{"result": stream.text()})
+	}
+	provider.streamMu.Unlock()
+}
+
+// deltaStream returns a locked accumulator. Callers must unlock streamMu after
+// updating the corresponding Session message so stream contents and IDs stay
+// ordered with provider notifications.
+func (provider *CodexProvider) deltaStream(kind, providerID string, limit int) *codexDeltaStream {
+	provider.streamMu.Lock()
+	key := kind + "\x00" + providerID
+	stream := provider.streams[key]
+	if stream == nil {
+		stream = &codexDeltaStream{limit: limit}
+		provider.session.mu.RLock()
+		for _, message := range provider.session.Messages {
+			if stringValue(message["providerId"]) != providerID {
+				continue
+			}
+			if kind != "tool-output" && stringValue(message["kind"]) != kind {
+				continue
+			}
+			stream.messageID = stringValue(message["id"])
+			field := "text"
+			if kind == "tool-output" {
+				field = "result"
+			}
+			stream.append(stringValue(message[field]))
+			break
+		}
+		provider.session.mu.RUnlock()
+		provider.streams[key] = stream
+	}
+	return stream
+}
+
+func (provider *CodexProvider) deltaStreamSnapshot(kind, providerID string, remove bool) (string, string) {
+	provider.streamMu.Lock()
+	defer provider.streamMu.Unlock()
+	key := kind + "\x00" + providerID
+	stream := provider.streams[key]
+	if stream == nil {
+		return "", ""
+	}
+	if remove {
+		delete(provider.streams, key)
+	}
+	return stream.text(), stream.messageID
+}
+
+func (provider *CodexProvider) bindDeltaStream(kind, providerID, messageID string) {
+	provider.streamMu.Lock()
+	if stream := provider.streams[kind+"\x00"+providerID]; stream != nil && stream.messageID == "" {
+		stream.messageID = messageID
+	}
+	provider.streamMu.Unlock()
+}
+
+func (provider *CodexProvider) clearDeltaStreams() {
+	provider.streamMu.Lock()
+	provider.streams = map[string]*codexDeltaStream{}
+	provider.streamMu.Unlock()
+}
+
+func limitCodexToolOutput(value string) string {
+	if len(value) <= maxCodexToolOutputBytes {
+		return value
+	}
+	available := maxCodexToolOutputBytes - len(codexOutputTruncatedMarker)
+	for available > 0 && !utf8.ValidString(value[:available]) {
+		available--
+	}
+	return value[:available] + codexOutputTruncatedMarker
 }
 
 func (provider *CodexProvider) requestLocked(
@@ -742,17 +956,150 @@ func (provider *CodexProvider) UpdateSettings(ctx context.Context, settings map[
 }
 func (provider *CodexProvider) Interrupt(ctx context.Context) error {
 	provider.mu.Lock()
-	if provider.threadID == "" || provider.turnID == "" {
+	if provider.closed {
+		provider.mu.Unlock()
+		return errors.New("Codex session is closed")
+	}
+	if provider.aborting {
+		provider.mu.Unlock()
+		return nil
+	}
+	provider.aborting = true
+	provider.abortSequence++
+	sequence := provider.abortSequence
+	if provider.resumeInFlight {
+		provider.resumeAborted = true
+		cancelResume := provider.resumeCancel
+		provider.mu.Unlock()
+		provider.updatePublicState("idle")
+		if cancelResume != nil {
+			cancelResume()
+		}
+		provider.forceAbort(sequence, "Codex resume was stopped.")
+		return nil
+	}
+	threadID, turnID := provider.threadID, provider.turnID
+	if threadID == "" || turnID == "" {
+		if provider.cmd != nil {
+			provider.mu.Unlock()
+			provider.updatePublicState("running")
+			provider.forceAbort(sequence, "Codex had no interruptible turn id and its app-server was stopped.")
+			return nil
+		}
+		provider.aborting = false
+		provider.mu.Unlock()
+		provider.updatePublicState("idle")
+		return nil
+	}
+	provider.mu.Unlock()
+	provider.updatePublicState("running")
+	go provider.abortWatchdog(sequence)
+
+	provider.mu.Lock()
+	if !provider.aborting || provider.abortSequence != sequence || provider.stdin == nil {
 		provider.mu.Unlock()
 		return nil
 	}
 	_, err := provider.requestLocked(
 		ctx,
 		"turn/interrupt",
-		map[string]any{"threadId": provider.threadID, "turnId": provider.turnID},
+		map[string]any{"threadId": threadID, "turnId": turnID},
 	)
 	provider.mu.Unlock()
 	return err
+}
+
+func (provider *CodexProvider) abortWatchdog(sequence uint64) {
+	provider.mu.Lock()
+	grace := provider.abortGrace
+	provider.mu.Unlock()
+	if grace <= 0 {
+		grace = defaultCodexAbortGrace
+	}
+	timer := time.NewTimer(grace)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		provider.forceAbort(sequence, fmt.Sprintf("Codex did not stop within %s.", grace.Round(time.Millisecond)))
+	case <-provider.session.ctx.Done():
+	}
+}
+
+func (provider *CodexProvider) forceAbort(sequence uint64, reason string) bool {
+	provider.mu.Lock()
+	if provider.closed || !provider.aborting || provider.abortSequence != sequence {
+		provider.mu.Unlock()
+		return false
+	}
+	command := provider.cmd
+	if command != nil {
+		provider.expectedStops[command] = struct{}{}
+	}
+	if provider.stdin != nil {
+		_ = provider.stdin.Close()
+	}
+	threadID, turnID, started := provider.threadID, provider.turnID, provider.turnStarted
+	provider.cmd = nil
+	provider.stdin = nil
+	provider.turnID = ""
+	provider.turnStarted = 0
+	provider.permissions = map[string]codexPendingPermission{}
+	provider.needsThreadResume = provider.threadID != ""
+	provider.resuming = false
+	provider.resumeCancel = nil
+	provider.aborting = false
+	provider.abortSequence++
+	pending := provider.takePendingLocked()
+	provider.mu.Unlock()
+
+	if command != nil {
+		killProcessTree(command)
+	}
+	provider.settleForcedAbort(threadID, turnID, started, reason)
+	provider.clearDeltaStreams()
+	provider.updatePublicState("idle")
+	failCodexRequests(pending, errors.New("Codex app-server was stopped"))
+	return true
+}
+
+func (provider *CodexProvider) settleForcedAbort(threadID, turnID string, started int64, reason string) {
+	provider.session.appendMessage(map[string]any{"kind": "event", "level": "warning", "text": reason})
+	if turnID != "" {
+		exists := false
+		runningTools := []string{}
+		provider.session.mu.RLock()
+		for _, message := range provider.session.Messages {
+			if stringValue(message["kind"]) == "turn-end" && stringValue(message["turnId"]) == turnID {
+				exists = true
+			}
+			if stringValue(message["kind"]) == "tool" && stringValue(message["turnId"]) == turnID &&
+				(stringValue(message["toolStatus"]) == "running" || stringValue(message["toolStatus"]) == "inProgress") {
+				runningTools = append(runningTools, stringValue(message["id"]))
+			}
+		}
+		provider.session.mu.RUnlock()
+		for _, id := range runningTools {
+			provider.session.patchMessage(id, map[string]any{"toolStatus": "cancelled", "completedAtMs": millis()})
+		}
+		if !exists {
+			message := map[string]any{
+				"kind": "turn-end", "threadId": threadID, "turnId": turnID, "status": "cancelled",
+				"createdAt": millis(),
+			}
+			if started > 0 {
+				message["durationMs"] = max64(0, millis()-started)
+			}
+			provider.session.appendMessage(message)
+		}
+	}
+	provider.session.mu.Lock()
+	provider.session.Permissions = map[string]Permission{}
+	provider.session.HasUnreadCompletion = true
+	provider.session.mu.Unlock()
+	provider.session.appendMessage(map[string]any{
+		"kind": "event", "level": "info",
+		"text": "Codex app-server stopped. It will restart before the next message.",
+	})
 }
 
 func codexReconnectProgress(message string) (int, int) {
@@ -788,33 +1135,77 @@ func (provider *CodexProvider) abortAfterReconnect(threadID, turnID string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		provider.mu.Lock()
-		_, err := provider.requestLocked(
-			ctx,
-			"turn/interrupt",
-			map[string]any{"threadId": threadID, "turnId": turnID},
-		)
-		provider.mu.Unlock()
+		err := provider.Interrupt(ctx)
 		if err != nil {
 			logDebug("[codex-app-server] automatic turn/interrupt failed for %s/%s: %v", threadID, turnID, err)
 		}
 	}()
 }
 func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("Codex thread is unavailable")
+	}
+	resumeCtx, cancelResume := context.WithCancel(ctx)
+	defer cancelResume()
 	provider.mu.Lock()
-	result, err := provider.requestLocked(
-		ctx,
+	if provider.closed || provider.resumeInFlight || provider.aborting || provider.turnID != "" {
+		provider.mu.Unlock()
+		return errors.New("Codex session is busy")
+	}
+	if provider.cmd == nil {
+		if err := provider.startLocked(resumeCtx); err != nil {
+			provider.mu.Unlock()
+			return err
+		}
+	}
+	provider.resuming = true
+	provider.resumeInFlight = true
+	provider.resumeAborted = false
+	provider.resumeCancel = cancelResume
+	provider.mu.Unlock()
+	provider.updatePublicState("running")
+
+	result, err := provider.rpc(
+		resumeCtx,
 		"thread/resume",
-		map[string]any{"threadId": id, "cwd": provider.session.WorkingDirectory},
+		map[string]any{
+			"threadId": id, "cwd": provider.session.WorkingDirectory,
+			"excludeTurns": true, "initialTurnsPage": codexInitialTurnsPageParams(),
+		},
 	)
 	if err == nil {
+		provider.mu.Lock()
 		provider.threadID = firstNonEmpty(stringValue(mapValue(result["thread"])["id"]), id)
+		provider.needsThreadResume = false
+		provider.mu.Unlock()
+		err = provider.hydrateThread(resumeCtx, result)
 	}
+	if err != nil && resumeCtx.Err() != nil {
+		provider.mu.Lock()
+		if !provider.resumeAborted && !provider.aborting && provider.cmd != nil {
+			provider.aborting = true
+			provider.abortSequence++
+			sequence := provider.abortSequence
+			provider.mu.Unlock()
+			provider.forceAbort(sequence, "Codex resume was cancelled before it completed.")
+		} else {
+			provider.mu.Unlock()
+		}
+	}
+	provider.mu.Lock()
+	aborted := provider.resumeAborted
+	provider.resumeAborted = false
+	provider.resuming = false
+	provider.resumeCancel = nil
 	provider.mu.Unlock()
-	if err == nil {
-		provider.hydrateThread(ctx, mapValue(result["thread"]))
-	}
 	provider.updatePublicState("idle")
+	provider.mu.Lock()
+	provider.resumeInFlight = false
+	provider.mu.Unlock()
+	if aborted {
+		return errors.New("resume aborted")
+	}
 	return err
 }
 func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, error) {
@@ -822,7 +1213,10 @@ func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, err
 	result, err := provider.requestLocked(
 		ctx,
 		"thread/fork",
-		map[string]any{"threadId": id, "cwd": provider.session.WorkingDirectory, "ephemeral": false},
+		map[string]any{
+			"threadId": id, "cwd": provider.session.WorkingDirectory, "ephemeral": false,
+			"excludeTurns": true, "initialTurnsPage": codexInitialTurnsPageParams(),
+		},
 	)
 	newID := stringValue(mapValue(result["thread"])["id"])
 	if err == nil {
@@ -830,31 +1224,95 @@ func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, err
 	}
 	provider.mu.Unlock()
 	if err == nil {
-		provider.hydrateThread(ctx, mapValue(result["thread"]))
+		err = provider.hydrateThread(ctx, result)
 	}
 	provider.updatePublicState("idle")
 	return newID, err
 }
 
-func (provider *CodexProvider) hydrateThread(ctx context.Context, thread map[string]any) {
+func codexInitialTurnsPageParams() map[string]any {
+	return map[string]any{"limit": 50, "sortDirection": "desc", "itemsView": "full"}
+}
+
+func (provider *CodexProvider) hydrateThread(ctx context.Context, result map[string]any) error {
+	provider.clearDeltaStreams()
+	thread := mapValue(result["thread"])
 	threadID := firstNonEmpty(stringValue(thread["id"]), provider.threadID)
-	turns := sliceValue(thread["turns"])
-	if len(turns) == 0 && threadID != "" {
-		params := map[string]any{
-			"threadId": threadID, "cursor": nil, "limit": 50,
-			"sortDirection": "desc", "itemsView": "full",
-		}
-		if result, err := provider.rpc(ctx, "thread/turns/list", params); err == nil {
-			newest := sliceValue(result["data"])
-			for index := len(newest) - 1; index >= 0; index-- {
-				turns = append(turns, newest[index])
-			}
-		}
+	if threadID == "" {
+		return errors.New("Codex thread is unavailable")
 	}
-	provider.session.mu.Lock()
-	provider.session.Messages = nil
-	provider.session.mu.Unlock()
+	turns, err := provider.loadThreadTurns(ctx, threadID, mapValue(result["initialTurnsPage"]), sliceValue(thread["turns"]))
+	if err != nil {
+		return err
+	}
+	messages, err := buildCodexHistoryMessages(ctx, threadID, turns)
+	if err != nil {
+		return err
+	}
+	if !provider.session.replaceMessages(messages) {
+		return errors.New("Codex session is closed")
+	}
+	return nil
+}
+
+func (provider *CodexProvider) loadThreadTurns(
+	ctx context.Context,
+	threadID string,
+	initialPage map[string]any,
+	legacyTurns []any,
+) ([]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if len(initialPage) == 0 && len(legacyTurns) > 0 {
+		return legacyTurns, nil
+	}
+	descending := []any{}
+	page := initialPage
+	cursor := ""
+	seenCursors := map[string]bool{}
+	for pageNumber := 0; ; pageNumber++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if pageNumber > 1000 {
+			return nil, errors.New("Codex history pagination exceeded 1000 pages")
+		}
+		if len(page) == 0 {
+			params := codexInitialTurnsPageParams()
+			params["threadId"] = threadID
+			params["cursor"] = nilIfEmpty(cursor)
+			result, err := provider.rpc(ctx, "thread/turns/list", params)
+			if err != nil {
+				return nil, err
+			}
+			page = result
+		}
+		descending = append(descending, sliceValue(page["data"])...)
+		next := strings.TrimSpace(stringValue(page["nextCursor"]))
+		if next == "" {
+			break
+		}
+		if seenCursors[next] {
+			return nil, errors.New("Codex history pagination repeated a cursor")
+		}
+		seenCursors[next] = true
+		cursor = next
+		page = nil
+	}
+	turns := make([]any, len(descending))
+	for index, value := range descending {
+		turns[len(descending)-1-index] = value
+	}
+	return turns, nil
+}
+
+func buildCodexHistoryMessages(ctx context.Context, threadID string, turns []any) ([]map[string]any, error) {
+	messages := make([]map[string]any, 0, len(turns)*4)
 	for _, value := range turns {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		turn := mapValue(value)
 		turnID := stringValue(turn["id"])
 		started := timestampMillis(firstNonNil(turn["startedAt"], turn["createdAt"]))
@@ -862,9 +1320,9 @@ func (provider *CodexProvider) hydrateThread(ctx context.Context, thread map[str
 		if started == 0 {
 			started = millis()
 		}
-		provider.session.appendMessage(
-			map[string]any{"kind": "turn-start", "threadId": threadID, "turnId": turnID, "createdAt": started},
-		)
+		messages = append(messages, codexHistoryMessage(map[string]any{
+			"kind": "turn-start", "threadId": threadID, "turnId": turnID, "createdAt": started,
+		}))
 		status := "completed"
 		if stringValue(turn["status"]) == "failed" {
 			status = "failed"
@@ -873,12 +1331,17 @@ func (provider *CodexProvider) hydrateThread(ctx context.Context, thread map[str
 			status = "cancelled"
 		}
 		for _, itemValue := range sliceValue(turn["items"]) {
-			item := mapValue(itemValue)
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			item := cloneMap(mapValue(itemValue))
 			item["threadId"] = threadID
 			item["turnId"] = turnID
-			provider.applyItem(item, "completed")
+			if message := codexHistoryItem(item); message != nil {
+				messages = append(messages, codexHistoryMessage(message))
+			}
 		}
-		provider.session.appendMessage(
+		messages = append(messages, codexHistoryMessage(
 			map[string]any{
 				"kind":       "turn-end",
 				"threadId":   threadID,
@@ -887,15 +1350,62 @@ func (provider *CodexProvider) hydrateThread(ctx context.Context, thread map[str
 				"durationMs": max64(0, completed-started),
 				"createdAt":  completed,
 			},
-		)
+		))
 	}
-	provider.session.mu.RLock()
-	messages := make([]map[string]any, len(provider.session.Messages))
-	for index, item := range provider.session.Messages {
-		messages[index] = publicMessage(item, provider.session.Kind)
+	return messages, nil
+}
+
+func codexHistoryMessage(message map[string]any) map[string]any {
+	if message["id"] == nil {
+		message["id"] = newUUID()
 	}
-	provider.session.mu.RUnlock()
-	provider.session.emit(map[string]any{"type": "history-reset", "messages": messages})
+	if message["createdAt"] == nil {
+		message["createdAt"] = millis()
+	}
+	return message
+}
+
+func codexHistoryItem(raw map[string]any) map[string]any {
+	itemType := stringValue(raw["type"])
+	kind := ""
+	switch itemType {
+	case "userMessage":
+		kind = "user"
+	case "agentMessage":
+		kind = "assistant"
+	case "reasoning", "plan":
+		kind = "reasoning"
+	case "commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "webSearch", "collabAgentToolCall":
+		kind = "tool"
+	case "contextCompaction":
+		kind = "compaction"
+	default:
+		return nil
+	}
+	message := map[string]any{
+		"kind": kind, "providerId": raw["id"], "threadId": raw["threadId"], "turnId": raw["turnId"],
+		"streaming": false,
+	}
+	switch kind {
+	case "user":
+		message["text"] = textFromCodexInput(raw["content"])
+	case "assistant":
+		message["text"] = stringValue(raw["text"])
+	case "reasoning":
+		message["text"] = firstNonEmpty(stringValue(raw["text"]), strings.Join(stringsFromAny(raw["summary"]), "\n"))
+	case "compaction":
+		message["compactionStatus"] = firstNonEmpty(stringValue(raw["status"]), "completed")
+	case "tool":
+		for key, value := range codexToolDetails(raw) {
+			message[key] = value
+		}
+		if result := stringValue(message["result"]); result != "" {
+			message["result"] = limitCodexToolOutput(result)
+		}
+		message["toolStatus"] = firstNonEmpty(stringValue(raw["status"]), "completed")
+		message["startedAtMs"] = timestampMillis(firstNonNil(raw["startedAt"], raw["createdAt"]))
+	}
+	return message
 }
 func (provider *CodexProvider) Compact(ctx context.Context) error {
 	provider.mu.Lock()
@@ -947,15 +1457,26 @@ func (provider *CodexProvider) Status(ctx context.Context) error {
 func (provider *CodexProvider) Close(context.Context) error {
 	provider.mu.Lock()
 	provider.closed = true
+	if provider.resumeCancel != nil {
+		provider.resumeCancel()
+	}
+	provider.resumeCancel = nil
+	provider.resuming = false
+	provider.resumeInFlight = false
+	provider.aborting = false
+	provider.abortSequence++
 	if provider.stdin != nil {
 		_ = provider.stdin.Close()
 	}
 	if provider.cmd != nil && provider.cmd.Process != nil {
+		provider.expectedStops[provider.cmd] = struct{}{}
 		killProcessTree(provider.cmd)
 	}
 	provider.cmd = nil
 	provider.stdin = nil
+	provider.failPendingLocked(errors.New("Codex session is closed"))
 	provider.mu.Unlock()
+	provider.clearDeltaStreams()
 	return nil
 }
 
@@ -1071,6 +1592,7 @@ func codexSandboxPolicy(mode, workingDirectory string) any {
 }
 func (provider *CodexProvider) updatePublicState(status string) {
 	provider.mu.Lock()
+	resuming, aborting := provider.resuming, provider.aborting
 	state := map[string]any{
 		"permissionMode": firstNonEmpty(stringValue(provider.options["permissionMode"]), "default"),
 		"sandboxMode":    firstNonEmpty(stringValue(provider.options["sandboxMode"]), "default"),
@@ -1083,10 +1605,10 @@ func (provider *CodexProvider) updatePublicState(status string) {
 		"effort":                 provider.options["effort"],
 		"status":                 status,
 		"threadId":               nilIfEmpty(provider.threadID),
-		"aborting":               false,
-		"resuming":               false,
-		"canAbort":               status != "idle",
-		"canCompact":             status == "idle" && provider.threadID != "",
+		"aborting":               aborting,
+		"resuming":               resuming,
+		"canAbort":               (status != "idle" || resuming) && !aborting,
+		"canCompact":             status == "idle" && !resuming && !aborting && provider.threadID != "",
 		"compacting":             false,
 		"pendingPermissionCount": len(provider.permissions),
 		"activeSubagentCount":    0,

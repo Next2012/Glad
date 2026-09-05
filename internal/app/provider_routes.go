@@ -43,7 +43,12 @@ func (server *Server) providerSettings(writer http.ResponseWriter, request *http
 		respondError(writer, 400, err)
 		return
 	}
-	if err := session.Provider.UpdateSettings(request.Context(), settings); err != nil {
+	provider, ok := session.Provider.(SettingsProvider)
+	if !ok {
+		respondError(writer, http.StatusConflict, errors.New("Provider settings are not supported"))
+		return
+	}
+	if err := provider.UpdateSettings(request.Context(), settings); err != nil {
 		respondError(writer, 400, err)
 		return
 	}
@@ -58,7 +63,12 @@ func (server *Server) providerAbort(writer http.ResponseWriter, request *http.Re
 		notFound(writer, "Session not found")
 		return
 	}
-	if err := session.Provider.Interrupt(request.Context()); err != nil {
+	provider, ok := session.Provider.(InterruptProvider)
+	if !ok {
+		respondError(writer, http.StatusConflict, errors.New("Provider interruption is not supported"))
+		return
+	}
+	if err := provider.Interrupt(request.Context()); err != nil {
 		respondError(writer, 409, err)
 		return
 	}
@@ -77,7 +87,12 @@ func (server *Server) claudeResume(writer http.ResponseWriter, request *http.Req
 		respondError(writer, 400, errors.New("Missing resumeSessionId"))
 		return
 	}
-	if err := session.Provider.Resume(request.Context(), id); err != nil {
+	provider, ok := session.Provider.(ResumeProvider)
+	if !ok {
+		respondError(writer, http.StatusConflict, errors.New("Provider resume is not supported"))
+		return
+	}
+	if err := provider.Resume(request.Context(), id); err != nil {
 		respondError(writer, 400, err)
 		return
 	}
@@ -85,8 +100,8 @@ func (server *Server) claudeResume(writer http.ResponseWriter, request *http.Req
 	if len(messages) > 0 {
 		session.mu.Lock()
 		session.Messages = messages
+		session.publishLocked(map[string]any{"type": "history-reset", "messages": messages})
 		session.mu.Unlock()
-		session.emit(map[string]any{"type": "history-reset", "messages": messages})
 	}
 	respondJSON(writer, 200, map[string]any{"success": true})
 }
@@ -99,7 +114,12 @@ func (server *Server) claudeFork(writer http.ResponseWriter, request *http.Reque
 	var input map[string]any
 	_ = decodeJSON(request, &input)
 	source := firstNonEmpty(stringValue(input["claudeSessionId"]), stringValue(session.State["claudeSessionId"]))
-	id, err := session.Provider.Fork(request.Context(), source)
+	provider, ok := session.Provider.(ForkProvider)
+	if !ok {
+		respondError(writer, http.StatusConflict, errors.New("Provider fork is not supported"))
+		return
+	}
+	id, err := provider.Fork(request.Context(), source)
 	if err != nil {
 		respondError(writer, 400, err)
 		return
@@ -130,7 +150,12 @@ func (server *Server) codexResume(writer http.ResponseWriter, request *http.Requ
 	}
 	var input map[string]any
 	_ = decodeJSON(request, &input)
-	if err := session.Provider.Resume(request.Context(), stringValue(input["threadId"])); err != nil {
+	provider, ok := session.Provider.(ResumeProvider)
+	if !ok {
+		respondError(writer, http.StatusConflict, errors.New("Provider resume is not supported"))
+		return
+	}
+	if err := provider.Resume(request.Context(), stringValue(input["threadId"])); err != nil {
 		respondError(writer, 400, err)
 		return
 	}

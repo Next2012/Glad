@@ -570,7 +570,10 @@ func (server *Server) saveSkillHubSettings(w http.ResponseWriter, r *http.Reques
 	respondJSON(w, 200, map[string]any{"success": true, "settings": public, "user": user})
 }
 func (server *Server) clearSkillHubSettings(w http.ResponseWriter, r *http.Request) {
-	_ = server.config.Set("skillHub", map[string]any{"baseUrl": "", "token": map[string]any{}})
+	if err := server.config.Set("skillHub", map[string]any{"baseUrl": "", "token": map[string]any{}}); err != nil {
+		respondError(w, 500, err)
+		return
+	}
 	respondJSON(w, 200, map[string]any{"success": true, "settings": publicSkillHub(SkillHubSettings{})})
 }
 func (server *Server) testSkillHubSettings(w http.ResponseWriter, r *http.Request) {

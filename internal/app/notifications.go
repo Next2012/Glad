@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	sessioncore "glad-web/internal/session"
 )
 
 type ServerChanSettings struct {
@@ -17,22 +19,96 @@ type ServerChanSettings struct {
 	ClientType string `json:"clientType"`
 }
 type NotificationService struct {
-	config   *ConfigStore
-	sessions *SessionManager
-	client   *http.Client
-	mu       sync.Mutex
-	seen     map[string]map[string]bool
+	config       *ConfigStore
+	client       *http.Client
+	mu           sync.Mutex
+	seen         map[string]map[string]bool
+	deliveries   chan notificationDelivery
+	sessions     *SessionManager
+	subscription *sessioncore.Subscription
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
+	startOnce    sync.Once
+	closeOnce    sync.Once
+}
+
+type notificationDelivery struct {
+	settings    ServerChanSettings
+	title       string
+	description string
 }
 
 func NewNotificationService(config *ConfigStore, sessions *SessionManager) *NotificationService {
 	service := &NotificationService{
-		config:   config,
-		sessions: sessions,
-		client:   &http.Client{Timeout: 10 * time.Second},
-		seen:     map[string]map[string]bool{},
+		config:     config,
+		client:     &http.Client{Timeout: 10 * time.Second},
+		seen:       map[string]map[string]bool{},
+		deliveries: make(chan notificationDelivery, 64),
+		sessions:   sessions,
 	}
-	sessions.eventHook = service.HandleEvent
 	return service
+}
+
+func (service *NotificationService) Start(parent context.Context) {
+	service.startOnce.Do(func() {
+		ctx, cancel := context.WithCancel(parent)
+		service.cancel = cancel
+		service.subscription = service.sessions.Events().Subscribe("", 2048)
+		service.wg.Add(2)
+		go service.consumeEvents(ctx)
+		go service.deliver(ctx)
+	})
+}
+
+func (service *NotificationService) consumeEvents(ctx context.Context) {
+	defer service.wg.Done()
+	for {
+		select {
+		case event := <-service.subscription.Events():
+			if stringValue(event.Payload["type"]) == "session-closed" {
+				service.mu.Lock()
+				delete(service.seen, event.SessionID)
+				service.mu.Unlock()
+				continue
+			}
+			if current := service.sessions.Get(event.SessionID); current != nil {
+				service.HandleEvent(current, event.Payload)
+			}
+		case <-service.subscription.Done():
+			return
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (service *NotificationService) deliver(ctx context.Context) {
+	defer service.wg.Done()
+	for {
+		select {
+		case delivery := <-service.deliveries:
+			if err := service.Send(delivery.settings, delivery.title, delivery.description); err != nil {
+				logDebug("[serverchan] notification failed: %v", err)
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (service *NotificationService) Close() {
+	service.closeOnce.Do(func() {
+		if service.cancel != nil {
+			service.cancel()
+		}
+		if service.subscription != nil {
+			service.subscription.Close()
+		}
+		service.wg.Wait()
+		service.mu.Lock()
+		service.seen = map[string]map[string]bool{}
+		service.mu.Unlock()
+	})
 }
 func (service *NotificationService) settings() ServerChanSettings {
 	result := ServerChanSettings{ClientType: "wechat"}
@@ -141,13 +217,23 @@ func (service *NotificationService) HandleEvent(session *Session, event map[stri
 		return
 	}
 	seen[key] = true
+	if len(seen) > 100 {
+		for oldest := range seen {
+			delete(seen, oldest)
+			break
+		}
+	}
 	service.mu.Unlock()
 	settings := service.settings()
 	if settings.SendKey == "" {
 		return
 	}
 	title, description := formatNotification(kind, session, numberInt64(message["durationMs"]), settings.ClientType)
-	_ = service.Send(settings, title, description)
+	select {
+	case service.deliveries <- notificationDelivery{settings: settings, title: title, description: description}:
+	default:
+		logDebug("[serverchan] notification queue is full; dropping %s", key)
+	}
 }
 func formatNotification(kind string, session *Session, duration int64, client string) (string, string) {
 	session.mu.RLock()
@@ -200,12 +286,18 @@ func (server *Server) saveServerChan(w http.ResponseWriter, r *http.Request) {
 		respondError(w, 400, err)
 		return
 	}
-	_ = server.config.Set("serverChan", settings)
+	if err := server.config.Set("serverChan", settings); err != nil {
+		respondError(w, 500, err)
+		return
+	}
 	respondJSON(w, 200, map[string]any{"success": true, "settings": publicServerChan(settings)})
 }
 func (server *Server) clearServerChan(w http.ResponseWriter, r *http.Request) {
 	settings := ServerChanSettings{ClientType: "wechat"}
-	_ = server.config.Set("serverChan", settings)
+	if err := server.config.Set("serverChan", settings); err != nil {
+		respondError(w, 500, err)
+		return
+	}
 	server.sessions.mu.RLock()
 	for _, session := range server.sessions.sessions {
 		session.mu.Lock()

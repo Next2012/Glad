@@ -45,6 +45,7 @@ func TestWebSocketRoutesAcceptCanonicalAndLegacyPaths(t *testing.T) {
 		ToolInfo{Key: "codex", DisplayName: "Codex"},
 		manager.baseDir,
 	)
+	session.events = manager.events
 	manager.sessions[session.ID] = session
 	server := &Server{sessions: manager, assets: os.DirFS("../..")}
 	mux := http.NewServeMux()
@@ -73,6 +74,18 @@ func TestWebSocketRoutesAcceptCanonicalAndLegacyPaths(t *testing.T) {
 			}
 			if snapshot["type"] != "codex-snapshot" {
 				t.Fatalf("unexpected snapshot from %s: %#v", route, snapshot)
+			}
+			session.appendMessage(map[string]any{"kind": "assistant", "text": "event stream"})
+			_, payload, err = connection.Read(ctx)
+			if err != nil {
+				t.Fatalf("read event from %s: %v", route, err)
+			}
+			var event map[string]any
+			if err := json.Unmarshal(payload, &event); err != nil {
+				t.Fatal(err)
+			}
+			if event["type"] != "codex-event" || stringValue(mapValue(event["event"])["type"]) != "message" {
+				t.Fatalf("unexpected event from %s: %#v", route, event)
 			}
 		})
 	}
@@ -731,5 +744,420 @@ func TestUsageNormalizationOnlyPricesCodexGPTModels(t *testing.T) {
 		if model.ModelName == "claude-test" && model.Cost != nil {
 			t.Fatalf("non-GPT cost leaked: %#v", model)
 		}
+	}
+}
+
+func TestSessionManagerRejectsDuplicateIDBeforeReplacingSession(t *testing.T) {
+	fixtureDirectory, err := filepath.Abs(filepath.Join("..", "..", "tests", "e2e", "fixtures", "bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fixtureDirectory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	manager := NewSessionManager(t.TempDir())
+	existing := newSession(
+		"duplicate", "Existing", "codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"}, manager.baseDir,
+	)
+	manager.sessions[existing.ID] = existing
+
+	_, err = manager.Create(
+		context.Background(),
+		CreateSessionRequest{ID: existing.ID, ToolKey: "codex"},
+	)
+	if err == nil || manager.Get(existing.ID) != existing {
+		t.Fatalf("duplicate session replaced the live session: err=%v current=%p", err, manager.Get(existing.ID))
+	}
+}
+
+func TestConfigStoreRejectsCorruptionAndClonesValues(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	directory := filepath.Join(home, ".glad")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	filename := filepath.Join(directory, "config.json")
+	if err := os.WriteFile(filename, []byte("{broken"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenConfigStore(); err == nil {
+		t.Fatal("corrupt configuration was silently accepted")
+	}
+	if err := os.WriteFile(filename, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenConfigStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := map[string]any{"nested": map[string]any{"enabled": true}}
+	if err := store.Set("feature", value); err != nil {
+		t.Fatal(err)
+	}
+	value["nested"].(map[string]any)["enabled"] = false
+	stored := mapValue(store.Get("feature"))
+	if !boolValue(mapValue(stored["nested"])["enabled"]) {
+		t.Fatal("caller mutation leaked into persisted configuration")
+	}
+}
+
+func TestLimitedCommandBufferEnforcesBound(t *testing.T) {
+	buffer := &limitedCommandBuffer{limit: 4}
+	if _, err := buffer.Write([]byte("12345")); err == nil || !buffer.exceeded || buffer.String() != "1234" {
+		t.Fatalf("command output limit was not enforced: exceeded=%v value=%q err=%v", buffer.exceeded, buffer.String(), err)
+	}
+}
+
+func TestSessionSnapshotSubscriptionStartsAfterSnapshotState(t *testing.T) {
+	manager := NewSessionManager(t.TempDir())
+	session := newSession(
+		"snapshot-order", "Codex", "codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"}, manager.baseDir,
+	)
+	session.events = manager.events
+	session.appendMessage(map[string]any{"kind": "assistant", "text": "before"})
+	subscription, snapshot := session.subscribeWithSnapshot(2)
+	defer subscription.Close()
+
+	messages, ok := snapshot["messages"].([]map[string]any)
+	if !ok || len(messages) != 1 || stringValue(messages[0]["text"]) != "before" {
+		t.Fatalf("snapshot did not include existing state: %#v", snapshot)
+	}
+	select {
+	case event := <-subscription.Events():
+		t.Fatalf("pre-snapshot event leaked into incremental stream: %#v", event)
+	default:
+	}
+	session.appendMessage(map[string]any{"kind": "assistant", "text": "after"})
+	select {
+	case event := <-subscription.Events():
+		message := mapValue(event.Payload["message"])
+		if stringValue(message["text"]) != "after" {
+			t.Fatalf("unexpected incremental event: %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("post-snapshot event was not delivered")
+	}
+}
+
+func TestCodexLargeCommandOutputDoesNotBlockTurnCompletion(t *testing.T) {
+	session := newSession(
+		"large-output", "Codex", "codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"}, t.TempDir(),
+	)
+	provider := NewCodexProvider(session, nil)
+	session.Provider = provider
+	slow := session.events.Subscribe(session.ID, 1)
+	defer slow.Close()
+
+	provider.threadID = "thread-large"
+	provider.handleNotification(
+		"turn/started",
+		map[string]any{"threadId": "thread-large", "turn": map[string]any{"id": "turn-large"}},
+	)
+	provider.handleNotification(
+		"item/started",
+		map[string]any{
+			"threadId": "thread-large", "turnId": "turn-large",
+			"item": map[string]any{
+				"id": "command-large", "type": "commandExecution", "command": "large-output",
+			},
+		},
+	)
+	chunk := strings.Repeat("x", 256<<10)
+	for index := 0; index < 64; index++ {
+		provider.handleNotification(
+			"item/commandExecution/outputDelta",
+			map[string]any{"itemId": "command-large", "delta": chunk},
+		)
+	}
+	provider.handleNotification(
+		"turn/completed",
+		map[string]any{
+			"threadId": "thread-large",
+			"turn":     map[string]any{"id": "turn-large", "status": "completed"},
+		},
+	)
+
+	select {
+	case <-slow.Done():
+	case <-time.After(time.Second):
+		t.Fatal("slow subscriber was not disconnected during large output")
+	}
+	session.mu.RLock()
+	status := session.StatusValue
+	result := ""
+	foundTurnEnd := false
+	for _, message := range session.Messages {
+		if stringValue(message["providerId"]) == "command-large" {
+			result = stringValue(message["result"])
+		}
+		if stringValue(message["kind"]) == "turn-end" && stringValue(message["turnId"]) == "turn-large" {
+			foundTurnEnd = true
+		}
+	}
+	session.mu.RUnlock()
+	provider.streamMu.Lock()
+	remainingStreams := len(provider.streams)
+	provider.streamMu.Unlock()
+	if status != "idle" || !foundTurnEnd {
+		t.Fatalf("large output prevented completion: status=%s turnEnd=%v", status, foundTurnEnd)
+	}
+	if len(result) > maxCodexToolOutputBytes+len(codexOutputTruncatedMarker) ||
+		!strings.Contains(result, codexOutputTruncatedMarker) {
+		t.Fatalf("large output was not bounded: bytes=%d", len(result))
+	}
+	if remainingStreams != 0 {
+		t.Fatalf("completed turn retained %d delta streams", remainingStreams)
+	}
+}
+
+func BenchmarkCodexAssistantDeltaAccumulation(b *testing.B) {
+	chunk := strings.Repeat("x", 4096)
+	for iteration := 0; iteration < b.N; iteration++ {
+		session := newSession(
+			"benchmark", "Codex", "codex-structured",
+			ToolInfo{Key: "codex", DisplayName: "Codex"}, ".",
+		)
+		provider := NewCodexProvider(session, nil)
+		for index := 0; index < 256; index++ {
+			provider.appendDelta(
+				"item/agentMessage/delta",
+				map[string]any{"itemId": "assistant", "delta": chunk},
+			)
+		}
+	}
+}
+
+func TestCodexAbortWatchdogRecoversWhenInterruptNeverCompletes(t *testing.T) {
+	session := newSession(
+		"abort-watchdog", "Codex", "codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"}, t.TempDir(),
+	)
+	provider := NewCodexProvider(session, nil)
+	provider.cmd = exec.Command("codex")
+	writes := make(chan []byte, 2)
+	provider.stdin = &channelWriteCloser{writes: writes}
+	provider.threadID = "thread-abort"
+	provider.turnID = "turn-abort"
+	provider.turnStarted = millis() - 1000
+	provider.abortGrace = 20 * time.Millisecond
+	session.Provider = provider
+	session.setState(map[string]any{"status": "running", "canAbort": true})
+
+	done := make(chan error, 1)
+	go func() { done <- provider.Interrupt(context.Background()) }()
+	select {
+	case encoded := <-writes:
+		var request map[string]any
+		if err := json.Unmarshal(bytes.TrimSpace(encoded), &request); err != nil {
+			t.Fatal(err)
+		}
+		if request["method"] != "turn/interrupt" {
+			t.Fatalf("unexpected interrupt request: %#v", request)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("interrupt request was not sent")
+	}
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "stopped") {
+			t.Fatalf("watchdog did not fail the pending interrupt: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("interrupt remained blocked after watchdog")
+	}
+
+	provider.mu.Lock()
+	turnID, aborting, needsResume := provider.turnID, provider.aborting, provider.needsThreadResume
+	provider.mu.Unlock()
+	session.mu.RLock()
+	status := session.StatusValue
+	foundCancelled := false
+	for _, message := range session.Messages {
+		if stringValue(message["kind"]) == "turn-end" && stringValue(message["status"]) == "cancelled" {
+			foundCancelled = true
+		}
+	}
+	session.mu.RUnlock()
+	if turnID != "" || aborting || !needsResume || status != "idle" || !foundCancelled {
+		t.Fatalf(
+			"watchdog recovery incomplete: turn=%q aborting=%v resume=%v status=%s cancelled=%v",
+			turnID, aborting, needsResume, status, foundCancelled,
+		)
+	}
+}
+
+func TestCodexResumeAbortStopsProcessWithoutTurnID(t *testing.T) {
+	session := newSession(
+		"resume-abort", "Codex", "codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"}, t.TempDir(),
+	)
+	provider := NewCodexProvider(session, nil)
+	provider.cmd = exec.Command("codex")
+	writes := make(chan []byte, 2)
+	provider.stdin = &channelWriteCloser{writes: writes}
+	provider.threadID = "thread-before-resume"
+	session.Provider = provider
+
+	done := make(chan error, 1)
+	go func() { done <- provider.Resume(context.Background(), "thread-stuck-resume") }()
+	select {
+	case encoded := <-writes:
+		var request map[string]any
+		if err := json.Unmarshal(bytes.TrimSpace(encoded), &request); err != nil {
+			t.Fatal(err)
+		}
+		if request["method"] != "thread/resume" || !boolValue(mapValue(request["params"])["excludeTurns"]) {
+			t.Fatalf("unexpected resume request: %#v", request)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("resume request was not sent")
+	}
+	if err := provider.Interrupt(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "resume aborted") {
+			t.Fatalf("resume did not report user abort: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("resume remained blocked after abort")
+	}
+	provider.mu.Lock()
+	resuming, aborting, needsResume := provider.resuming, provider.aborting, provider.needsThreadResume
+	provider.mu.Unlock()
+	if resuming || aborting || !needsResume || session.StatusValue != "idle" {
+		t.Fatalf("resume abort did not recover state: resuming=%v aborting=%v needsResume=%v status=%s", resuming, aborting, needsResume, session.StatusValue)
+	}
+}
+
+func TestCodexHistoryPaginationPublishesOneAtomicReset(t *testing.T) {
+	session := newSession(
+		"history-pages", "Codex", "codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"}, t.TempDir(),
+	)
+	provider := NewCodexProvider(session, nil)
+	provider.cmd = exec.Command("codex")
+	writes := make(chan []byte, 2)
+	provider.stdin = &channelWriteCloser{writes: writes}
+	provider.threadID = "thread-pages"
+	session.Provider = provider
+	subscription := session.events.Subscribe(session.ID, 2)
+	defer subscription.Close()
+	turn := func(id, text string) map[string]any {
+		return map[string]any{
+			"id": id, "status": "completed", "createdAt": float64(100), "completedAt": float64(101),
+			"items": []any{map[string]any{"id": "item-" + id, "type": "agentMessage", "text": text}},
+		}
+	}
+	result := map[string]any{
+		"thread": map[string]any{"id": "thread-pages", "turns": []any{}},
+		"initialTurnsPage": map[string]any{
+			"data": []any{turn("turn-3", "three"), turn("turn-2", "two")}, "nextCursor": "older",
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- provider.hydrateThread(context.Background(), result) }()
+	select {
+	case encoded := <-writes:
+		var request map[string]any
+		if err := json.Unmarshal(bytes.TrimSpace(encoded), &request); err != nil {
+			t.Fatal(err)
+		}
+		params := mapValue(request["params"])
+		if request["method"] != "thread/turns/list" || stringValue(params["cursor"]) != "older" ||
+			stringValue(params["itemsView"]) != "full" {
+			t.Fatalf("unexpected history page request: %#v", request)
+		}
+		provider.handleRPC(map[string]any{
+			"id":     request["id"],
+			"result": map[string]any{"data": []any{turn("turn-1", "one")}, "nextCursor": nil},
+		})
+	case <-time.After(time.Second):
+		t.Fatal("second history page was not requested")
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case event := <-subscription.Events():
+		if stringValue(event.Payload["type"]) != "history-reset" {
+			t.Fatalf("unexpected hydration event: %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("history reset was not published")
+	}
+	select {
+	case event := <-subscription.Events():
+		t.Fatalf("hydration published more than one event: %#v", event)
+	default:
+	}
+	select {
+	case <-subscription.Done():
+		t.Fatal("healthy history subscriber was disconnected")
+	default:
+	}
+	session.mu.RLock()
+	texts := []string{}
+	for _, message := range session.Messages {
+		if stringValue(message["kind"]) == "assistant" {
+			texts = append(texts, stringValue(message["text"]))
+		}
+	}
+	session.mu.RUnlock()
+	if strings.Join(texts, ",") != "one,two,three" {
+		t.Fatalf("history pages were not restored oldest-first: %#v", texts)
+	}
+}
+
+func TestCodexCancelledResumePreservesHistoryAndRecyclesProcess(t *testing.T) {
+	session := newSession(
+		"resume-cancel", "Codex", "codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"}, t.TempDir(),
+	)
+	session.appendMessage(map[string]any{"kind": "assistant", "text": "keep existing history"})
+	provider := NewCodexProvider(session, nil)
+	provider.cmd = exec.Command("codex")
+	writes := make(chan []byte, 2)
+	provider.stdin = &channelWriteCloser{writes: writes}
+	provider.threadID = "thread-existing"
+	session.Provider = provider
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- provider.Resume(ctx, "thread-cancelled") }()
+	select {
+	case <-writes:
+		cancel()
+	case <-time.After(time.Second):
+		t.Fatal("resume request was not sent")
+	}
+	select {
+	case err := <-done:
+		if err == nil || !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled resume returned the wrong error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled resume did not return")
+	}
+	session.mu.RLock()
+	preserved := false
+	for _, message := range session.Messages {
+		if stringValue(message["text"]) == "keep existing history" {
+			preserved = true
+			break
+		}
+	}
+	status := session.StatusValue
+	session.mu.RUnlock()
+	provider.mu.Lock()
+	needsResume, command := provider.needsThreadResume, provider.cmd
+	provider.mu.Unlock()
+	if !preserved || status != "idle" || !needsResume || command != nil {
+		t.Fatalf("cancelled resume damaged live state: preserved=%v status=%s needsResume=%v command=%v", preserved, status, needsResume, command)
 	}
 }

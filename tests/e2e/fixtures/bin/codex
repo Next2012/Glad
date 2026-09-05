@@ -17,6 +17,33 @@ if (process.argv[2] !== 'app-server') {
 const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 let turnSequence = 0;
 
+function largeHistoryTurns() {
+  const turns = [];
+  let itemSequence = 0;
+  for (let turnIndex = 1; turnIndex <= 73; turnIndex += 1) {
+    const count = turnIndex <= 20 ? 19 : 18;
+    const items = [];
+    for (let itemIndex = 0; itemIndex < count; itemIndex += 1) {
+      itemSequence += 1;
+      items.push({
+        id: `history-item-${itemSequence}`,
+        type: 'commandExecution',
+        command: `history-command-${itemSequence}`,
+        status: 'completed',
+        aggregatedOutput: `history output ${itemSequence}`
+      });
+    }
+    turns.push({
+      id: `history-turn-${turnIndex}`,
+      status: 'completed',
+      createdAt: 1700000000 + turnIndex,
+      completedAt: 1700000000 + turnIndex + 1,
+      items
+    });
+  }
+  return turns.reverse();
+}
+
 function write(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
@@ -31,7 +58,35 @@ input.on('line', line => {
   if (request.id == null) return;
 
   let result = {};
-  if (request.method === 'thread/start') {
+  if (request.method === 'thread/resume') {
+    const threadId = request.params?.threadId || 'thread-e2e';
+    if (threadId === 'stuck-resume-e2e') return;
+    if (threadId === 'large-history-e2e') {
+      if (request.params?.excludeTurns !== true || request.params?.initialTurnsPage?.itemsView !== 'full') {
+        write({ id: request.id, error: { message: 'large history must use metadata-only paginated resume' } });
+        return;
+      }
+      const turns = largeHistoryTurns();
+      result = {
+        thread: { id: threadId, turns: [] },
+        initialTurnsPage: { data: turns.slice(0, 50), nextCursor: 'large-history-page-2' }
+      };
+    } else {
+      result = { thread: { id: threadId, turns: [] }, initialTurnsPage: { data: [], nextCursor: null } };
+    }
+  } else if (request.method === 'thread/turns/list') {
+    if (request.params?.threadId === 'large-history-e2e' && request.params?.cursor === 'large-history-page-2') {
+      if (request.params?.itemsView !== 'full') {
+        write({ id: request.id, error: { message: 'history pages must include full items' } });
+        return;
+      }
+      result = { data: largeHistoryTurns().slice(50), nextCursor: null };
+    } else {
+      result = { data: [], nextCursor: null };
+    }
+  } else if (request.method === 'turn/interrupt') {
+    result = {};
+  } else if (request.method === 'thread/start') {
     result = { thread: { id: 'thread-e2e' } };
   } else if (request.method === 'turn/start') {
     const text = (request.params?.input || [])
@@ -41,10 +96,49 @@ input.on('line', line => {
       return;
     }
     const turnNumber = ++turnSequence;
-    const turnId = `turn-e2e-${turnNumber}`;
+    const turnId = `turn-e2e-${process.pid}-${turnNumber}`;
     write({ id: request.id, result: { turn: { id: turnId } } });
     setImmediate(() => {
       write({ method: 'turn/started', params: { threadId: 'thread-e2e', turn: { id: turnId } } });
+      if (text.includes('__GLAD_E2E_STUCK_ABORT__')) {
+        write({
+          method: 'item/started',
+          params: {
+            threadId: 'thread-e2e', turnId,
+            item: { id: `stuck-command-${process.pid}-${turnNumber}`, type: 'commandExecution', command: 'stuck-command', status: 'running' }
+          }
+        });
+        return;
+      }
+      if (text.includes('__GLAD_E2E_LARGE_OUTPUT__')) {
+        const itemId = `large-command-${turnNumber}`;
+        write({
+          method: 'item/started',
+          params: {
+            threadId: 'thread-e2e', turnId,
+            item: { id: itemId, type: 'commandExecution', command: 'large-output', status: 'running' }
+          }
+        });
+        const chunk = 'x'.repeat(256 * 1024);
+        for (let index = 0; index < 40; index += 1) {
+          write({
+            method: 'item/commandExecution/outputDelta',
+            params: { threadId: 'thread-e2e', turnId, itemId, delta: chunk }
+          });
+        }
+        write({
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-e2e', turnId,
+            item: { id: itemId, type: 'commandExecution', command: 'large-output', status: 'completed', exitCode: 0 }
+          }
+        });
+        write({
+          method: 'turn/completed',
+          params: { threadId: 'thread-e2e', turn: { id: turnId, status: 'completed' } }
+        });
+        return;
+      }
       write({
         method: 'item/completed',
         params: {

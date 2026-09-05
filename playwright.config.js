@@ -8,6 +8,10 @@ module.exports = defineConfig({
   testDir: './tests/e2e',
   outputDir: '.playwright-results',
   fullyParallel: false,
+  // Every project shares one stateful Glad daemon. Serial workers keep session
+  // create/delete flows isolated while individual browser interactions remain
+  // representative of production behavior.
+  workers: 1,
   retries: 0,
   reporter: [['list'], ['html', { outputFolder: '.playwright-report', open: 'never' }]],
   use: {

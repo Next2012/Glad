@@ -97,6 +97,10 @@ func scheduleTimed(session *Session, id string, input map[string]any) (*TimedInp
 		return nil, errors.New("Send time must be within 30 days")
 	}
 	session.mu.Lock()
+	if session.closed {
+		session.mu.Unlock()
+		return nil, errors.New("Session is closed")
+	}
 	item := session.TimedInputs[id]
 	if id != "" && item == nil {
 		session.mu.Unlock()
@@ -116,8 +120,10 @@ func scheduleTimed(session *Session, id string, input map[string]any) (*TimedInp
 	revision := newUUID()
 	item.revision = revision
 	item.Timer = time.AfterFunc(delay, func() {
+		sendCtx, cancel := context.WithTimeout(session.ctx, 60*time.Second)
+		defer cancel()
 		err := session.Provider.Send(
-			context.Background(),
+			sendCtx,
 			ProviderInput{ClientMessageID: "timed-" + item.ID + "-" + revision, Text: text, AgentText: text},
 		)
 		session.mu.Lock()

@@ -51,6 +51,8 @@ func NewServer(baseDir string, port int, assets fs.FS) (*Server, error) {
 }
 
 func (server *Server) Run(ctx context.Context) error {
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
 	mux := http.NewServeMux()
 	server.registerRoutes(mux)
 	server.http = &http.Server{
@@ -61,13 +63,17 @@ func (server *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	server.notifications.Start(runCtx)
+	shutdownDone := make(chan struct{})
 	go func() {
-		<-ctx.Done()
+		defer close(shutdownDone)
+		<-runCtx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		server.schedules.Stop()
-		server.sessions.Close(shutdownCtx)
 		_ = server.http.Shutdown(shutdownCtx)
+		server.schedules.Stop()
+		server.notifications.Close()
+		server.sessions.Close(shutdownCtx)
 	}()
 
 	fmt.Printf("\n🚀 Glad Web Server is running!\n")
@@ -76,8 +82,10 @@ func (server *Server) Run(ctx context.Context) error {
 		fmt.Printf("   ➜  Network: http://%s:%d\n", address, server.port)
 	}
 	fmt.Printf("\n   ➜  Project: %s\n\n", server.baseDir)
-	server.schedules.Start(server.sessions)
+	server.schedules.Start(runCtx, server.sessions)
 	err = server.http.Serve(listener)
+	cancelRun()
+	<-shutdownDone
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
@@ -86,7 +94,10 @@ func (server *Server) Run(ctx context.Context) error {
 
 func (server *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/config", func(writer http.ResponseWriter, request *http.Request) {
-		respondJSON(writer, http.StatusOK, map[string]any{"defaultWorkingDirectory": server.baseDir})
+		respondJSON(writer, http.StatusOK, map[string]any{
+			"defaultWorkingDirectory": server.baseDir,
+			"version":                 buildVersion,
+		})
 	})
 	mux.HandleFunc("GET /api/tools", func(writer http.ResponseWriter, request *http.Request) {
 		respondJSON(writer, http.StatusOK, detectTools(request.Context()))
@@ -237,7 +248,7 @@ func (server *Server) sessionDebug(writer http.ResponseWriter, request *http.Req
 		"status":           session.StatusValue,
 		"messages":         len(session.Messages),
 		"permissions":      len(session.Permissions),
-		"clients":          len(session.Clients),
+		"clients":          server.sessions.Events().SubscriberCount(session.ID),
 		"workingDirectory": session.WorkingDirectory,
 	}
 	session.mu.RUnlock()
@@ -258,24 +269,62 @@ func (server *Server) websocket(writer http.ResponseWriter, request *http.Reques
 	if err != nil {
 		return
 	}
-	session.mu.Lock()
-	session.Clients[connection] = struct{}{}
-	session.mu.Unlock()
+	subscription, snapshot := session.subscribeWithSnapshot(512)
+	ctx, cancel := context.WithCancel(request.Context())
 	defer func() {
-		session.mu.Lock()
-		delete(session.Clients, connection)
-		session.mu.Unlock()
+		cancel()
+		subscription.Close()
 		_ = connection.Close(websocket.StatusNormalClosure, "")
 	}()
 	snapshotType := "claude-snapshot"
 	if session.Kind == "codex-structured" {
 		snapshotType = "codex-snapshot"
 	}
-	if err := writeWSJSON(request.Context(), connection, map[string]any{"type": snapshotType, "snapshot": session.snapshot()}); err != nil {
+	writeCtx, writeCancel := context.WithTimeout(ctx, 5*time.Second)
+	err = writeWSJSON(writeCtx, connection, map[string]any{"type": snapshotType, "snapshot": snapshot})
+	writeCancel()
+	if err != nil {
 		return
 	}
+	outbound := make(chan map[string]any, 64)
+	go func() {
+		defer cancel()
+		for {
+			var message map[string]any
+			select {
+			case event := <-subscription.Events():
+				typeName := "claude-event"
+				if event.Kind == "codex-structured" {
+					typeName = "codex-event"
+				}
+				message = map[string]any{"type": typeName, "event": event.Payload}
+			case message = <-outbound:
+			case <-subscription.Done():
+				return
+			case <-ctx.Done():
+				return
+			}
+			messageCtx, messageCancel := context.WithTimeout(ctx, 5*time.Second)
+			err := writeWSJSON(messageCtx, connection, message)
+			messageCancel()
+			if err != nil {
+				return
+			}
+		}
+	}()
+	send := func(message map[string]any) bool {
+		select {
+		case outbound <- message:
+			return true
+		case <-ctx.Done():
+			return false
+		default:
+			cancel()
+			return false
+		}
+	}
 	for {
-		_, data, err := connection.Read(request.Context())
+		_, data, err := connection.Read(ctx)
 		if err != nil {
 			return
 		}
@@ -283,14 +332,23 @@ func (server *Server) websocket(writer http.ResponseWriter, request *http.Reques
 		if json.Unmarshal(data, &payload) != nil {
 			continue
 		}
-		server.handleWebsocketMessage(session, connection, payload)
+		server.handleWebsocketMessage(ctx, session, send, payload)
 	}
 }
 
-func (server *Server) handleWebsocketMessage(session *Session, connection *websocket.Conn, payload map[string]any) {
+func (server *Server) handleWebsocketMessage(
+	connectionCtx context.Context,
+	session *Session,
+	send func(map[string]any) bool,
+	payload map[string]any,
+) {
 	session.commandMu.Lock()
 	defer session.commandMu.Unlock()
-	ctx := context.Background()
+	if connectionCtx.Err() != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(connectionCtx, 60*time.Second)
+	defer cancel()
 	messageType := stringValue(payload["type"])
 	switch messageType {
 	case "claude-input", "codex-input":
@@ -300,7 +358,7 @@ func (server *Server) handleWebsocketMessage(session *Session, connection *webso
 			cached, ok := session.sendResults[clientMessageID]
 			session.mu.RUnlock()
 			if ok {
-				server.writeSendResult(ctx, connection, clientMessageID, cached)
+				server.writeSendResult(send, clientMessageID, cached)
 				return
 			}
 		}
@@ -313,7 +371,7 @@ func (server *Server) handleWebsocketMessage(session *Session, connection *webso
 				session.sendResults[clientMessageID] = result
 				session.mu.Unlock()
 			}
-			server.writeSendResult(ctx, connection, clientMessageID, result)
+			server.writeSendResult(send, clientMessageID, result)
 		}
 		if len(clientMessageID) > 128 {
 			finish(sendResult{Error: "Invalid message ID"})
@@ -358,21 +416,33 @@ func (server *Server) handleWebsocketMessage(session *Session, connection *webso
 				decision = "approved"
 			}
 		}
-		_ = session.Provider.Approve(ctx, stringValue(payload["id"]), decision, payload)
+		if provider, ok := session.Provider.(ApprovalProvider); ok {
+			_ = provider.Approve(ctx, stringValue(payload["id"]), decision, payload)
+		}
 	case "codex-permission":
 		decision := stringValue(payload["decision"])
 		if decision == "" && boolValue(payload["approved"]) {
 			decision = "approved"
 		}
-		_ = session.Provider.Approve(ctx, stringValue(payload["id"]), decision, payload)
+		if provider, ok := session.Provider.(ApprovalProvider); ok {
+			_ = provider.Approve(ctx, stringValue(payload["id"]), decision, payload)
+		}
 	case "claude-settings", "codex-settings":
-		_ = session.Provider.UpdateSettings(ctx, mapValue(payload["settings"]))
+		if provider, ok := session.Provider.(SettingsProvider); ok {
+			_ = provider.UpdateSettings(ctx, mapValue(payload["settings"]))
+		}
 	case "claude-abort", "codex-abort":
-		_ = session.Provider.Interrupt(ctx)
+		if provider, ok := session.Provider.(InterruptProvider); ok {
+			_ = provider.Interrupt(ctx)
+		}
 	case "claude-resume":
-		_ = session.Provider.Resume(ctx, stringValue(payload["resumeSessionId"]))
+		if provider, ok := session.Provider.(ResumeProvider); ok {
+			_ = provider.Resume(ctx, stringValue(payload["resumeSessionId"]))
+		}
 	case "codex-status":
-		_ = session.Provider.Status(ctx)
+		if provider, ok := session.Provider.(StatusProvider); ok {
+			_ = provider.Status(ctx)
+		}
 	case "claude-usage":
 		if provider, ok := session.Provider.(*ClaudeProvider); ok {
 			_ = provider.RunLocalCommand(ctx, "/usage")
@@ -382,11 +452,11 @@ func (server *Server) handleWebsocketMessage(session *Session, connection *webso
 			_ = provider.RunLocalCommand(ctx, "/context")
 		}
 	case "codex-compact":
-		_ = session.Provider.Compact(ctx)
+		if provider, ok := session.Provider.(CompactProvider); ok {
+			_ = provider.Compact(ctx)
+		}
 	case "codex-detail-request":
-		_ = writeWSJSON(
-			ctx,
-			connection,
+		send(
 			map[string]any{
 				"type":      "codex-detail-response",
 				"requestId": payload["requestId"],
@@ -397,8 +467,7 @@ func (server *Server) handleWebsocketMessage(session *Session, connection *webso
 }
 
 func (server *Server) writeSendResult(
-	ctx context.Context,
-	connection *websocket.Conn,
+	send func(map[string]any) bool,
 	clientMessageID string,
 	result sendResult,
 ) {
@@ -408,7 +477,7 @@ func (server *Server) writeSendResult(
 	if result.Error != "" {
 		message["error"] = result.Error
 	}
-	_ = writeWSJSON(ctx, connection, message)
+	send(message)
 }
 
 func uniqueStrings(values []string) []string {

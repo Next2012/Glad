@@ -11,20 +11,41 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coder/websocket"
+	sessioncore "glad-web/internal/session"
 )
 
 type Provider interface {
 	Start(context.Context) error
 	Send(context.Context, ProviderInput) error
-	Approve(context.Context, string, string, map[string]any) error
-	UpdateSettings(context.Context, map[string]any) error
-	Interrupt(context.Context) error
-	Resume(context.Context, string) error
-	Fork(context.Context, string) (string, error)
-	Compact(context.Context) error
-	Status(context.Context) error
 	Close(context.Context) error
+}
+
+type ApprovalProvider interface {
+	Approve(context.Context, string, string, map[string]any) error
+}
+
+type SettingsProvider interface {
+	UpdateSettings(context.Context, map[string]any) error
+}
+
+type InterruptProvider interface {
+	Interrupt(context.Context) error
+}
+
+type ResumeProvider interface {
+	Resume(context.Context, string) error
+}
+
+type ForkProvider interface {
+	Fork(context.Context, string) (string, error)
+}
+
+type CompactProvider interface {
+	Compact(context.Context) error
+}
+
+type StatusProvider interface {
+	Status(context.Context) error
 }
 
 type ProviderInput struct {
@@ -80,6 +101,10 @@ type sendResult struct {
 type Session struct {
 	mu                            sync.RWMutex
 	commandMu                     sync.Mutex
+	ctx                           context.Context
+	cancel                        context.CancelFunc
+	closeOnce                     sync.Once
+	closed                        bool
 	ID                            string
 	Name                          string
 	Kind                          string
@@ -96,21 +121,22 @@ type Session struct {
 	TimedInputs                   map[string]*TimedInput
 	Attachments                   map[string]Attachment
 	Uploads                       map[string]*ChunkUpload
-	Clients                       map[*websocket.Conn]struct{}
 	Provider                      Provider
 	dispose                       func()
-	eventHook                     func(*Session, map[string]any)
+	events                        *sessioncore.EventHub
 	sendResults                   map[string]sendResult
 }
 
 func newSession(id, name, kind string, tool ToolInfo, workingDirectory string) *Session {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Session{
+		ctx: ctx, cancel: cancel,
 		ID: id, Name: name, Kind: kind, Tool: tool, WorkingDirectory: workingDirectory,
 		StartTime: millis(), StatusValue: "idle", State: map[string]any{"status": "idle"},
 		Messages: []map[string]any{}, Permissions: map[string]Permission{},
 		CompletedPermissions: []Permission{}, TimedInputs: map[string]*TimedInput{},
 		Attachments: map[string]Attachment{}, Uploads: map[string]*ChunkUpload{},
-		Clients:     map[*websocket.Conn]struct{}{},
+		events:      sessioncore.NewEventHub(),
 		sendResults: map[string]sendResult{},
 	}
 }
@@ -137,6 +163,10 @@ func (session *Session) listItem() map[string]any {
 func (session *Session) snapshot() map[string]any {
 	session.mu.RLock()
 	defer session.mu.RUnlock()
+	return session.snapshotLocked()
+}
+
+func (session *Session) snapshotLocked() map[string]any {
 	messages := make([]map[string]any, len(session.Messages))
 	for index, message := range session.Messages {
 		messages[index] = publicMessage(message, session.Kind)
@@ -152,6 +182,13 @@ func (session *Session) snapshot() map[string]any {
 		"state": cloneMap(session.State), "messages": messages,
 		"pendingPermissions": permissions,
 	}
+}
+
+func (session *Session) subscribeWithSnapshot(capacity int) (*sessioncore.Subscription, map[string]any) {
+	session.mu.RLock()
+	defer session.mu.RUnlock()
+	subscription := session.events.Subscribe(session.ID, capacity)
+	return subscription, session.snapshotLocked()
 }
 
 func publicMessage(message map[string]any, kind string) map[string]any {
@@ -185,6 +222,10 @@ func (session *Session) removeMessagesByClientMessageID(id string) {
 		return
 	}
 	session.mu.Lock()
+	if session.closed {
+		session.mu.Unlock()
+		return
+	}
 	kept := session.Messages[:0]
 	removed := false
 	for _, message := range session.Messages {
@@ -199,14 +240,18 @@ func (session *Session) removeMessagesByClientMessageID(id string) {
 	for index, message := range session.Messages {
 		messages[index] = publicMessage(message, session.Kind)
 	}
-	session.mu.Unlock()
 	if removed {
-		session.emit(map[string]any{"type": "history-reset", "messages": messages})
+		session.publishLocked(map[string]any{"type": "history-reset", "messages": messages})
 	}
+	session.mu.Unlock()
 }
 
 func (session *Session) appendMessage(message map[string]any) map[string]any {
 	session.mu.Lock()
+	if session.closed {
+		session.mu.Unlock()
+		return nil
+	}
 	if message["id"] == nil {
 		message["id"] = newUUID()
 	}
@@ -215,13 +260,32 @@ func (session *Session) appendMessage(message map[string]any) map[string]any {
 	}
 	session.Messages = append(session.Messages, message)
 	public := publicMessage(message, session.Kind)
+	session.publishLocked(map[string]any{"type": "message", "message": public})
 	session.mu.Unlock()
-	session.emit(map[string]any{"type": "message", "message": public})
 	return message
+}
+
+func (session *Session) replaceMessages(messages []map[string]any) bool {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.closed {
+		return false
+	}
+	public := make([]map[string]any, len(messages))
+	for index, message := range messages {
+		public[index] = publicMessage(message, session.Kind)
+	}
+	session.Messages = messages
+	session.publishLocked(map[string]any{"type": "history-reset", "messages": public})
+	return true
 }
 
 func (session *Session) patchMessage(id string, patch map[string]any) {
 	session.mu.Lock()
+	if session.closed {
+		session.mu.Unlock()
+		return
+	}
 	var public map[string]any
 	for _, message := range session.Messages {
 		if stringValue(message["id"]) != id {
@@ -234,14 +298,18 @@ func (session *Session) patchMessage(id string, patch map[string]any) {
 		public = publicMessage(message, session.Kind)
 		break
 	}
-	session.mu.Unlock()
 	if public != nil {
-		session.emit(map[string]any{"type": "message-updated", "message": public})
+		session.publishLocked(map[string]any{"type": "message-updated", "message": public})
 	}
+	session.mu.Unlock()
 }
 
 func (session *Session) setState(patch map[string]any) {
 	session.mu.Lock()
+	if session.closed {
+		session.mu.Unlock()
+		return
+	}
 	for key, value := range patch {
 		session.State[key] = value
 	}
@@ -249,22 +317,30 @@ func (session *Session) setState(patch map[string]any) {
 		session.StatusValue = status
 	}
 	state := cloneMap(session.State)
+	session.publishLocked(map[string]any{"type": "state", "state": state})
 	session.mu.Unlock()
-	session.emit(map[string]any{"type": "state", "state": state})
 }
 
 func (session *Session) addPermission(permission Permission) {
 	session.mu.Lock()
+	if session.closed {
+		session.mu.Unlock()
+		return
+	}
 	session.Permissions[permission.ID] = permission
 	session.StatusValue = "waiting_approval"
 	session.State["status"] = "waiting_approval"
 	session.State["pendingPermissionCount"] = len(session.Permissions)
+	session.publishLocked(map[string]any{"type": "permission-request", "request": permission})
 	session.mu.Unlock()
-	session.emit(map[string]any{"type": "permission-request", "request": permission})
 }
 
 func (session *Session) finishPermission(id, status, decision string) (Permission, bool) {
 	session.mu.Lock()
+	if session.closed {
+		session.mu.Unlock()
+		return Permission{}, false
+	}
 	permission, ok := session.Permissions[id]
 	if ok {
 		delete(session.Permissions, id)
@@ -281,35 +357,22 @@ func (session *Session) finishPermission(id, status, decision string) (Permissio
 		}
 		session.State["pendingPermissionCount"] = len(session.Permissions)
 	}
-	session.mu.Unlock()
 	if ok {
-		session.emit(map[string]any{"type": "permission-updated", "request": permission})
+		session.publishLocked(map[string]any{"type": "permission-updated", "request": permission})
 	}
+	session.mu.Unlock()
 	return permission, ok
 }
 
-func (session *Session) emit(event map[string]any) {
-	typeName := "claude-event"
-	if session.Kind == "codex-structured" {
-		typeName = "codex-event"
-	}
-	session.broadcast(map[string]any{"type": typeName, "event": event})
-	if session.eventHook != nil {
-		go session.eventHook(session, event)
-	}
+func (session *Session) publishLocked(event map[string]any) {
+	session.events.Publish(sessioncore.Event{SessionID: session.ID, Kind: session.Kind, Payload: event})
 }
 
-func (session *Session) broadcast(message map[string]any) {
-	session.mu.RLock()
-	clients := make([]*websocket.Conn, 0, len(session.Clients))
-	for client := range session.Clients {
-		clients = append(clients, client)
-	}
-	session.mu.RUnlock()
-	for _, client := range clients {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = writeWSJSON(ctx, client, message)
-		cancel()
+func (session *Session) emit(event map[string]any) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if !session.closed {
+		session.publishLocked(event)
 	}
 }
 
@@ -332,15 +395,21 @@ func (session *Session) detail(ids []string, threadID string) map[string]any {
 }
 
 type SessionManager struct {
-	mu        sync.RWMutex
-	baseDir   string
-	sessions  map[string]*Session
-	eventHook func(*Session, map[string]any)
+	mu       sync.RWMutex
+	baseDir  string
+	sessions map[string]*Session
+	creating map[string]struct{}
+	events   *sessioncore.EventHub
 }
 
 func NewSessionManager(baseDir string) *SessionManager {
-	return &SessionManager{baseDir: baseDir, sessions: map[string]*Session{}}
+	return &SessionManager{
+		baseDir: baseDir, sessions: map[string]*Session{}, creating: map[string]struct{}{},
+		events: sessioncore.NewEventHub(),
+	}
 }
+
+func (manager *SessionManager) Events() *sessioncore.EventHub { return manager.events }
 
 func (manager *SessionManager) List() []map[string]any {
 	manager.mu.RLock()
@@ -384,6 +453,22 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 	if id == "" {
 		id = newUUID()
 	}
+	manager.mu.Lock()
+	if manager.sessions[id] != nil {
+		manager.mu.Unlock()
+		return nil, fmt.Errorf("session already exists: %s", id)
+	}
+	if _, exists := manager.creating[id]; exists {
+		manager.mu.Unlock()
+		return nil, fmt.Errorf("session is already being created: %s", id)
+	}
+	manager.creating[id] = struct{}{}
+	manager.mu.Unlock()
+	defer func() {
+		manager.mu.Lock()
+		delete(manager.creating, id)
+		manager.mu.Unlock()
+	}()
 	kind := request.ToolKey + "-structured"
 	if request.ToolKey == "claude-code" {
 		kind = "claude-structured"
@@ -393,21 +478,20 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 		name = tool.DisplayName
 	}
 	session := newSession(id, name, kind, tool, directory)
-	session.eventHook = manager.eventHook
+	session.events = manager.events
 	if request.ToolKey == "codex" {
 		session.Provider = NewCodexProvider(session, request.CodexOptions)
 	} else {
 		session.Provider = NewClaudeProvider(session, request.ClaudeOptions)
 	}
+	if err := session.Provider.Start(ctx); err != nil {
+		_ = session.Provider.Close(context.Background())
+		session.cancel()
+		return nil, err
+	}
 	manager.mu.Lock()
 	manager.sessions[id] = session
 	manager.mu.Unlock()
-	if err := session.Provider.Start(ctx); err != nil {
-		manager.mu.Lock()
-		delete(manager.sessions, id)
-		manager.mu.Unlock()
-		return nil, err
-	}
 	return session, nil
 }
 
@@ -419,15 +503,25 @@ func (manager *SessionManager) Delete(ctx context.Context, id string) bool {
 	if session == nil {
 		return false
 	}
-	for _, item := range session.TimedInputs {
-		if item.Timer != nil {
-			item.Timer.Stop()
+	session.closeOnce.Do(func() {
+		session.mu.Lock()
+		session.closed = true
+		for _, item := range session.TimedInputs {
+			if item.Timer != nil {
+				item.Timer.Stop()
+			}
 		}
-	}
-	_ = session.Provider.Close(ctx)
-	if session.dispose != nil {
-		session.dispose()
-	}
+		session.mu.Unlock()
+		session.cancel()
+		_ = session.Provider.Close(ctx)
+		if session.dispose != nil {
+			session.dispose()
+		}
+	})
+	manager.events.Publish(sessioncore.Event{
+		SessionID: session.ID, Kind: session.Kind, Payload: map[string]any{"type": "session-closed"},
+	})
+	manager.events.CloseSession(id)
 	cleanupSessionAttachments(session)
 	return true
 }
@@ -445,7 +539,7 @@ func (manager *SessionManager) Close(ctx context.Context) {
 }
 
 type CreateSessionRequest struct {
-	ID               string         `json:"id"`
+	ID               string         `json:"-"`
 	ToolKey          string         `json:"toolKey"`
 	WorkingDirectory string         `json:"workingDirectory"`
 	Name             string         `json:"name"`
