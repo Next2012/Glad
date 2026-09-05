@@ -168,8 +168,16 @@ func (server *Server) renameSession(writer http.ResponseWriter, request *http.Re
 	}
 	session.mu.Lock()
 	session.Name = name
+	session.NameManual = true
+	session.publishLocked(map[string]any{"type": "session-renamed", "name": name})
 	session.mu.Unlock()
-	respondJSON(writer, 200, map[string]any{"success": true, "name": name})
+	result := map[string]any{"success": true, "name": name}
+	if provider, ok := session.Provider.(*CodexProvider); ok {
+		if err := provider.titles.rename(request.Context(), name); err != nil {
+			result["warning"] = "Window name saved, but Codex history name could not be synchronized: " + err.Error()
+		}
+	}
+	respondJSON(writer, 200, result)
 }
 
 func (server *Server) deleteSession(writer http.ResponseWriter, request *http.Request) {
@@ -250,8 +258,13 @@ func (server *Server) sessionDebug(writer http.ResponseWriter, request *http.Req
 		"permissions":      len(session.Permissions),
 		"clients":          server.sessions.Events().SubscriberCount(session.ID),
 		"workingDirectory": session.WorkingDirectory,
+		"name":             session.Name,
+		"nameManual":       session.NameManual,
 	}
 	session.mu.RUnlock()
+	if provider, ok := session.Provider.(*CodexProvider); ok {
+		diagnostics["automaticTitle"] = provider.titles.diagnostics()
+	}
 	respondJSON(writer, 200, map[string]any{"success": true, "diagnostics": diagnostics})
 }
 

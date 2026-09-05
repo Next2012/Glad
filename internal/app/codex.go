@@ -66,6 +66,7 @@ func (stream *codexDeltaStream) append(delta string) bool {
 func (stream *codexDeltaStream) text() string { return stream.builder.String() }
 
 type CodexProvider struct {
+	titles               *codexTitles
 	mu                   sync.Mutex
 	streamMu             sync.Mutex
 	session              *Session
@@ -100,7 +101,7 @@ func NewCodexProvider(session *Session, options map[string]any) *CodexProvider {
 	if options == nil {
 		options = map[string]any{}
 	}
-	return &CodexProvider{
+	provider := &CodexProvider{
 		session:       session,
 		options:       options,
 		pending:       map[int64]chan codexRPCResult{},
@@ -110,6 +111,8 @@ func NewCodexProvider(session *Session, options map[string]any) *CodexProvider {
 		threadID:      stringValue(options["resume"]),
 		abortGrace:    defaultCodexAbortGrace,
 	}
+	provider.titles = newCodexTitles(provider)
+	return provider
 }
 
 func (provider *CodexProvider) Start(ctx context.Context) error {
@@ -174,6 +177,9 @@ func (provider *CodexProvider) startLocked(ctx context.Context) error {
 	)
 	provider.applyConfig(mapValue(config["config"]))
 	_ = provider.refreshModelsLocked(initCtx)
+	provider.titles.mu.Lock()
+	provider.titles.enabled = true
+	provider.titles.mu.Unlock()
 	return nil
 }
 
@@ -296,6 +302,7 @@ func (provider *CodexProvider) wait(command *exec.Cmd) {
 	delete(provider.expectedStops, command)
 	current := provider.cmd == command
 	if current {
+		provider.titles.reset()
 		provider.cmd = nil
 		provider.stdin = nil
 		if provider.resumeCancel != nil {
@@ -355,6 +362,7 @@ func (provider *CodexProvider) handleRPC(message map[string]any) {
 			delete(provider.pending, id)
 		}
 		provider.mu.Unlock()
+		provider.titles.receivedResponse(id, mapValue(message["result"]), channel == nil)
 		if channel != nil {
 			if rawError := mapValue(message["error"]); len(rawError) > 0 {
 				channel <- codexRPCResult{Err: errors.New(stringValue(rawError["message"]))}
@@ -363,6 +371,9 @@ func (provider *CodexProvider) handleRPC(message map[string]any) {
 			}
 			close(channel)
 		}
+		return
+	}
+	if provider.titles.route(message) {
 		return
 	}
 	if message["id"] != nil && message["method"] != nil {
@@ -425,6 +436,13 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 	turn := mapValue(params["turn"])
 	turnID := firstNonEmpty(stringValue(turn["id"]), stringValue(params["turnId"]), provider.turnID)
 	switch method {
+	case "thread/name/updated":
+		provider.mu.Lock()
+		current := threadID == provider.threadID
+		provider.mu.Unlock()
+		if current {
+			provider.session.setAutomaticName(stringValue(params["threadName"]))
+		}
 	case "thread/tokenUsage/updated":
 		provider.mu.Lock()
 		provider.tokenUsage = mapValue(params["tokenUsage"])
@@ -565,6 +583,20 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 				item["turnId"] = turnID
 			}
 			provider.applyItem(item, status)
+			if method == "item/completed" && stringValue(item["type"]) == "userMessage" {
+				// Match the CLI: start only after Codex has accepted the user
+				// item, not immediately after the asynchronous turn/start reply.
+				provider.session.mu.RLock()
+				text := ""
+				for i := len(provider.session.Messages) - 1; i >= 0; i-- {
+					if provider.session.Messages[i]["kind"] == "user" {
+						text = stringValue(provider.session.Messages[i]["text"])
+						break
+					}
+				}
+				provider.session.mu.RUnlock()
+				provider.titles.schedule(threadID, text, false)
+			}
 		}
 	}
 }
@@ -836,11 +868,26 @@ func (provider *CodexProvider) requestLocked(
 	method string,
 	params map[string]any,
 ) (map[string]any, error) {
+	return provider.requestLockedTracked(ctx, method, params, nil)
+}
+
+func (provider *CodexProvider) requestLockedTracked(ctx context.Context, method string, params map[string]any, hidden *codexTitleResponse) (map[string]any, error) {
 	id := provider.requestID.Add(1)
 	channel := make(chan codexRPCResult, 1)
+	if hidden != nil {
+		hidden.ctx = ctx
+		provider.titles.mu.Lock()
+		if len(provider.titles.starting)+len(provider.titles.hidden) >= 8 {
+			provider.titles.mu.Unlock()
+			return nil, errors.New("too many unfinished title threads")
+		}
+		provider.titles.starting[id] = hidden
+		provider.titles.mu.Unlock()
+	}
 	provider.pending[id] = channel
 	if err := provider.writeLocked(map[string]any{"id": id, "method": method, "params": params}); err != nil {
 		delete(provider.pending, id)
+		provider.titles.receivedResponse(id, nil, false)
 		return nil, err
 	}
 	provider.mu.Unlock()
@@ -852,6 +899,7 @@ func (provider *CodexProvider) requestLocked(
 		provider.mu.Lock()
 		delete(provider.pending, id)
 		provider.mu.Unlock()
+		provider.titles.abandon(hidden)
 		return nil, ctx.Err()
 	}
 }
@@ -955,6 +1003,7 @@ func (provider *CodexProvider) UpdateSettings(ctx context.Context, settings map[
 	return nil
 }
 func (provider *CodexProvider) Interrupt(ctx context.Context) error {
+	provider.titles.cancelGeneration()
 	provider.mu.Lock()
 	if provider.closed {
 		provider.mu.Unlock()
@@ -1206,6 +1255,9 @@ func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
 	if aborted {
 		return errors.New("resume aborted")
 	}
+	if err == nil {
+		provider.titles.schedule(id, "", true)
+	}
 	return err
 }
 func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, error) {
@@ -1227,6 +1279,9 @@ func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, err
 		err = provider.hydrateThread(ctx, result)
 	}
 	provider.updatePublicState("idle")
+	if err == nil {
+		provider.titles.schedule(newID, "", true)
+	}
 	return newID, err
 }
 
@@ -1456,6 +1511,7 @@ func (provider *CodexProvider) Status(ctx context.Context) error {
 }
 func (provider *CodexProvider) Close(context.Context) error {
 	provider.mu.Lock()
+	provider.titles.reset()
 	provider.closed = true
 	if provider.resumeCancel != nil {
 		provider.resumeCancel()

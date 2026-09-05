@@ -107,6 +107,7 @@ type Session struct {
 	closed                        bool
 	ID                            string
 	Name                          string
+	NameManual                    bool
 	Kind                          string
 	Tool                          ToolInfo
 	WorkingDirectory              string
@@ -139,6 +140,16 @@ func newSession(id, name, kind string, tool ToolInfo, workingDirectory string) *
 		events:      sessioncore.NewEventHub(),
 		sendResults: map[string]sendResult{},
 	}
+}
+
+func (session *Session) setAutomaticName(name string) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.closed || session.NameManual || name == "" || session.Name == name {
+		return
+	}
+	session.Name = name
+	session.publishLocked(map[string]any{"type": "session-renamed", "name": name})
 }
 
 func (session *Session) listItem() map[string]any {
@@ -331,7 +342,8 @@ func (session *Session) addPermission(permission Permission) {
 	session.StatusValue = "waiting_approval"
 	session.State["status"] = "waiting_approval"
 	session.State["pendingPermissionCount"] = len(session.Permissions)
-	session.publishLocked(map[string]any{"type": "permission-request", "request": permission})
+	state := cloneMap(session.State)
+	session.publishLocked(map[string]any{"type": "permission-request", "request": permission, "state": state})
 	session.mu.Unlock()
 }
 
@@ -358,7 +370,8 @@ func (session *Session) finishPermission(id, status, decision string) (Permissio
 		session.State["pendingPermissionCount"] = len(session.Permissions)
 	}
 	if ok {
-		session.publishLocked(map[string]any{"type": "permission-updated", "request": permission})
+		state := cloneMap(session.State)
+		session.publishLocked(map[string]any{"type": "permission-updated", "request": permission, "state": state})
 	}
 	session.mu.Unlock()
 	return permission, ok
@@ -478,6 +491,7 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 		name = tool.DisplayName
 	}
 	session := newSession(id, name, kind, tool, directory)
+	session.NameManual = strings.TrimSpace(request.Name) != ""
 	session.events = manager.events
 	if request.ToolKey == "codex" {
 		session.Provider = NewCodexProvider(session, request.CodexOptions)

@@ -841,6 +841,32 @@ func TestSessionSnapshotSubscriptionStartsAfterSnapshotState(t *testing.T) {
 	}
 }
 
+func TestPermissionEventsCarryAuthoritativeSessionState(t *testing.T) {
+	session := newSession(
+		"permission-state", "Codex", "codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"}, t.TempDir(),
+	)
+	subscription := session.events.Subscribe(session.ID, 2)
+	defer subscription.Close()
+	permission := Permission{ID: "approval-1", Status: "pending", Title: "Command execution"}
+	session.addPermission(permission)
+
+	requestEvent := <-subscription.Events()
+	requestState := mapValue(requestEvent.Payload["state"])
+	if stringValue(requestEvent.Payload["type"]) != "permission-request" ||
+		stringValue(requestState["status"]) != "waiting_approval" || numberInt64(requestState["pendingPermissionCount"]) != 1 {
+		t.Fatalf("permission request omitted authoritative state: %#v", requestEvent.Payload)
+	}
+	if _, ok := session.finishPermission(permission.ID, "approved", "approved"); !ok {
+		t.Fatal("permission was not completed")
+	}
+	updatedEvent := <-subscription.Events()
+	updatedState := mapValue(updatedEvent.Payload["state"])
+	if stringValue(updatedEvent.Payload["type"]) != "permission-updated" || numberInt64(updatedState["pendingPermissionCount"]) != 0 {
+		t.Fatalf("permission update omitted authoritative count: %#v", updatedEvent.Payload)
+	}
+}
+
 func TestCodexLargeCommandOutputDoesNotBlockTurnCompletion(t *testing.T) {
 	session := newSession(
 		"large-output", "Codex", "codex-structured",

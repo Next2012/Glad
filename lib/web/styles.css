@@ -317,7 +317,27 @@
         .codex-picker-option.selected { background: rgba(0,122,255,.18); color: #fff; }
         #codex-state-bar { display: flex; align-items: center; gap: 7px; min-height: 24px; margin-top: 8px; color: var(--text-dim); font-size: 11px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
         #codex-state-bar::-webkit-scrollbar { display: none; }
-        #codex-resume-panel, #codex-fork-panel { max-height: min(280px, 38dvh); overflow-y: auto; }
+        #codex-resume-panel, #codex-fork-panel { max-height: min(440px, 45dvh); overflow-y: auto; overscroll-behavior: contain; }
+        .codex-history-header { position: sticky; top: 0; z-index: 1; padding: 10px; background: #1c1c1e; border-bottom: 1px solid rgba(128,128,128,.2); }
+        .codex-history-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; font-size: 12px; margin-bottom: 8px; }
+        .codex-history-filters { display: flex; }
+        .codex-history-filters select { max-width: 100%; border: 1px solid rgba(128,128,128,.35); border-radius: 6px; padding: 8px; font: inherit; font-size: 12px; color: var(--text-main, #fff); background: var(--bg-input, #252527); }
+        .codex-history-item { border-bottom: 1px solid rgba(128,128,128,.2); }
+        .codex-history-row { display: flex; align-items: center; padding-right: 10px; gap: 8px; }
+        .codex-history-row > .claude-resume-item { flex: 1; min-width: 0; border: 0; }
+        .codex-history-row > .small-btn { flex-shrink: 0; }
+        .codex-history-title { font-size: 12px; font-weight: 700; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .codex-history-preview-label { display: inline-block; margin-top: 4px; font-size: 11px; color: #64aaff; }
+        .codex-history-detail { padding: 0 12px 12px; font-size: 12px; overflow-wrap: anywhere; }
+        .codex-history-detail > strong { display: block; margin-top: 10px; }
+        .codex-history-transcript { max-height: 200px; overflow-y: auto; overscroll-behavior: contain; margin-top: 8px; }
+        .codex-history-message { padding: 8px; margin: 4px 0; border-radius: 6px; background: rgba(128,128,128,.08); }
+        .codex-history-message > div { white-space: pre-wrap; margin-top: 4px; }
+        .codex-history-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px; color: var(--text-dim); font-size: 11px; }
+        .codex-history-notice { padding: 12px; font-size: 12px; overflow-wrap: anywhere; }
+        .codex-history-notice[role="alert"] { color: #ff6b61; }
+        html[data-theme="light"] .codex-history-header { background: #fff; }
+        html[data-theme="light"] .codex-history-filters select { color: #202124; background: #f5f5f7; }
         #codex-prompt-panel { max-height: min(440px, 52dvh); overflow-y: auto; }
         #codex-skill-panel { max-height: min(360px, 46dvh); overflow-y: auto; }
         .codex-skill-header { position: sticky; top: 0; z-index: 3; padding: 9px 11px 10px; border-bottom: 1px solid rgba(255,255,255,.08); background: rgba(28,28,30,.97); color: var(--text-dim); font-size: 11px; font-weight: 800; }
@@ -656,6 +676,10 @@ body.tile-mode #lobby-collapse-button { left: -1px; border-radius: 5px 11px 11px
 .tile-status[data-status="running"], .tile-status[data-status="thinking"] { color: #0a84ff; }
 .tile-status[data-status="waiting_approval"] { color: #d49a00; }
 .tile-status[data-status="error"] { color: #ff453a; }
+.tile-approval-alert { display: inline-flex; min-width: 22px; height: 20px; flex: 0 0 auto; align-items: center; justify-content: center; gap: 3px; padding: 0 6px; border: 1px solid rgba(212,154,0,.46); border-radius: 999px; background: rgba(255,204,0,.14); color: #a96f00; font-size: 10px; font-weight: 850; line-height: 1; cursor: pointer; }
+.tile-approval-alert:hover { background: rgba(255,204,0,.24); }
+.tile-approval-alert:active { transform: translateY(1px); }
+html[data-theme="dark"] .tile-approval-alert { color: #ffd60a; }
 .tile-session-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; }
 .tile-session-actions .serverchan-toggle, .tile-delete-button { width: 28px; height: 28px; min-width: 28px; padding: 0; border-radius: 8px; }
 .tile-session-actions .serverchan-toggle svg { width: 15px; height: 15px; }

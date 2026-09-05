@@ -33,11 +33,14 @@ Glad's core working principle:
 Glad was created to enable **vibe coding** on mobile devices. By bringing various CLIs to the web browser, login and authorization are completely aligned with the official tools, ensuring you can fully utilize your paid monthly subscriptions anywhere.
 
 Our design philosophy is **Easy to use, Stable, and Restrained**. Glad focuses strictly on the essentials:
+
 - **Session management:** Run multiple sessions from a single dashboard with per-session working directories.
 - **Responsive workspace:** Use a resizable session sidebar or a live tiled multi-session dashboard on wide screens, and focused lobby/chat pages on mobile, with light and dark themes.
 - **File attachments:** Upload images or arbitrary local files from the composer; Glad stores them privately for the active session and cleans them up automatically.
 - **Local usage dashboard:** Select a week or month, compare per-model and daily token totals, and inspect model-stacked token and cost charts through the bundled read-only `ccusage` engine. Costs use `ccusage` estimates and are shown only for GPT models used by Codex.
 - **Structured provider sessions:** Native streaming, approvals, resume, fork, model, effort, sandbox, and context controls for Codex and Claude.
+- **Codex history browsing:** Sort current-directory history by creation or update time, load older sessions, and preview recent messages before explicitly resuming or forking.
+- **Automatic Codex titles:** Generate short titles through isolated temporary turns using the existing Codex provider, while preserving manual names. Title generation may consume additional model usage; failures do not block the conversation.
 - **Fast history viewing:** Responsive structured conversation history with lazy tool details.
 - **Simple but effective change checking:** Integrated Git changes preview.
 - **Resilient execution:** Client (mobile) disconnections will not interrupt running tasks on the host machine.
