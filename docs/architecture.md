@@ -45,11 +45,15 @@ Large Codex tool and subagent details remain server-side until the browser reque
 
 Codex text and tool-output deltas are accumulated in provider-owned builders instead of repeatedly copying the complete message. Stream lookups cache the Glad message ID, completed or abandoned streams are released with their provider lifecycle, and retained tool output is capped at 8 MiB before lazy detail delivery.
 
+Codex resume requests load only thread metadata plus an initial full-item page, follow `nextCursor` through the remaining turns, and build normalized history off-session. Glad swaps the completed history atomically and emits one `history-reset`; cancellation or page failure leaves the previous messages intact.
+
 ## Provider lifecycle
 
 Each Glad session owns one provider process and a process group. Deleting a session or stopping Glad terminates the complete provider process tree.
 
 Sessions also own a cancellation context used by timed inputs, while WebSocket provider commands inherit the connection context and a bounded command timeout. The scheduler derives its workers from the application context and waits for them during shutdown. Sessions are added to the public manager only after provider initialization succeeds.
+
+Codex interruption is provider-owned state. Glad first requests `turn/interrupt`; if no interrupted completion arrives within five seconds, it stops the app-server process group, settles the active turn as cancelled, and restarts plus resumes the thread before the next message. Resume has no turn id, so stopping during resume cancels the request and recycles app-server immediately.
 
 Codex uses newline-delimited JSON-RPC over `codex app-server --stdio`. Claude uses the same bidirectional stream protocol as the Agent SDK, including control requests for interactive tool approvals. Provider-specific events are tolerated as JSON maps so newer CLI fields do not break older Glad binaries.
 

@@ -94,7 +94,10 @@ func (server *Server) Run(ctx context.Context) error {
 
 func (server *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/config", func(writer http.ResponseWriter, request *http.Request) {
-		respondJSON(writer, http.StatusOK, map[string]any{"defaultWorkingDirectory": server.baseDir})
+		respondJSON(writer, http.StatusOK, map[string]any{
+			"defaultWorkingDirectory": server.baseDir,
+			"version":                 buildVersion,
+		})
 	})
 	mux.HandleFunc("GET /api/tools", func(writer http.ResponseWriter, request *http.Request) {
 		respondJSON(writer, http.StatusOK, detectTools(request.Context()))

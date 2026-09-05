@@ -929,3 +929,235 @@ func BenchmarkCodexAssistantDeltaAccumulation(b *testing.B) {
 		}
 	}
 }
+
+func TestCodexAbortWatchdogRecoversWhenInterruptNeverCompletes(t *testing.T) {
+	session := newSession(
+		"abort-watchdog", "Codex", "codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"}, t.TempDir(),
+	)
+	provider := NewCodexProvider(session, nil)
+	provider.cmd = exec.Command("codex")
+	writes := make(chan []byte, 2)
+	provider.stdin = &channelWriteCloser{writes: writes}
+	provider.threadID = "thread-abort"
+	provider.turnID = "turn-abort"
+	provider.turnStarted = millis() - 1000
+	provider.abortGrace = 20 * time.Millisecond
+	session.Provider = provider
+	session.setState(map[string]any{"status": "running", "canAbort": true})
+
+	done := make(chan error, 1)
+	go func() { done <- provider.Interrupt(context.Background()) }()
+	select {
+	case encoded := <-writes:
+		var request map[string]any
+		if err := json.Unmarshal(bytes.TrimSpace(encoded), &request); err != nil {
+			t.Fatal(err)
+		}
+		if request["method"] != "turn/interrupt" {
+			t.Fatalf("unexpected interrupt request: %#v", request)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("interrupt request was not sent")
+	}
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "stopped") {
+			t.Fatalf("watchdog did not fail the pending interrupt: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("interrupt remained blocked after watchdog")
+	}
+
+	provider.mu.Lock()
+	turnID, aborting, needsResume := provider.turnID, provider.aborting, provider.needsThreadResume
+	provider.mu.Unlock()
+	session.mu.RLock()
+	status := session.StatusValue
+	foundCancelled := false
+	for _, message := range session.Messages {
+		if stringValue(message["kind"]) == "turn-end" && stringValue(message["status"]) == "cancelled" {
+			foundCancelled = true
+		}
+	}
+	session.mu.RUnlock()
+	if turnID != "" || aborting || !needsResume || status != "idle" || !foundCancelled {
+		t.Fatalf(
+			"watchdog recovery incomplete: turn=%q aborting=%v resume=%v status=%s cancelled=%v",
+			turnID, aborting, needsResume, status, foundCancelled,
+		)
+	}
+}
+
+func TestCodexResumeAbortStopsProcessWithoutTurnID(t *testing.T) {
+	session := newSession(
+		"resume-abort", "Codex", "codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"}, t.TempDir(),
+	)
+	provider := NewCodexProvider(session, nil)
+	provider.cmd = exec.Command("codex")
+	writes := make(chan []byte, 2)
+	provider.stdin = &channelWriteCloser{writes: writes}
+	provider.threadID = "thread-before-resume"
+	session.Provider = provider
+
+	done := make(chan error, 1)
+	go func() { done <- provider.Resume(context.Background(), "thread-stuck-resume") }()
+	select {
+	case encoded := <-writes:
+		var request map[string]any
+		if err := json.Unmarshal(bytes.TrimSpace(encoded), &request); err != nil {
+			t.Fatal(err)
+		}
+		if request["method"] != "thread/resume" || !boolValue(mapValue(request["params"])["excludeTurns"]) {
+			t.Fatalf("unexpected resume request: %#v", request)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("resume request was not sent")
+	}
+	if err := provider.Interrupt(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "resume aborted") {
+			t.Fatalf("resume did not report user abort: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("resume remained blocked after abort")
+	}
+	provider.mu.Lock()
+	resuming, aborting, needsResume := provider.resuming, provider.aborting, provider.needsThreadResume
+	provider.mu.Unlock()
+	if resuming || aborting || !needsResume || session.StatusValue != "idle" {
+		t.Fatalf("resume abort did not recover state: resuming=%v aborting=%v needsResume=%v status=%s", resuming, aborting, needsResume, session.StatusValue)
+	}
+}
+
+func TestCodexHistoryPaginationPublishesOneAtomicReset(t *testing.T) {
+	session := newSession(
+		"history-pages", "Codex", "codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"}, t.TempDir(),
+	)
+	provider := NewCodexProvider(session, nil)
+	provider.cmd = exec.Command("codex")
+	writes := make(chan []byte, 2)
+	provider.stdin = &channelWriteCloser{writes: writes}
+	provider.threadID = "thread-pages"
+	session.Provider = provider
+	subscription := session.events.Subscribe(session.ID, 2)
+	defer subscription.Close()
+	turn := func(id, text string) map[string]any {
+		return map[string]any{
+			"id": id, "status": "completed", "createdAt": float64(100), "completedAt": float64(101),
+			"items": []any{map[string]any{"id": "item-" + id, "type": "agentMessage", "text": text}},
+		}
+	}
+	result := map[string]any{
+		"thread": map[string]any{"id": "thread-pages", "turns": []any{}},
+		"initialTurnsPage": map[string]any{
+			"data": []any{turn("turn-3", "three"), turn("turn-2", "two")}, "nextCursor": "older",
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- provider.hydrateThread(context.Background(), result) }()
+	select {
+	case encoded := <-writes:
+		var request map[string]any
+		if err := json.Unmarshal(bytes.TrimSpace(encoded), &request); err != nil {
+			t.Fatal(err)
+		}
+		params := mapValue(request["params"])
+		if request["method"] != "thread/turns/list" || stringValue(params["cursor"]) != "older" ||
+			stringValue(params["itemsView"]) != "full" {
+			t.Fatalf("unexpected history page request: %#v", request)
+		}
+		provider.handleRPC(map[string]any{
+			"id":     request["id"],
+			"result": map[string]any{"data": []any{turn("turn-1", "one")}, "nextCursor": nil},
+		})
+	case <-time.After(time.Second):
+		t.Fatal("second history page was not requested")
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case event := <-subscription.Events():
+		if stringValue(event.Payload["type"]) != "history-reset" {
+			t.Fatalf("unexpected hydration event: %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("history reset was not published")
+	}
+	select {
+	case event := <-subscription.Events():
+		t.Fatalf("hydration published more than one event: %#v", event)
+	default:
+	}
+	select {
+	case <-subscription.Done():
+		t.Fatal("healthy history subscriber was disconnected")
+	default:
+	}
+	session.mu.RLock()
+	texts := []string{}
+	for _, message := range session.Messages {
+		if stringValue(message["kind"]) == "assistant" {
+			texts = append(texts, stringValue(message["text"]))
+		}
+	}
+	session.mu.RUnlock()
+	if strings.Join(texts, ",") != "one,two,three" {
+		t.Fatalf("history pages were not restored oldest-first: %#v", texts)
+	}
+}
+
+func TestCodexCancelledResumePreservesHistoryAndRecyclesProcess(t *testing.T) {
+	session := newSession(
+		"resume-cancel", "Codex", "codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"}, t.TempDir(),
+	)
+	session.appendMessage(map[string]any{"kind": "assistant", "text": "keep existing history"})
+	provider := NewCodexProvider(session, nil)
+	provider.cmd = exec.Command("codex")
+	writes := make(chan []byte, 2)
+	provider.stdin = &channelWriteCloser{writes: writes}
+	provider.threadID = "thread-existing"
+	session.Provider = provider
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- provider.Resume(ctx, "thread-cancelled") }()
+	select {
+	case <-writes:
+		cancel()
+	case <-time.After(time.Second):
+		t.Fatal("resume request was not sent")
+	}
+	select {
+	case err := <-done:
+		if err == nil || !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled resume returned the wrong error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled resume did not return")
+	}
+	session.mu.RLock()
+	preserved := false
+	for _, message := range session.Messages {
+		if stringValue(message["text"]) == "keep existing history" {
+			preserved = true
+			break
+		}
+	}
+	status := session.StatusValue
+	session.mu.RUnlock()
+	provider.mu.Lock()
+	needsResume, command := provider.needsThreadResume, provider.cmd
+	provider.mu.Unlock()
+	if !preserved || status != "idle" || !needsResume || command != nil {
+		t.Fatalf("cancelled resume damaged live state: preserved=%v status=%s needsResume=%v command=%v", preserved, status, needsResume, command)
+	}
+}

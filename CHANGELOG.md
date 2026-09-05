@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-09-05
+
 ### Changed
 
 - Decoupled session events from WebSocket connections with bounded per-consumer queues, asynchronous notification delivery, and atomic snapshot subscriptions.
@@ -23,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added time and output limits to Git commands, bounded workspace file reads, and coalesced concurrent usage report loads.
 - Made configuration updates copy-on-write, surfaced persistence failures, and rejected corrupt configuration instead of silently replacing it.
 - Made Codex delta accumulation linear, cached streamed message lookups, and capped retained command output at 8 MiB so large tool output cannot starve later lifecycle events.
+- Restored stuck Codex abort recovery with a server-side grace period, forced app-server process-tree cleanup, restart-on-next-send, and cancellable resume operations.
+- Loaded resumed Codex history through cursor pagination, constructed it without incremental broadcasts, and published one atomic `history-reset` while preserving the previous history on failure.
 
 ## [2.1.0] - 2026-09-05
 

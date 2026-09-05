@@ -265,6 +265,21 @@ func (session *Session) appendMessage(message map[string]any) map[string]any {
 	return message
 }
 
+func (session *Session) replaceMessages(messages []map[string]any) bool {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.closed {
+		return false
+	}
+	public := make([]map[string]any, len(messages))
+	for index, message := range messages {
+		public[index] = publicMessage(message, session.Kind)
+	}
+	session.Messages = messages
+	session.publishLocked(map[string]any{"type": "history-reset", "messages": public})
+	return true
+}
+
 func (session *Session) patchMessage(id string, patch map[string]any) {
 	session.mu.Lock()
 	if session.closed {
