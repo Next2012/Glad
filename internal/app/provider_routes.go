@@ -22,6 +22,7 @@ func (server *Server) registerProviderRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/sessions/{id}/claude-fork", server.claudeFork)
 	mux.HandleFunc("PATCH /api/sessions/{id}/codex-settings", server.providerSettings)
 	mux.HandleFunc("GET /api/sessions/{id}/codex-resume-threads", server.codexResumeThreads)
+	mux.HandleFunc("GET /api/sessions/{id}/codex-thread-preview", server.codexThreadPreview)
 	mux.HandleFunc("GET /api/sessions/{id}/codex-prompts", server.codexPrompts)
 	mux.HandleFunc("GET /api/sessions/{id}/codex-skills", server.codexSkills)
 	mux.HandleFunc("POST /api/sessions/{id}/codex-abort", server.providerAbort)
@@ -170,8 +171,7 @@ func (server *Server) codexFork(writer http.ResponseWriter, request *http.Reques
 	var input map[string]any
 	_ = decodeJSON(request, &input)
 	provider := session.Provider.(*CodexProvider)
-	source := firstNonEmpty(stringValue(input["threadId"]), provider.threadID)
-	threadID, err := provider.Fork(request.Context(), source)
+	threadID, err := provider.Fork(request.Context(), stringValue(input["threadId"]))
 	if err != nil {
 		respondError(writer, 400, err)
 		return
@@ -187,12 +187,18 @@ func (server *Server) codexResumeThreads(writer http.ResponseWriter, request *ht
 	if !ok {
 		return
 	}
-	items, err := provider.listThreads(request.Context())
+	query := request.URL.Query()
+	ctx, cancel := context.WithTimeout(request.Context(), 25*time.Second)
+	defer cancel()
+	items, cursor, err := provider.listThreadPage(ctx, codexThreadQuery{
+		Cursor: query.Get("cursor"), Search: query.Get("search"),
+		AllDirectories: query.Get("scope") == "all", Sort: query.Get("sort"),
+	})
 	if err != nil {
 		respondError(writer, 400, err)
 		return
 	}
-	respondJSON(writer, 200, map[string]any{"success": true, "items": items})
+	respondJSON(writer, 200, map[string]any{"success": true, "items": items, "nextCursor": cursor})
 }
 func (server *Server) codexPrompts(writer http.ResponseWriter, request *http.Request) {
 	provider, ok := server.codexProvider(writer, request)
@@ -266,41 +272,8 @@ func (provider *CodexProvider) rpc(ctx context.Context, method string, params ma
 	return result, err
 }
 func (provider *CodexProvider) listThreads(ctx context.Context) ([]map[string]any, error) {
-	result, err := provider.rpc(
-		ctx,
-		"thread/list",
-		map[string]any{
-			"cursor":        nil,
-			"limit":         40,
-			"sortKey":       "updated_at",
-			"sortDirection": "desc",
-			"archived":      false,
-			"cwd":           provider.session.WorkingDirectory,
-		},
-	)
-	if err != nil {
-		return nil, err
-	}
-	items := []map[string]any{}
-	for _, value := range sliceValue(result["data"]) {
-		thread := mapValue(value)
-		if thread["parentThreadId"] != nil {
-			continue
-		}
-		preview := stringValue(thread["preview"])
-		items = append(
-			items,
-			map[string]any{
-				"id":        thread["id"],
-				"sessionId": firstNonNil(thread["sessionId"], thread["id"]),
-				"questions": []string{preview, ""},
-				"updatedAt": timestampMillis(firstNonNil(thread["updatedAt"], thread["createdAt"])),
-				"cwd":       stringValue(thread["cwd"]),
-				"current":   stringValue(thread["id"]) == provider.threadID,
-			},
-		)
-	}
-	return items, nil
+	items, _, err := provider.listThreadPage(ctx, codexThreadQuery{})
+	return items, err
 }
 func (provider *CodexProvider) listPrompts(ctx context.Context, offset, limit int) ([]map[string]any, error) {
 	threads, err := provider.listThreads(ctx)

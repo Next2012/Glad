@@ -85,6 +85,7 @@
     </div>
 
     <div id="sidebar-resizer" role="separator" aria-label="Resize session sidebar" aria-orientation="vertical"></div>
+    <div id="session-reorder-status" class="action-label" role="status" aria-live="polite"></div>
     <button id="lobby-collapse-button" type="button" onclick="toggleTiledMode(); event.stopPropagation()"
         title="Collapse lobby and tile sessions" aria-label="Collapse lobby and tile sessions">
         <svg class="action-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg>
@@ -223,6 +224,19 @@
                 <div id="attachment-strip" aria-live="polite"></div>
                 <input id="attachment-file-input" type="file" multiple hidden>
                 <div id="composer-action-tooltip" role="tooltip"></div>
+                <!-- Expand auxiliary editors above the bottom action toolbars. -->
+                <div id="timed-send-panel" role="group" aria-label="Scheduled send">
+                    <div class="timed-row">
+                        <select id="timed-hours" onchange="updateTimedSendPreview()" title="Hours" aria-label="Delay hours"></select>
+                        <select id="timed-minutes" onchange="updateTimedSendPreview()" title="Minutes" aria-label="Delay minutes"></select>
+                        <button id="timed-save-btn" class="small-btn primary" onclick="saveTimedSend()">Add Timer</button>
+                    </div>
+                    <div id="timed-preview" class="timed-preview"></div>
+                    <div id="timed-editor-actions" class="timed-editor-actions" hidden>
+                        <button id="timed-cancel-edit-btn" class="small-btn" onclick="resetTimedEditor()">Cancel Edit</button>
+                        <button id="timed-delete-btn" class="small-btn danger" onclick="deleteEditingTimedInput()">Delete</button>
+                    </div>
+                </div>
                 <div id="claude-control-panel">
                     <div class="claude-control-rail">
                         <div class="claude-control-page primary">
@@ -295,18 +309,6 @@
                     <div id="codex-fork-panel"></div>
                     <div id="codex-prompt-panel"></div>
                     <div id="codex-skill-panel"></div>
-                </div>
-                <div id="timed-send-panel">
-                    <div class="timed-row">
-                        <select id="timed-hours" onchange="updateTimedSendPreview()" title="Hours"></select>
-                        <select id="timed-minutes" onchange="updateTimedSendPreview()" title="Minutes"></select>
-                        <button id="timed-save-btn" class="small-btn primary" onclick="saveTimedSend()">Add Timer</button>
-                    </div>
-                    <div id="timed-preview" class="timed-preview"></div>
-                    <div class="timed-editor-actions">
-                        <button id="timed-cancel-edit-btn" class="small-btn" onclick="resetTimedEditor()" style="display:none;">Cancel Edit</button>
-                        <button id="timed-delete-btn" class="small-btn danger" onclick="deleteEditingTimedInput()" style="display:none;">Delete</button>
-                    </div>
                 </div>
                 <div id="shortcut-rail">
                     <div class="shortcut-group simple-shortcuts">
@@ -567,6 +569,7 @@
     <script defer src="vendor/xterm-addon-fit.js"></script>
     <script src="theme.js"></script>
     <script src="gitgraph.js"></script>
+    <script src="session-order.js"></script>
     <script src="core.js"></script>
     <script src="layout.js"></script>
     <script src="notifications.js"></script>
@@ -574,6 +577,7 @@
     <script src="claude.js"></script>
     <script src="schedules.js"></script>
     <script src="shell.js"></script>
+    <script src="codex-history.js"></script>
     <script src="codex.js"></script>
     <script src="session.js"></script>
     <script src="composer.js"></script>

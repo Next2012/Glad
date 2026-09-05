@@ -16,6 +16,15 @@ if (process.argv[2] !== 'app-server') {
 
 const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 let turnSequence = 0;
+const approvalRequests = new Map();
+const threadNames = new Map();
+const hiddenThreads = new Set();
+let titleSequence = 0;
+function savedThreadName(id) {
+  if (threadNames.has(id)) return threadNames.get(id);
+  const match = /^picker-thread-(\d+)$/.exec(id || '');
+  return match ? `History ${String(match[1]).padStart(3, '0')}` : null;
+}
 
 function largeHistoryTurns() {
   const turns = [];
@@ -56,9 +65,59 @@ input.on('line', line => {
     return;
   }
   if (request.id == null) return;
+  if (!request.method) {
+    const approval = approvalRequests.get(String(request.id));
+    if (approval) {
+      approvalRequests.delete(String(request.id));
+      write({
+        method: 'item/completed',
+        params: {
+          threadId: approval.threadId, turnId: approval.turnId,
+          item: {
+            id: approval.itemId, type: 'commandExecution', command: 'approval-command',
+            status: 'completed', aggregatedOutput: 'approved', exitCode: 0
+          }
+        }
+      });
+      write({
+        method: 'turn/completed',
+        params: { threadId: approval.threadId, turn: { id: approval.turnId, status: 'completed' } }
+      });
+    }
+    return;
+  }
 
   let result = {};
-  if (request.method === 'thread/resume') {
+  if (request.method === 'thread/read') {
+    result = { thread: { id: request.params.threadId, name: savedThreadName(request.params.threadId), turns: [] } };
+  } else if (request.method === 'thread/name/set') {
+    threadNames.set(request.params.threadId, request.params.name);
+    write({ method: 'thread/name/updated', params: { threadId: request.params.threadId, threadName: request.params.name } });
+  } else if (request.method === 'account/read') {
+    result = { account: { type: 'chatgpt' } };
+  } else if (request.method === 'thread/unsubscribe') {
+    hiddenThreads.delete(request.params.threadId);
+  } else if (request.method === 'thread/list') {
+    const params = request.params || {};
+    let threads = Array.from({ length: 90 }, (_, i) => ({
+      id: `picker-thread-${i}`, name: `History ${String(i).padStart(3, '0')}`,
+      preview: `Question ${i}`, cwd: i % 2 === 0 ? process.cwd() : '/other-project',
+      createdAt: 1700000000 + i, updatedAt: 1700001000 - i,
+      gitInfo: { branch: `feature/history-${i}` }
+    }));
+    for (const [id, name] of threadNames) {
+      if (id === 'thread-e2e' || id.includes('untitled-history-e2e')) threads.unshift({ id, name, preview: 'Original question', cwd: process.cwd(), createdAt: 1700000000, updatedAt: 1800000000 });
+    }
+    if (params.cwd) threads = threads.filter(thread => thread.cwd === params.cwd);
+    if (params.searchTerm) threads = threads.filter(thread => thread.name.toLowerCase().includes(params.searchTerm.toLowerCase()));
+    threads.sort((a, b) => params.sortKey === 'created_at' ? b.createdAt - a.createdAt : b.updatedAt - a.updatedAt);
+    const offset = Number(params.cursor || 0);
+    const limit = Number(params.limit || 40);
+    result = { data: threads.slice(offset, offset + limit), nextCursor: offset + limit < threads.length ? String(offset + limit) : null };
+  } else if (request.method === 'thread/fork') {
+    threadNames.set(`fork-of-${request.params?.threadId}`, savedThreadName(request.params?.threadId));
+    result = { thread: { id: `fork-of-${request.params?.threadId}`, turns: [] }, initialTurnsPage: { data: [], nextCursor: null } };
+  } else if (request.method === 'thread/resume') {
     const threadId = request.params?.threadId || 'thread-e2e';
     if (threadId === 'stuck-resume-e2e') return;
     if (threadId === 'large-history-e2e') {
@@ -75,7 +134,23 @@ input.on('line', line => {
       result = { thread: { id: threadId, turns: [] }, initialTurnsPage: { data: [], nextCursor: null } };
     }
   } else if (request.method === 'thread/turns/list') {
-    if (request.params?.threadId === 'large-history-e2e' && request.params?.cursor === 'large-history-page-2') {
+    if (request.params?.threadId?.includes('untitled-history-e2e') && request.params?.itemsView === 'summary') {
+      result = { data: [{ items: [
+        { type: 'userMessage', content: [{ type: 'text', text: 'Diagnose the old project build failure' }] },
+        { type: 'agentMessage', phase: 'commentary', text: 'IGNORE TITLE COMMENTARY' },
+        { type: 'agentMessage', phase: 'final_answer', text: 'The project build was repaired.' }
+      ] }], nextCursor: null };
+    } else if (request.params?.threadId?.startsWith('picker-thread-')) {
+      if (request.params?.itemsView !== 'summary' || request.params?.limit !== 3) {
+        write({ id: request.id, error: { message: 'previews must use bounded summaries' } });
+        return;
+      }
+      result = { data: [{ id: 'preview-turn', items: [
+        { type: 'userMessage', content: [{ type: 'text', text: `Recent question for ${request.params.threadId}` }] },
+        { type: 'agentMessage', text: 'Recent answer <script>not executable</script>' },
+        { type: 'commandExecution', aggregatedOutput: 'Hidden tool payload' }
+      ] }], nextCursor: 'older-preview-not-needed' };
+    } else if (request.params?.threadId === 'large-history-e2e' && request.params?.cursor === 'large-history-page-2') {
       if (request.params?.itemsView !== 'full') {
         write({ id: request.id, error: { message: 'history pages must include full items' } });
         return;
@@ -87,10 +162,40 @@ input.on('line', line => {
   } else if (request.method === 'turn/interrupt') {
     result = {};
   } else if (request.method === 'thread/start') {
-    result = { thread: { id: 'thread-e2e' } };
+    if (request.params?.ephemeral) {
+      const params = request.params;
+      if (params.threadSource !== 'system' || params.sandbox !== 'read-only' || params.config?.['features.shell_tool'] !== false || params.config?.['features.hooks'] !== false) {
+        write({ id: request.id, error: { message: 'title thread must use CLI isolation' } });
+        return;
+      }
+      const id = `hidden-title-${++titleSequence}`;
+      hiddenThreads.add(id);
+      // Deliberately notify before the response to exercise routing races.
+      write({ method: 'thread/started', params: { thread: { id, ephemeral: true } } });
+      result = { thread: { id, ephemeral: true }, sandbox: { type: 'readOnly' } };
+    } else {
+      result = { thread: { id: 'thread-e2e' } };
+    }
   } else if (request.method === 'turn/start') {
     const text = (request.params?.input || [])
       .filter(item => item?.type === 'text').map(item => item.text || '').join('\n');
+    if (hiddenThreads.has(request.params.threadId)) {
+      if (!request.params.outputSchema || Buffer.byteLength(text) > 960 || request.params.effort !== 'low') {
+        write({ id: request.id, error: { message: 'invalid structured title turn' } });
+        return;
+      }
+      const threadId = request.params.threadId;
+      const turnId = `title-turn-${titleSequence}`;
+      write({ id: request.id, result: { turn: { id: turnId } } });
+      write({ method: 'turn/started', params: { threadId, turn: { id: turnId } } });
+      setTimeout(() => {
+        if (!hiddenThreads.has(threadId)) return;
+        const failed = text.includes('__GLAD_E2E_TITLE_FAIL__');
+        write({ method: 'item/completed', params: { threadId, turnId, item: { type: 'agentMessage', id: 'hidden-title-item', text: failed ? 'invalid JSON' : '{"title":"修复项目构建"}' } } });
+        write({ method: 'turn/completed', params: { threadId, turn: { id: turnId, status: 'completed' } } });
+      }, text.includes('__GLAD_E2E_TITLE_SLOW__') ? 1500 : 150);
+      return;
+    }
     if (text.includes('__GLAD_E2E_FAIL_SEND__')) {
       setTimeout(() => write({ id: request.id, error: { message: 'forced send failure' } }), 25);
       return;
@@ -100,6 +205,24 @@ input.on('line', line => {
     write({ id: request.id, result: { turn: { id: turnId } } });
     setImmediate(() => {
       write({ method: 'turn/started', params: { threadId: 'thread-e2e', turn: { id: turnId } } });
+      if (text.includes('__GLAD_E2E_APPROVAL__')) {
+        const itemId = `approval-command-${process.pid}-${turnNumber}`;
+        const approvalId = `approval-request-${process.pid}-${turnNumber}`;
+        write({
+          method: 'item/started',
+          params: {
+            threadId: 'thread-e2e', turnId,
+            item: { id: itemId, type: 'commandExecution', command: 'approval-command', status: 'running' }
+          }
+        });
+        approvalRequests.set(approvalId, { threadId: 'thread-e2e', turnId, itemId });
+        write({
+          id: approvalId,
+          method: 'item/commandExecution/requestApproval',
+          params: { threadId: 'thread-e2e', turnId, itemId, reason: 'Allow approval-command to run?' }
+        });
+        return;
+      }
       if (text.includes('__GLAD_E2E_STUCK_ABORT__')) {
         write({
           method: 'item/started',
@@ -163,7 +286,7 @@ input.on('line', line => {
         contextWindow: 128000,
         defaultReasoningEffort: 'medium',
         supportedReasoningEfforts: ['low', 'medium', 'high']
-      }]
+      }, { id: 'gpt-5.6-luna', model: 'gpt-5.6-luna', displayName: 'Luna', supportedReasoningEfforts: ['low'] }]
     };
   }
 

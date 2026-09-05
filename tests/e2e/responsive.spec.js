@@ -840,6 +840,100 @@ test('approval bubble expands and jumps to its pending request', async ({ page }
   await page.screenshot({ path: testInfo.outputPath('approval-jump.png'), fullPage: true });
 });
 
+test('live approval attention works in normal, tiled monitor, and tiled focus views', async ({ page }) => {
+  test.setTimeout(60000);
+  const normalId = await createNamedSession(page, 'codex', 'Approval · Normal');
+  const monitorId = await createNamedSession(page, 'codex', 'Approval · Monitor');
+  const focusedId = await createNamedSession(page, 'codex', 'Approval · Focused');
+  await limitVisibleSessions(page, [normalId, monitorId, focusedId]);
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  await page.locator(`.session-card[data-session-id="${normalId}"]`).getByRole('button', { name: 'Connect' }).click();
+  await page.locator('#cmd-input').fill('__GLAD_E2E_APPROVAL__ normal');
+  await page.locator('#send-btn').click();
+  const normalJump = page.getByRole('button', { name: 'Jump to pending approval' });
+  await expect(normalJump).toBeVisible();
+  await normalJump.click();
+  await expect(page.locator('#codex-chat-container [data-codex-permission-id]')).toBeVisible();
+  await page.locator('#codex-chat-container').getByRole('button', { name: 'Yes', exact: true }).click();
+  await expect(normalJump).toHaveCount(0);
+  await expect(page.locator('#send-btn')).toBeEnabled();
+  await page.request.delete(`/api/sessions/${normalId}`);
+  await page.evaluate(() => showLobby());
+  if (page.viewportSize().width < 920) {
+    await page.request.delete(`/api/sessions/${monitorId}`);
+    await page.request.delete(`/api/sessions/${focusedId}`);
+    return;
+  }
+
+  await page.getByRole('button', { name: 'Collapse lobby and tile sessions' }).click();
+  await expect.poll(() => page.evaluate(ids => ids.every(id => tiledWorkspace.previewStates.get(id)?.connected), [monitorId, focusedId])).toBe(true);
+  await page.evaluate(sessionId => {
+    tiledWorkspace.previewSockets.get(sessionId).send(JSON.stringify({
+      type: 'codex-input', clientMessageId: `approval-monitor-${Date.now()}`,
+      text: '__GLAD_E2E_APPROVAL__ monitor', attachmentIds: [], skills: []
+    }));
+  }, monitorId);
+  const monitorTile = page.locator(`.tile-session-window[data-session-id="${monitorId}"]`);
+  await expect(monitorTile.locator('.tile-status')).toHaveText('Waiting');
+  const monitorAlert = monitorTile.getByRole('button', { name: /Open 1 pending approval/ });
+  await expect(monitorAlert).toBeVisible();
+  await monitorAlert.click();
+  await expect(page.locator('body')).toHaveClass(/tile-focus-open/);
+  await expect(page.locator('#session-title')).toHaveText('Approval · Monitor');
+  const monitorTarget = page.locator('#codex-chat-container [data-codex-permission-id]');
+  await expect(monitorTarget).toBeVisible();
+  await expect(monitorTarget).toHaveClass(/codex-approval-focus/);
+  await monitorTarget.getByRole('button', { name: 'Yes', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Jump to pending approval' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Return to tiled view' }).click();
+  await expect(monitorTile.locator('.tile-approval-alert')).toHaveCount(0);
+  await expect(monitorTile.locator('.tile-status')).toHaveText('Idle');
+
+  const focusedTile = page.locator(`.tile-session-window[data-session-id="${focusedId}"]`);
+  await focusedTile.getByRole('button', { name: 'Connect' }).click();
+  await page.waitForFunction(() => activeSessionHydrated === true);
+  await page.locator('#cmd-input').fill('__GLAD_E2E_APPROVAL__ focused');
+  await page.locator('#send-btn').click();
+  const focusedJump = page.getByRole('button', { name: 'Jump to pending approval' });
+  await expect(focusedJump).toBeVisible();
+  await focusedJump.click();
+  await expect(page.locator('#codex-chat-container [data-codex-permission-id]')).toBeVisible();
+  await page.locator('#codex-chat-container').getByRole('button', { name: 'Yes', exact: true }).click();
+  await expect(focusedJump).toHaveCount(0);
+  await page.getByRole('button', { name: 'Return to tiled view' }).click();
+  await expect(focusedTile.locator('.tile-approval-alert')).toHaveCount(0);
+
+  await page.request.delete(`/api/sessions/${monitorId}`);
+  await page.request.delete(`/api/sessions/${focusedId}`);
+});
+
+test('approval-only events from older servers refresh counts and clear the attention rail', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.evaluate(() => {
+    activeToolKey = 'codex';
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    document.getElementById('terminal-view').classList.add('active');
+    setClaudeModeEnabled(false);
+    applyCodexState({ status: 'running', pendingPermissionCount: 0 });
+    applyCodexEvent({ type: 'permission-request', request: { id: 'first', status: 'pending', title: 'First approval' } });
+    applyCodexEvent({ type: 'permission-request', request: { id: 'second', status: 'pending', title: 'Second approval' } });
+  });
+  const jump = page.getByRole('button', { name: 'Jump to pending approval' });
+  await expect(jump).toContainText('2 approvals');
+  await page.evaluate(() => applyCodexEvent({
+    type: 'permission-updated', request: { id: 'first', status: 'approved', title: 'First approval' }
+  }));
+  await expect(jump).toContainText('1 approval');
+  await jump.click();
+  await expect(page.locator('#codex-chat-container [data-codex-permission-id="second"]')).toBeInViewport();
+  await page.evaluate(() => applyCodexEvent({
+    type: 'permission-updated', request: { id: 'second', status: 'denied', title: 'Second approval' }
+  }));
+  await expect(jump).toHaveCount(0);
+  await expect(page.locator('#session-status-strip')).toBeHidden();
+});
+
 test('scheduled sends stack below session attention', async ({ page }, testInfo) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
