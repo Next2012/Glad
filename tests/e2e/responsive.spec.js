@@ -199,6 +199,235 @@ test('desktop sidebar identifies and deletes the active structured session', asy
   await expectSessionDeleted(page, sessionId);
 });
 
+test('desktop lobby collapses into live tiled conversations and opens a draggable focus dialog', async ({ page }, testInfo) => {
+  test.skip(page.viewportSize().width < 920, 'Desktop tiled layout only');
+
+  const existing = await (await page.request.get('/api/sessions')).json();
+  for (const session of existing.filter(item => ['Tiled Codex session', 'Tiled Claude session'].includes(item.name))) {
+    await page.request.delete(`/api/sessions/${session.id}`);
+  }
+  const codexId = await createNamedSession(page, 'codex', 'Tiled Codex session');
+  const claudeId = await createNamedSession(page, 'claude-code', 'Tiled Claude session');
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  const collapse = page.getByRole('button', { name: 'Collapse lobby and tile sessions' });
+  await expect(collapse).toBeVisible();
+  const collapseBox = await collapse.boundingBox();
+  const dividerBox = await page.locator('#sidebar-resizer').boundingBox();
+  expect(collapseBox.height).toBeGreaterThan(collapseBox.width * 2);
+  expect(Math.abs(collapseBox.x + collapseBox.width / 2 - dividerBox.x)).toBeLessThanOrEqual(2);
+  await collapse.click();
+
+  await expect(page.locator('body')).toHaveClass(/tile-mode/);
+  await expect(page.locator('#lobby-view')).toBeHidden();
+  await expect(page.locator('#tile-workspace')).toHaveClass(/active/);
+  await expect(page.locator('.tile-session-window').filter({ hasText: 'Tiled Codex session' }).locator('.codex-conversation')).toBeVisible();
+  await expect(page.locator('.tile-session-window').filter({ hasText: 'Tiled Claude session' }).locator('.claude-conversation')).toBeVisible();
+  const codexHeader = page.locator('.tile-session-window').filter({ hasText: 'Tiled Codex session' }).locator('.tile-session-header');
+  await expect(codexHeader.locator('.tile-session-title-row > :first-child')).toHaveClass(/tile-status/);
+  await expect(codexHeader.locator('.tile-session-path')).toHaveAttribute('title', /glad/);
+  expect((await codexHeader.boundingBox()).height).toBeLessThanOrEqual(46);
+
+  await page.getByRole('button', { name: 'Tile layout' }).click();
+  await expect(page.locator('#tile-layout-popover')).toBeVisible();
+  const layoutButton = await page.getByRole('button', { name: 'Tile layout' }).boundingBox();
+  expect(layoutButton.width).toBeGreaterThan(layoutButton.height * 2);
+  expect(Math.abs(layoutButton.x + layoutButton.width / 2 - page.viewportSize().width / 2)).toBeLessThanOrEqual(2);
+  await page.locator('#tile-columns-range').fill('1');
+  await expect(page.locator('#tile-columns-output')).toHaveText('1');
+  await expect(page.locator('#tile-grid')).toHaveCSS('grid-template-columns', /.+/);
+  await page.screenshot({ path: testInfo.outputPath('tiled-workspace.png'), fullPage: true });
+
+  const codexTile = page.locator('.tile-session-window').filter({ hasText: 'Tiled Codex session' });
+  await codexTile.locator('.tile-chat-surface').click({ position: { x: 20, y: 20 } });
+  await expect(page.locator('body')).not.toHaveClass(/tile-focus-open/);
+  await codexTile.getByRole('button', { name: 'Connect' }).click();
+  await expect(page.locator('body')).toHaveClass(/tile-focus-open/);
+  await expect(page.locator('#tile-focus-backdrop')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Return to tiled view' })).toBeVisible();
+  await expect(page.locator('#terminal-view')).toHaveClass(/active/);
+  await expect(page.locator('#session-title')).toHaveText('Tiled Codex session');
+  await page.screenshot({ path: testInfo.outputPath('tiled-focus-dialog.png'), fullPage: true });
+
+  const before = await page.locator('#terminal-view').boundingBox();
+  const returnButton = await page.getByRole('button', { name: 'Return to tiled view' }).boundingBox();
+  expect(before).not.toBeNull();
+  expect(Math.abs(returnButton.x - (before.x + 10))).toBeLessThanOrEqual(2);
+  await page.locator('#nav-bar').hover();
+  await page.mouse.down();
+  await page.mouse.move(before.x + 90, before.y + 70, { steps: 4 });
+  await page.mouse.up();
+  const after = await page.locator('#terminal-view').boundingBox();
+  expect(after).not.toBeNull();
+  expect(Math.abs(after.x - before.x) + Math.abs(after.y - before.y)).toBeGreaterThan(10);
+  await expectInsideViewport(page.locator('#terminal-view'), page);
+
+  await page.locator('#tile-focus-backdrop').click({ position: { x: 4, y: 4 } });
+  await expect(page.locator('body')).not.toHaveClass(/tile-focus-open/);
+  await expect(page.locator('#tile-workspace')).toHaveClass(/active/);
+
+  await codexTile.getByRole('button', { name: 'Connect' }).click();
+  await page.getByRole('button', { name: 'Return to tiled view' }).click();
+  await expect(page.locator('body')).not.toHaveClass(/tile-focus-open/);
+
+  await page.getByRole('button', { name: 'Restore lobby' }).click();
+  await expect(page.locator('body')).not.toHaveClass(/tile-mode/);
+  await expect(page.locator('#lobby-view')).toBeVisible();
+  await expect(page.locator('#terminal-view')).toHaveClass(/active/);
+  await page.request.delete(`/api/sessions/${codexId}`);
+  await page.request.delete(`/api/sessions/${claudeId}`);
+});
+
+test('tiled conversations surface subagents, approvals, and timed inputs', async ({ page }, testInfo) => {
+  test.skip(page.viewportSize().width < 920, 'Desktop tiled layout only');
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+
+  const subagentId = await createNamedSession(page, 'codex', 'Audit · Subagent running');
+  const approvalId = await createNamedSession(page, 'codex', 'Audit · Approval required');
+  const timedId = await createNamedSession(page, 'codex', 'Audit · Scheduled input');
+  const sendAt = Date.now() + 8 * 60 * 1000;
+  const timedResponse = await page.request.post(`/api/sessions/${timedId}/timed-inputs`, {
+    data: { text: 'Run the regression suite', sendAt }
+  });
+  expect(timedResponse.ok()).toBe(true);
+
+  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.getByRole('button', { name: 'Collapse lobby and tile sessions' }).click();
+  await expect(page.locator('.tile-session-window')).not.toHaveCount(0);
+  await page.evaluate(ids => {
+    const wanted = new Set(Object.values(ids));
+    tiledWorkspace.sessions = tiledWorkspace.sessions.filter(session => wanted.has(session.id));
+    tiledWorkspace.columns = 2;
+    tiledWorkspace.rows = 2;
+    tiledWorkspace.page = 0;
+    renderTileGrid();
+  }, { subagentId, approvalId, timedId });
+  await expect(page.locator('.tile-session-window')).toHaveCount(3);
+  await expect.poll(() => page.evaluate(ids => ids.every(id => tiledWorkspace.previewStates.get(id)?.connected), [subagentId, approvalId, timedId])).toBe(true);
+
+  await page.evaluate(({ subagentId, approvalId, timedId, sendAt }) => {
+    const now = Date.now();
+    Object.assign(tiledWorkspace.previewStates.get(subagentId), {
+      connected: true,
+      status: 'running',
+      state: { status: 'running', threadId: 'root-thread', activeSubagentCount: 1 },
+      messages: [
+        { id: 'root-start', kind: 'turn-start', threadId: 'root-thread', turnId: 'root-turn', createdAt: now - 3000 },
+        { id: 'agent-start', kind: 'turn-start', threadId: 'agent-thread', turnId: 'agent-turn', createdAt: now - 2000 },
+        { id: 'agent-task', kind: 'user', threadId: 'agent-thread', turnId: 'agent-turn', text: 'Inspect the authentication flow.', createdAt: now - 1900 },
+        { id: 'agent-message', kind: 'assistant', threadId: 'agent-thread', turnId: 'agent-turn', text: 'Reviewing callers and tests…', createdAt: now - 1000 }
+      ]
+    });
+    Object.assign(tiledWorkspace.previewStates.get(approvalId), {
+      connected: true,
+      status: 'waiting_approval',
+      state: { status: 'waiting_approval', threadId: 'approval-thread', pendingPermissionCount: 1 },
+      permissions: [{ id: 'tile-approval', status: 'pending', title: 'Run tests', reason: 'Allow npm test to run?' }],
+      messages: [{
+        id: 'approval-tool', providerId: 'tile-approval', kind: 'tool', name: 'CodexBash',
+        command: 'npm test', toolStatus: 'running', turnId: 'approval-turn', createdAt: now
+      }]
+    });
+    Object.assign(tiledWorkspace.previewStates.get(timedId), {
+      timedInputsLoaded: true,
+      timedInputsLoadedAt: now,
+      timedInputs: [{ id: 'tile-timer', text: 'Run the regression suite', sendAt, status: 'pending' }]
+    });
+    renderTileGrid();
+  }, { subagentId, approvalId, timedId, sendAt });
+
+  const subagentTile = page.locator(`.tile-session-window[data-session-id="${subagentId}"]`);
+  const approvalTile = page.locator(`.tile-session-window[data-session-id="${approvalId}"]`);
+  const timedTile = page.locator(`.tile-session-window[data-session-id="${timedId}"]`);
+  await expect(subagentTile.locator('.codex-subagent-group')).toContainText('Subagent working');
+  await expect(subagentTile.locator('.tile-status')).toHaveText('Running');
+  await expect(approvalTile.locator('[data-codex-permission-id="tile-approval"]')).toHaveCount(1);
+  await expect(approvalTile.locator('.tile-status')).toHaveText('Waiting');
+  await expect(timedTile.locator('.tile-timed-tags .timed-tag')).toContainText(/\d+:/);
+  await page.screenshot({ path: testInfo.outputPath('tiled-advanced-states.png'), fullPage: true });
+
+  await approvalTile.getByRole('button', { name: 'Connect' }).click();
+  await page.waitForFunction(() => activeSessionHydrated === true);
+  await page.evaluate(subagentId => {
+    codexState = { ...codexState, status: 'waiting_approval', pendingPermissionCount: 1, threadId: 'approval-thread' };
+    codexPendingPermissions = [{ id: 'tile-approval', status: 'pending', title: 'Run tests', reason: 'Allow npm test to run?' }];
+    codexMessages = [{
+      id: 'approval-tool', providerId: 'tile-approval', kind: 'tool', name: 'CodexBash',
+      command: 'npm test', toolStatus: 'running', turnId: 'approval-turn', createdAt: Date.now()
+    }, {
+      id: 'focused-content', kind: 'assistant', text: 'Content loaded while this session is focused.',
+      threadId: 'approval-thread', turnId: 'approval-turn', createdAt: Date.now() + 1
+    }];
+    applyTileEvent(subagentId, {
+      type: 'message',
+      message: {
+        id: 'background-update', kind: 'assistant', text: 'Background subagent update retained.',
+        threadId: 'agent-thread', turnId: 'agent-turn', createdAt: Date.now() + 2
+      }
+    });
+    commitCodexChatRender();
+    renderCodexStateBar();
+  }, subagentId);
+  await page.getByRole('button', { name: 'Jump to pending approval' }).click();
+  await expect(page.locator('#codex-chat-container [data-codex-permission-id="tile-approval"]')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('tiled-approval-dialog.png'), fullPage: true });
+  await page.locator('#tile-focus-backdrop').click({ position: { x: 4, y: 4 } });
+  await expect(approvalTile).toContainText('Content loaded while this session is focused.');
+  await expect(subagentTile).toContainText('Background subagent update retained.');
+  await expect(timedTile.locator('.tile-timed-tags .timed-tag')).toBeVisible();
+  await page.evaluate(approvalId => {
+    const preview = tiledWorkspace.previewStates.get(approvalId);
+    preview.connected = false;
+    scheduleTileConversationRender(approvalId);
+  }, approvalId);
+  await expect(approvalTile).toContainText('Content loaded while this session is focused.');
+  await expect(approvalTile.locator('.tile-loading-state')).toHaveCount(0);
+  const retainedView = await page.evaluate(async approvalId => {
+    const preview = tiledWorkspace.previewStates.get(approvalId);
+    preview.messages.push(...Array.from({ length: 36 }, (_, index) => ({
+      id: `retained-${index}`, kind: 'assistant', threadId: 'approval-thread', turnId: `retained-turn-${index}`,
+      text: `Retained message ${index + 1}: enough content to keep a stable reading position.`, createdAt: Date.now() + index
+    })));
+    renderTileConversation(approvalId);
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const surface = document.querySelector(`.tile-session-window[data-session-id="${approvalId}"] .tile-chat-surface`);
+    surface.scrollTop = Math.min(180, Math.max(0, surface.scrollHeight - surface.clientHeight - 80));
+    const details = surface.querySelector('details');
+    if (details) details.open = true;
+    const before = surface.scrollTop;
+    applyTileEvent(approvalId, { type: 'status', status: 'running' });
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return {
+      before,
+      after: surface.scrollTop,
+      scrollable: surface.scrollHeight > surface.clientHeight,
+      detailStillOpen: details ? surface.querySelector('details')?.open === true : true
+    };
+  }, approvalId);
+  expect(retainedView.scrollable).toBe(true);
+  expect(Math.abs(retainedView.after - retainedView.before)).toBeLessThanOrEqual(2);
+  expect(retainedView.detailStillOpen).toBe(true);
+
+  await timedTile.getByRole('button', { name: 'Connect' }).click();
+  await expect(page.locator('#timed-tag-rail .timed-tag')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('tiled-timed-dialog.png'), fullPage: true });
+  await page.locator('#tile-focus-backdrop').click({ position: { x: 4, y: 4 } });
+  await expect(approvalTile).toContainText('Content loaded while this session is focused.');
+  await expect(subagentTile).toContainText('Background subagent update retained.');
+
+  await subagentTile.getByRole('button', { name: 'Connect' }).click();
+  await page.evaluate(() => {
+    activeSessionHydrated = false;
+    returnToTiles();
+  });
+  await expect(subagentTile).toContainText('Background subagent update retained.');
+  await expect(approvalTile).toContainText('Content loaded while this session is focused.');
+  expect(pageErrors).toEqual([]);
+
+  for (const id of [subagentId, approvalId, timedId]) await page.request.delete(`/api/sessions/${id}`);
+});
+
 test('touch lobby deletes a structured session', async ({ page }) => {
   test.skip(page.viewportSize().width >= 920, 'Compact touch layouts only');
 

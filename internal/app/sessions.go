@@ -126,7 +126,7 @@ func (session *Session) listItem() map[string]any {
 	}
 	return map[string]any{
 		"id": session.ID, "name": session.Name, "tool": session.Tool.DisplayName,
-		"startTime": session.StartTime, "toolKey": session.Tool.Key,
+		"startTime": session.StartTime, "toolKey": session.Tool.Key, "status": session.StatusValue,
 		"workingDirectory": session.WorkingDirectory, "mode": "structured",
 		"hasUnreadCompletion":           session.HasUnreadCompletion,
 		"serverChanNotificationEnabled": session.ServerChanNotificationEnabled,
