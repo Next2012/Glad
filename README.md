@@ -34,7 +34,7 @@ Glad was created to enable **vibe coding** on mobile devices. By bringing variou
 
 Our design philosophy is **Easy to use, Stable, and Restrained**. Glad focuses strictly on the essentials:
 - **Session management:** Run multiple sessions from a single dashboard with per-session working directories.
-- **Responsive workspace:** Use a resizable session sidebar on wide screens and focused lobby/chat pages on mobile, with light and dark themes.
+- **Responsive workspace:** Use a resizable session sidebar or a live tiled multi-session dashboard on wide screens, and focused lobby/chat pages on mobile, with light and dark themes.
 - **File attachments:** Upload images or arbitrary local files from the composer; Glad stores them privately for the active session and cleans them up automatically.
 - **Local usage dashboard:** Select a week or month, compare per-model and daily token totals, and inspect model-stacked token and cost charts through the bundled read-only `ccusage` engine. Costs use `ccusage` estimates and are shown only for GPT models used by Codex.
 - **Structured provider sessions:** Native streaming, approvals, resume, fork, model, effort, sandbox, and context controls for Codex and Claude.
@@ -175,6 +175,7 @@ Glad is designed for trusted local or private-network use.
 - the server runs on your machine
 - terminal I/O stays local to that machine
 - the browser UI talks directly to the local Glad process
+- SkillHub API tokens are encrypted with a private key generated automatically in `~/.glad` unless an external key file is configured
 
 Do not expose Glad directly to the public internet without adding your own access controls.
 

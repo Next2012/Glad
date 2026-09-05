@@ -51,6 +51,9 @@ func NewSkillHubService(config *ConfigStore, sessions *SessionManager) *SkillHub
 		root:     root,
 	}
 	service.initialize()
+	if strings.TrimSpace(os.Getenv("GLAD_SKILLHUB_KEY_FILE")) == "" {
+		_, _ = service.encryptionKey()
+	}
 	return service
 }
 func (service *SkillHubService) initialize() {
@@ -97,14 +100,73 @@ func (service *SkillHubService) tmpfsMounted() bool {
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F-]{36}$`)
 
 func (service *SkillHubService) encryptionKey() ([]byte, error) {
-	filename := os.Getenv("GLAD_SKILLHUB_KEY_FILE")
-	if filename == "" {
-		return nil, errors.New("Glad 未配置 SkillHub Token 加密密钥")
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	filename := strings.TrimSpace(os.Getenv("GLAD_SKILLHUB_KEY_FILE"))
+	autoGenerate := filename == ""
+	if autoGenerate {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, errors.New("Glad 无法确定 SkillHub Token 加密密钥的保存目录")
+		}
+		filename = filepath.Join(home, ".glad", "skillhub.key")
+		if err := os.MkdirAll(filepath.Dir(filename), 0o700); err != nil {
+			return nil, errors.New("Glad 无法创建 SkillHub Token 加密密钥的保存目录")
+		}
 	}
+
 	bytes, err := os.ReadFile(filename)
-	if err != nil {
+	if err == nil {
+		key, parseErr := parseSkillHubEncryptionKey(bytes)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		if autoGenerate {
+			_ = os.Chmod(filename, 0o600)
+		}
+		return key, nil
+	}
+	if !autoGenerate || !errors.Is(err, os.ErrNotExist) {
 		return nil, errors.New("Glad 无法读取 SkillHub Token 加密密钥")
 	}
+
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, errors.New("Glad 无法生成 SkillHub Token 加密密钥")
+	}
+	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		bytes, readErr := os.ReadFile(filename)
+		if readErr != nil {
+			return nil, errors.New("Glad 无法读取 SkillHub Token 加密密钥")
+		}
+		return parseSkillHubEncryptionKey(bytes)
+	}
+	if err != nil {
+		return nil, errors.New("Glad 无法保存 SkillHub Token 加密密钥")
+	}
+	complete := false
+	defer func() {
+		_ = file.Close()
+		if !complete {
+			_ = os.Remove(filename)
+		}
+	}()
+	if _, err := file.WriteString(hex.EncodeToString(key) + "\n"); err != nil {
+		return nil, errors.New("Glad 无法保存 SkillHub Token 加密密钥")
+	}
+	if err := file.Sync(); err != nil {
+		return nil, errors.New("Glad 无法保存 SkillHub Token 加密密钥")
+	}
+	if err := file.Close(); err != nil {
+		return nil, errors.New("Glad 无法保存 SkillHub Token 加密密钥")
+	}
+	complete = true
+	return key, nil
+}
+
+func parseSkillHubEncryptionKey(bytes []byte) ([]byte, error) {
 	text := strings.TrimSpace(string(bytes))
 	if decoded, err := hex.DecodeString(text); err == nil && len(decoded) == 32 {
 		return decoded, nil

@@ -27,6 +27,19 @@ async function expectSessionDeleted(page, sessionId) {
   expect((await response.json()).some(session => session.id === sessionId)).toBe(false);
 }
 
+async function limitVisibleSessions(page, sessionIds) {
+  const visible = new Set(sessionIds);
+  await page.route('**/api/sessions', async route => {
+    if (route.request().method() !== 'GET') {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    const sessions = await response.json();
+    await route.fulfill({ response, json: sessions.filter(session => visible.has(session.id)) });
+  });
+}
+
 test('structured sessions connect through the canonical WebSocket route', async ({ page }) => {
   await page.addInitScript(() => {
     window.__webSocketUrls = [];
@@ -208,6 +221,7 @@ test('desktop lobby collapses into live tiled conversations and opens a draggabl
   }
   const codexId = await createNamedSession(page, 'codex', 'Tiled Codex session');
   const claudeId = await createNamedSession(page, 'claude-code', 'Tiled Claude session');
+  await limitVisibleSessions(page, [codexId, claudeId]);
   await page.goto('/', { waitUntil: 'networkidle' });
 
   const collapse = page.getByRole('button', { name: 'Collapse lobby and tile sessions' });
@@ -267,13 +281,30 @@ test('desktop lobby collapses into live tiled conversations and opens a draggabl
   await expect(page.locator('#tile-workspace')).toHaveClass(/active/);
 
   await codexTile.getByRole('button', { name: 'Connect' }).click();
+  await expect.poll(() => page.evaluate(() => sessionPollTimer !== null)).toBe(true);
+  await page.getByTitle('History').click();
+  await expect(page.locator('#history-view')).toHaveClass(/active/);
+  await expect.poll(() => page.evaluate(() => sessionPollTimer === null)).toBe(true);
   await page.getByRole('button', { name: 'Return to tiled view' }).click();
   await expect(page.locator('body')).not.toHaveClass(/tile-focus-open/);
+  await expect.poll(() => page.evaluate(() => sessionPollTimer !== null)).toBe(true);
 
   await page.getByRole('button', { name: 'Restore lobby' }).click();
   await expect(page.locator('body')).not.toHaveClass(/tile-mode/);
   await expect(page.locator('#lobby-view')).toBeVisible();
   await expect(page.locator('#terminal-view')).toHaveClass(/active/);
+  await expect(page.locator('#session-title')).toHaveText('Tiled Codex session');
+
+  const claudeCard = page.locator(`.session-card[data-session-id="${claudeId}"]`);
+  await claudeCard.getByRole('button', { name: 'Connect' }).click();
+  await expect(page.locator('#session-title')).toHaveText('Tiled Claude session');
+  await page.getByRole('button', { name: 'Collapse lobby and tile sessions' }).click();
+  await expect(page.locator('body')).toHaveClass(/tile-mode/);
+  await page.setViewportSize({ width: 820, height: 800 });
+  await expect(page.locator('body')).not.toHaveClass(/tile-mode/);
+  await expect(page.locator('#terminal-view')).toBeVisible();
+  await expect(page.locator('#session-title')).toHaveText('Tiled Claude session');
+
   await page.request.delete(`/api/sessions/${codexId}`);
   await page.request.delete(`/api/sessions/${claudeId}`);
 });
@@ -292,17 +323,16 @@ test('tiled conversations surface subagents, approvals, and timed inputs', async
   });
   expect(timedResponse.ok()).toBe(true);
 
+  await limitVisibleSessions(page, [subagentId, approvalId, timedId]);
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.getByRole('button', { name: 'Collapse lobby and tile sessions' }).click();
   await expect(page.locator('.tile-session-window')).not.toHaveCount(0);
-  await page.evaluate(ids => {
-    const wanted = new Set(Object.values(ids));
-    tiledWorkspace.sessions = tiledWorkspace.sessions.filter(session => wanted.has(session.id));
+  await page.evaluate(() => {
     tiledWorkspace.columns = 2;
     tiledWorkspace.rows = 2;
     tiledWorkspace.page = 0;
     renderTileGrid();
-  }, { subagentId, approvalId, timedId });
+  });
   await expect(page.locator('.tile-session-window')).toHaveCount(3);
   await expect.poll(() => page.evaluate(ids => ids.every(id => tiledWorkspace.previewStates.get(id)?.connected), [subagentId, approvalId, timedId])).toBe(true);
 
@@ -345,9 +375,15 @@ test('tiled conversations surface subagents, approvals, and timed inputs', async
   await expect(approvalTile.locator('[data-codex-permission-id="tile-approval"]')).toHaveCount(1);
   await expect(approvalTile.locator('.tile-status')).toHaveText('Waiting');
   await expect(timedTile.locator('.tile-timed-tags .timed-tag')).toContainText(/\d+:/);
+  const previewApproval = approvalTile.locator('.tile-chat-surface .claude-permission-actions button').first();
+  await expect(previewApproval).toBeDisabled();
+  await expect(previewApproval).toHaveAttribute('tabindex', '-1');
+  await expect(previewApproval).not.toHaveAttribute('onclick');
   await page.screenshot({ path: testInfo.outputPath('tiled-advanced-states.png'), fullPage: true });
 
   await approvalTile.getByRole('button', { name: 'Connect' }).click();
+  await expect(page.locator('#tile-workspace')).toHaveAttribute('inert', '');
+  await expect(page.locator('#tile-workspace')).toHaveAttribute('aria-hidden', 'true');
   await page.waitForFunction(() => activeSessionHydrated === true);
   await page.evaluate(subagentId => {
     codexState = { ...codexState, status: 'waiting_approval', pendingPermissionCount: 1, threadId: 'approval-thread' };
@@ -373,6 +409,8 @@ test('tiled conversations surface subagents, approvals, and timed inputs', async
   await expect(page.locator('#codex-chat-container [data-codex-permission-id="tile-approval"]')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('tiled-approval-dialog.png'), fullPage: true });
   await page.locator('#tile-focus-backdrop').click({ position: { x: 4, y: 4 } });
+  await expect(page.locator('#tile-workspace')).not.toHaveAttribute('inert');
+  await expect(page.locator('#tile-workspace')).not.toHaveAttribute('aria-hidden');
   await expect(approvalTile).toContainText('Content loaded while this session is focused.');
   await expect(subagentTile).toContainText('Background subagent update retained.');
   await expect(timedTile.locator('.tile-timed-tags .timed-tag')).toBeVisible();
