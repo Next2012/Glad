@@ -1060,6 +1060,117 @@ func TestCodexResumeAbortStopsProcessWithoutTurnID(t *testing.T) {
 	}
 }
 
+func TestCodexForkIsSingleFlightAcrossProviderOperations(t *testing.T) {
+	session := newSession(
+		"fork-single-flight", "Codex", "codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"}, t.TempDir(),
+	)
+	provider := NewCodexProvider(session, nil)
+	provider.cmd = exec.Command("codex")
+	writes := make(chan []byte, 4)
+	provider.stdin = &channelWriteCloser{writes: writes}
+	provider.threadID = "thread-before-fork"
+	session.Provider = provider
+
+	type forkResult struct {
+		id  string
+		err error
+	}
+	done := make(chan forkResult, 1)
+	go func() {
+		id, err := provider.Fork(context.Background(), "thread-source")
+		done <- forkResult{id: id, err: err}
+	}()
+	encoded := <-writes
+	var request map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(encoded), &request); err != nil {
+		t.Fatal(err)
+	}
+	if request["method"] != "thread/fork" {
+		t.Fatalf("unexpected fork request: %#v", request)
+	}
+	if _, err := provider.Fork(context.Background(), "second-source"); err == nil || !strings.Contains(err.Error(), "busy") {
+		t.Fatalf("concurrent fork was not rejected: %v", err)
+	}
+	if err := provider.Resume(context.Background(), "resume-source"); err == nil || !strings.Contains(err.Error(), "busy") {
+		t.Fatalf("concurrent resume was not rejected: %v", err)
+	}
+	if err := provider.Send(context.Background(), ProviderInput{Text: "must not send"}); err == nil || !strings.Contains(err.Error(), "unavailable") {
+		t.Fatalf("send during fork was not rejected: %v", err)
+	}
+	select {
+	case extra := <-writes:
+		t.Fatalf("busy operation wrote another RPC: %s", extra)
+	default:
+	}
+	provider.handleRPC(map[string]any{
+		"id": request["id"],
+		"result": map[string]any{
+			"thread":           map[string]any{"id": "thread-forked", "turns": []any{}},
+			"initialTurnsPage": map[string]any{"data": []any{}, "nextCursor": nil},
+		},
+	})
+	select {
+	case result := <-done:
+		if result.err != nil || result.id != "thread-forked" {
+			t.Fatalf("fork failed: id=%q err=%v", result.id, result.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("fork did not finish")
+	}
+	provider.mu.Lock()
+	threadID, inFlight, forking := provider.threadID, provider.resumeInFlight, provider.forking
+	provider.mu.Unlock()
+	if threadID != "thread-forked" || inFlight || forking || session.StatusValue != "idle" {
+		t.Fatalf("fork lifecycle did not settle: thread=%q inFlight=%v forking=%v status=%s", threadID, inFlight, forking, session.StatusValue)
+	}
+}
+
+func TestCodexCancelledForkPreservesHistoryAndRecyclesProcess(t *testing.T) {
+	session := newSession(
+		"fork-cancel", "Codex", "codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"}, t.TempDir(),
+	)
+	session.appendMessage(map[string]any{"kind": "assistant", "text": "keep existing history"})
+	provider := NewCodexProvider(session, nil)
+	provider.cmd = exec.Command("codex")
+	writes := make(chan []byte, 2)
+	provider.stdin = &channelWriteCloser{writes: writes}
+	provider.threadID = "thread-existing"
+	session.Provider = provider
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := provider.Fork(ctx, "thread-source")
+		done <- err
+	}()
+	select {
+	case <-writes:
+		cancel()
+	case <-time.After(time.Second):
+		t.Fatal("fork request was not sent")
+	}
+	select {
+	case err := <-done:
+		if err == nil || !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled fork returned the wrong error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled fork did not return")
+	}
+	session.mu.RLock()
+	preserved := len(session.Messages) >= 1 && stringValue(session.Messages[0]["text"]) == "keep existing history"
+	status := session.StatusValue
+	session.mu.RUnlock()
+	provider.mu.Lock()
+	needsResume, command := provider.needsThreadResume, provider.cmd
+	inFlight, forking := provider.resumeInFlight, provider.forking
+	provider.mu.Unlock()
+	if !preserved || status != "idle" || !needsResume || command != nil || inFlight || forking {
+		t.Fatalf("cancelled fork damaged state: preserved=%v status=%s needsResume=%v command=%v inFlight=%v forking=%v", preserved, status, needsResume, command, inFlight, forking)
+	}
+}
+
 func TestCodexHistoryPaginationPublishesOneAtomicReset(t *testing.T) {
 	session := newSession(
 		"history-pages", "Codex", "codex-structured",

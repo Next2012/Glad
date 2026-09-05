@@ -35,6 +35,7 @@ Glad was created to enable **vibe coding** on mobile devices. By bringing variou
 Our design philosophy is **Easy to use, Stable, and Restrained**. Glad focuses strictly on the essentials:
 
 - **Session management:** Run multiple sessions from a single dashboard with per-session working directories.
+- **Session ordering:** Hold a lobby card for three seconds to drag it, with automatic edge scrolling for long lists. Drag a tiled session's header to reorder its current page. Both views share the order, saved as a browser-local layout preference.
 - **Responsive workspace:** Use a resizable session sidebar or a live tiled multi-session dashboard on wide screens, and focused lobby/chat pages on mobile, with light and dark themes.
 - **File attachments:** Upload images or arbitrary local files from the composer; Glad stores them privately for the active session and cleans them up automatically.
 - **Local usage dashboard:** Select a week or month, compare per-model and daily token totals, and inspect model-stacked token and cost charts through the bundled read-only `ccusage` engine. Costs use `ccusage` estimates and are shown only for GPT models used by Codex.

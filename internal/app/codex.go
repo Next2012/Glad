@@ -86,6 +86,7 @@ type CodexProvider struct {
 	expectedStops        map[*exec.Cmd]struct{}
 	resumeCancel         context.CancelFunc
 	resuming             bool
+	forking              bool
 	resumeInFlight       bool
 	resumeAborted        bool
 	aborting             bool
@@ -310,6 +311,7 @@ func (provider *CodexProvider) wait(command *exec.Cmd) {
 		}
 		provider.resumeCancel = nil
 		provider.resuming = false
+		provider.forking = false
 		provider.resumeInFlight = false
 		provider.aborting = false
 		provider.abortSequence++
@@ -1017,6 +1019,7 @@ func (provider *CodexProvider) Interrupt(ctx context.Context) error {
 	provider.abortSequence++
 	sequence := provider.abortSequence
 	if provider.resumeInFlight {
+		forking := provider.forking
 		provider.resumeAborted = true
 		cancelResume := provider.resumeCancel
 		provider.mu.Unlock()
@@ -1024,7 +1027,11 @@ func (provider *CodexProvider) Interrupt(ctx context.Context) error {
 		if cancelResume != nil {
 			cancelResume()
 		}
-		provider.forceAbort(sequence, "Codex resume was stopped.")
+		reason := "Codex resume was stopped."
+		if forking {
+			reason = "Codex fork was stopped."
+		}
+		provider.forceAbort(sequence, reason)
 		return nil
 	}
 	threadID, turnID := provider.threadID, provider.turnID
@@ -1095,6 +1102,7 @@ func (provider *CodexProvider) forceAbort(sequence uint64, reason string) bool {
 	provider.permissions = map[string]codexPendingPermission{}
 	provider.needsThreadResume = provider.threadID != ""
 	provider.resuming = false
+	provider.forking = false
 	provider.resumeCancel = nil
 	provider.aborting = false
 	provider.abortSequence++
@@ -1261,9 +1269,33 @@ func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
 	return err
 }
 func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, error) {
+	forkCtx, cancelFork := context.WithCancel(ctx)
+	defer cancelFork()
 	provider.mu.Lock()
-	result, err := provider.requestLocked(
-		ctx,
+	id = firstNonEmpty(strings.TrimSpace(id), provider.threadID)
+	if id == "" {
+		provider.mu.Unlock()
+		return "", errors.New("Codex thread is unavailable")
+	}
+	if provider.closed || provider.resumeInFlight || provider.aborting || provider.turnID != "" {
+		provider.mu.Unlock()
+		return "", errors.New("Codex session is busy")
+	}
+	if provider.cmd == nil {
+		if err := provider.startLocked(forkCtx); err != nil {
+			provider.mu.Unlock()
+			return "", err
+		}
+	}
+	provider.forking = true
+	provider.resumeInFlight = true
+	provider.resumeAborted = false
+	provider.resumeCancel = cancelFork
+	provider.mu.Unlock()
+	provider.updatePublicState("running")
+
+	result, err := provider.rpc(
+		forkCtx,
 		"thread/fork",
 		map[string]any{
 			"threadId": id, "cwd": provider.session.WorkingDirectory, "ephemeral": false,
@@ -1271,14 +1303,41 @@ func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, err
 		},
 	)
 	newID := stringValue(mapValue(result["thread"])["id"])
+	if err == nil && newID == "" {
+		err = errors.New("forked Codex thread is unavailable")
+	}
 	if err == nil {
+		provider.mu.Lock()
 		provider.threadID = newID
+		provider.needsThreadResume = false
+		provider.mu.Unlock()
+		err = provider.hydrateThread(forkCtx, result)
 	}
+	if err != nil && forkCtx.Err() != nil {
+		provider.mu.Lock()
+		if !provider.resumeAborted && !provider.aborting && provider.cmd != nil {
+			provider.aborting = true
+			provider.abortSequence++
+			sequence := provider.abortSequence
+			provider.mu.Unlock()
+			provider.forceAbort(sequence, "Codex fork was cancelled before it completed.")
+		} else {
+			provider.mu.Unlock()
+		}
+	}
+	provider.mu.Lock()
+	aborted := provider.resumeAborted
+	provider.resumeAborted = false
+	provider.forking = false
+	provider.resumeCancel = nil
 	provider.mu.Unlock()
-	if err == nil {
-		err = provider.hydrateThread(ctx, result)
-	}
 	provider.updatePublicState("idle")
+	provider.mu.Lock()
+	provider.resumeInFlight = false
+	provider.mu.Unlock()
+	if aborted {
+		return "", errors.New("fork aborted")
+	}
 	if err == nil {
 		provider.titles.schedule(newID, "", true)
 	}
@@ -1518,6 +1577,7 @@ func (provider *CodexProvider) Close(context.Context) error {
 	}
 	provider.resumeCancel = nil
 	provider.resuming = false
+	provider.forking = false
 	provider.resumeInFlight = false
 	provider.aborting = false
 	provider.abortSequence++
@@ -1648,7 +1708,7 @@ func codexSandboxPolicy(mode, workingDirectory string) any {
 }
 func (provider *CodexProvider) updatePublicState(status string) {
 	provider.mu.Lock()
-	resuming, aborting := provider.resuming, provider.aborting
+	resuming, forking, aborting := provider.resuming, provider.forking, provider.aborting
 	state := map[string]any{
 		"permissionMode": firstNonEmpty(stringValue(provider.options["permissionMode"]), "default"),
 		"sandboxMode":    firstNonEmpty(stringValue(provider.options["sandboxMode"]), "default"),
@@ -1663,8 +1723,9 @@ func (provider *CodexProvider) updatePublicState(status string) {
 		"threadId":               nilIfEmpty(provider.threadID),
 		"aborting":               aborting,
 		"resuming":               resuming,
-		"canAbort":               (status != "idle" || resuming) && !aborting,
-		"canCompact":             status == "idle" && !resuming && !aborting && provider.threadID != "",
+		"forking":                forking,
+		"canAbort":               (status != "idle" || resuming || forking) && !aborting,
+		"canCompact":             status == "idle" && !resuming && !forking && !aborting && provider.threadID != "",
 		"compacting":             false,
 		"pendingPermissionCount": len(provider.permissions),
 		"activeSubagentCount":    0,

@@ -85,6 +85,7 @@
     </div>
 
     <div id="sidebar-resizer" role="separator" aria-label="Resize session sidebar" aria-orientation="vertical"></div>
+    <div id="session-reorder-status" class="action-label" role="status" aria-live="polite"></div>
     <button id="lobby-collapse-button" type="button" onclick="toggleTiledMode(); event.stopPropagation()"
         title="Collapse lobby and tile sessions" aria-label="Collapse lobby and tile sessions">
         <svg class="action-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg>
@@ -568,6 +569,7 @@
     <script defer src="vendor/xterm-addon-fit.js"></script>
     <script src="theme.js"></script>
     <script src="gitgraph.js"></script>
+    <script src="session-order.js"></script>
     <script src="core.js"></script>
     <script src="layout.js"></script>
     <script src="notifications.js"></script>

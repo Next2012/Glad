@@ -171,8 +171,7 @@ func (server *Server) codexFork(writer http.ResponseWriter, request *http.Reques
 	var input map[string]any
 	_ = decodeJSON(request, &input)
 	provider := session.Provider.(*CodexProvider)
-	source := firstNonEmpty(stringValue(input["threadId"]), provider.threadID)
-	threadID, err := provider.Fork(request.Context(), source)
+	threadID, err := provider.Fork(request.Context(), stringValue(input["threadId"]))
 	if err != nil {
 		respondError(writer, 400, err)
 		return

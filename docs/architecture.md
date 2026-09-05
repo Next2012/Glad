@@ -47,6 +47,10 @@ Codex text and tool-output deltas are accumulated in provider-owned builders ins
 
 Codex resume requests load only thread metadata plus an initial full-item page, follow `nextCursor` through the remaining turns, and build normalized history off-session. Glad swaps the completed history atomically and emits one `history-reset`; cancellation or page failure leaves the previous messages intact.
 
+Resume and fork share a provider-owned single-flight boundary, so multiple browsers cannot switch the active Codex thread concurrently. The history picker lists metadata in cursor pages and loads a bounded recent-message preview only when requested.
+
+Automatic Codex titles follow the CLI design: Glad starts an ephemeral, read-only thread through the existing app-server connection, disables tools and external integrations, requests bounded structured output, persists the result with `thread/name/set`, and unsubscribes the temporary thread. These events are routed separately and never enter the main transcript or lifecycle state. Manual names always win.
+
 ## Provider lifecycle
 
 Each Glad session owns one provider process and a process group. Deleting a session or stopping Glad terminates the complete provider process tree.
@@ -61,6 +65,7 @@ Codex uses newline-delimited JSON-RPC over `codex app-server --stdio`. Claude us
 
 - Provider conversation history remains owned by the official CLIs.
 - Glad preferences stay in `~/.glad/config.json`.
+- Session card ordering stays in browser local storage as a UI-only preference shared by the lobby and tiled workspace.
 - Existing `~/.glad/schedules.json` jobs are imported for compatibility.
 - Uploads and prepared SkillHub sessions use private temporary directories and are removed with their Glad session.
 - SkillHub tokens remain AES-256-GCM encrypted. Glad automatically creates a private

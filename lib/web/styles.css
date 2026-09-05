@@ -13,6 +13,12 @@
         .header-action-btn:active { background: #0062cc; transform: scale(.97); }
         .btn-retry { background: #333; color: #fff; border: none; padding: 8px 16px; border-radius: 20px; margin-top: 10px; cursor: pointer; }
         .session-card { background: var(--card-bg); border-radius: 12px; padding: 12px 16px 8px; margin-bottom: 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px; row-gap: 0; align-items: center; position: relative; }
+        #sessions-list .session-card { touch-action: pan-y; -webkit-touch-callout: none; user-select: none; }
+        .session-card.reorder-pressing::after { content: ""; position: absolute; left: 12px; bottom: 3px; height: 2px; border-radius: 2px; background: var(--primary); animation: session-reorder-hold 3s linear forwards; pointer-events: none; }
+        @keyframes session-reorder-hold { from { width: 0; } to { width: calc(100% - 24px); } }
+        :is(.session-card, .tile-session-window).reorder-source { opacity: .4; outline: 2px dashed var(--primary); outline-offset: -2px; }
+        body.session-reordering, body.session-reordering * { cursor: grabbing !important; user-select: none !important; }
+        .session-reorder-ghost { position: fixed; z-index: 12000; top: 0; left: 0; width: min(280px, calc(100vw - 32px)); box-sizing: border-box; padding: 12px 16px; border: 1px solid var(--primary); border-radius: 12px; background: var(--surface-raised); color: var(--text); box-shadow: 0 10px 30px rgba(0,0,0,.2); font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
         .active-session-dot { display: none; }
         .completion-dot { width: 9px; height: 9px; border-radius: 50%; background: #ff3b30; flex-shrink: 0; }
         .session-info { flex: 1; min-width: 0; }
@@ -670,6 +676,7 @@ body.tile-mode #lobby-collapse-button { left: -1px; border-radius: 5px 11px 11px
 #tile-grid { --tile-columns: 2; --tile-rows: 2; display: grid; width: 100%; min-width: 0; min-height: 0; flex: 1; grid-template-columns: repeat(var(--tile-columns), minmax(0, 1fr)); grid-template-rows: repeat(var(--tile-rows), minmax(0, 1fr)); gap: 10px; }
 .tile-session-window { position: relative; display: grid; min-width: 0; min-height: 0; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: var(--chat-bg); box-shadow: 0 7px 22px rgba(0,0,0,.14); }
 .tile-session-header { display: flex; min-width: 0; height: 46px; flex: 0 0 46px; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 7px 5px 10px; box-sizing: border-box; overflow: hidden; border-bottom: 1px solid var(--line); background: var(--surface); }
+#tile-grid .tile-session-header { cursor: grab; touch-action: none; user-select: none; -webkit-touch-callout: none; }
 .tile-session-heading { display: flex; min-width: 0; flex: 1 1 auto; flex-direction: column; align-items: stretch; gap: 2px; overflow: hidden; }
 .tile-session-title-row { display: flex; min-width: 0; align-items: center; gap: 6px; }
 .tile-session-heading strong { min-width: 0; overflow: hidden; color: var(--text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
