@@ -215,6 +215,59 @@ func TestSkillHubEncryptionKeepsLegacyEnvelopeShape(t *testing.T) {
 	}
 }
 
+func TestSkillHubEncryptionCreatesAndReusesDefaultKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("GLAD_SKILLHUB_KEY_FILE", "")
+	service := &SkillHubService{}
+
+	first, err := service.encryptionKey()
+	if err != nil || len(first) != 32 {
+		t.Fatalf("default key generation failed: %d bytes, %v", len(first), err)
+	}
+	filename := filepath.Join(home, ".glad", "skillhub.key")
+	stored, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatalf("default key was not saved: %v", err)
+	}
+	parsed, err := parseSkillHubEncryptionKey(stored)
+	if err != nil || !bytes.Equal(parsed, first) {
+		t.Fatalf("saved key does not match generated key: %v", err)
+	}
+	info, err := os.Stat(filename)
+	if err != nil || info.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("default key permissions are not private: %v %v", info, err)
+	}
+
+	second, err := service.encryptionKey()
+	if err != nil || !bytes.Equal(second, first) {
+		t.Fatalf("default key was not reused: %v", err)
+	}
+	envelope, err := service.encrypt("token-value-1234")
+	if err != nil {
+		t.Fatalf("encrypt with default key failed: %v", err)
+	}
+	plain, err := service.decrypt(envelope)
+	if err != nil || plain != "token-value-1234" {
+		t.Fatalf("decrypt with default key failed: %q %v", plain, err)
+	}
+}
+
+func TestSkillHubEncryptionDoesNotReplaceExplicitMissingKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("GLAD_SKILLHUB_KEY_FILE", filepath.Join(home, "missing-key"))
+	service := &SkillHubService{}
+	if _, err := service.encryptionKey(); err == nil || !strings.Contains(err.Error(), "无法读取") {
+		t.Fatalf("explicit missing key should fail without fallback: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".glad", "skillhub.key")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unexpected default key created for explicit path: %v", err)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {

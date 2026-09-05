@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-05
+
+### Added
+
+- Added a desktop tiled workspace with live Codex and Claude conversation previews, configurable rows and columns, pagination, session status, scheduled-input badges, and draggable focused session dialogs.
+- Added automatic generation and private local storage of the SkillHub token encryption key when `GLAD_SKILLHUB_KEY_FILE` is not configured.
+
+### Fixed
+
+- Kept tiled previews read-only for pointer, keyboard, and assistive-technology interaction, and isolated the background workspace while a focused session dialog is open.
+- Restored the correct session and session-list polling after leaving a focused tiled view.
+- Exited tiled mode automatically when the browser crosses into the compact layout instead of leaving the application without a visible view.
+
 ## [2.0.5] - 2026-09-04
 
 ### Fixed

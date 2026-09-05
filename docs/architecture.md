@@ -48,7 +48,9 @@ Codex uses newline-delimited JSON-RPC over `codex app-server --stdio`. Claude us
 - Glad preferences stay in `~/.glad/config.json`.
 - Existing `~/.glad/schedules.json` jobs are imported for compatibility.
 - Uploads and prepared SkillHub sessions use private temporary directories and are removed with their Glad session.
-- SkillHub tokens remain AES-256-GCM encrypted with `GLAD_SKILLHUB_KEY_FILE`.
+- SkillHub tokens remain AES-256-GCM encrypted. Glad automatically creates a private
+  `~/.glad/skillhub.key` when `GLAD_SKILLHUB_KEY_FILE` is not set; deployments can still
+  provide that environment variable to manage the key externally.
 
 ## Distribution
 
