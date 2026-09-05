@@ -12,11 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Simplified scheduled-send tags into compact, theme-aware countdown pills shared by normal and tiled conversations.
 - Added Codex CLI-style automatic thread titles using isolated ephemeral structured turns, bounded prompts, and persistent history names. New conversations use the first prompt; unnamed resumed/forked history uses recent substantive messages. Explicit window names and manual renames take priority, and title events never change the main conversation state.
 - Added shared Codex Resume/Fork history browsing with creation/update sorting, cursor pagination, and on-demand bounded recent-conversation previews. The picker shows current-directory history with only a sort selector and no redundant path row; previewing does not switch sessions, and Resume/Fork are explicit actions.
 
 ### Fixed
 
+- Kept the send button aligned with its toolbar when the timer editor opens or the composer scrolls, and made delay selectors and options readable in light mode.
+- Made the sidebar handle follow divider dragging immediately instead of trailing behind a position animation.
 - Restored live Codex approval attention in normal and focused conversations, including older-server permission events. Tiled monitors now show a clickable approval count that opens and locates the pending request; resolved approvals clear their indicators.
 - Matched the CLI's user-item completion trigger for automatic titles, added bounded retries after metadata failures and title diagnostics, and kept cancellation and late temporary-thread cleanup isolated from the main session.
 
