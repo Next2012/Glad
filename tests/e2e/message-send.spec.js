@@ -103,3 +103,17 @@ test('provider rejection keeps the draft and unlocks send', async ({ page }) => 
   await expect(page.locator('.codex-message-block.user')).toHaveCount(0);
   await page.request.delete(`/api/sessions/${session.id}`);
 });
+
+test('large Codex command output still reaches turn completion', async ({ page }) => {
+  test.skip(page.viewportSize().width < 920, 'Large stdout regression runs once on desktop');
+  test.setTimeout(60000);
+  const session = await openCodexSession(page);
+  await page.locator('#cmd-input').fill('__GLAD_E2E_LARGE_OUTPUT__');
+  await page.locator('#send-btn').click();
+  await expect(page.locator('#cmd-input')).toHaveValue('');
+  await expect(page.locator('.codex-tool')).toContainText('large-output', { timeout: 30000 });
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 30000 });
+  const debug = await (await page.request.get(`/api/sessions/${session.id}/debug`)).json();
+  expect(debug.diagnostics.status).toBe('idle');
+  await page.request.delete(`/api/sessions/${session.id}`);
+});

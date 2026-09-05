@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
 type codexRPCResult struct {
@@ -27,8 +28,45 @@ type codexPendingPermission struct {
 	Params map[string]any
 }
 
+const maxCodexToolOutputBytes = 8 << 20
+
+const codexOutputTruncatedMarker = "\n… output truncated by Glad …\n"
+
+type codexDeltaStream struct {
+	messageID string
+	builder   strings.Builder
+	limit     int
+	truncated bool
+}
+
+func (stream *codexDeltaStream) append(delta string) bool {
+	if delta == "" || stream.truncated {
+		return false
+	}
+	if stream.limit <= 0 || stream.builder.Len()+len(delta) <= stream.limit {
+		stream.builder.WriteString(delta)
+		return true
+	}
+	available := stream.limit - stream.builder.Len() - len(codexOutputTruncatedMarker)
+	if available > len(delta) {
+		available = len(delta)
+	}
+	for available > 0 && !utf8.ValidString(delta[:available]) {
+		available--
+	}
+	if available > 0 {
+		stream.builder.WriteString(delta[:available])
+	}
+	stream.builder.WriteString(codexOutputTruncatedMarker)
+	stream.truncated = true
+	return true
+}
+
+func (stream *codexDeltaStream) text() string { return stream.builder.String() }
+
 type CodexProvider struct {
 	mu                   sync.Mutex
+	streamMu             sync.Mutex
 	session              *Session
 	options              map[string]any
 	cmd                  *exec.Cmd
@@ -42,6 +80,7 @@ type CodexProvider struct {
 	models               []map[string]any
 	tokenUsage           map[string]any
 	reconnectAbortTurnID string
+	streams              map[string]*codexDeltaStream
 	closed               bool
 }
 
@@ -56,6 +95,7 @@ func NewCodexProvider(session *Session, options map[string]any) *CodexProvider {
 		options:     options,
 		pending:     map[int64]chan codexRPCResult{},
 		permissions: map[string]codexPendingPermission{},
+		streams:     map[string]*codexDeltaStream{},
 		threadID:    stringValue(options["resume"]),
 	}
 }
@@ -220,6 +260,7 @@ func (provider *CodexProvider) wait(command *exec.Cmd) {
 	}
 	closed := provider.closed
 	provider.mu.Unlock()
+	provider.clearDeltaStreams()
 	if !closed {
 		text := "Codex app-server exited."
 		if err != nil {
@@ -363,6 +404,7 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 		provider.session.Permissions = map[string]Permission{}
 		provider.session.mu.Unlock()
 		provider.updatePublicState("idle")
+		provider.clearDeltaStreams()
 	case "thread/compacted":
 		provider.applyItem(
 			map[string]any{
@@ -488,18 +530,42 @@ func (provider *CodexProvider) applyItem(raw map[string]any, inferred string) {
 		for key, value := range codexToolDetails(raw) {
 			patch[key] = value
 		}
+		if result := stringValue(patch["result"]); result != "" {
+			patch["result"] = limitCodexToolOutput(result)
+		}
 		patch["toolStatus"] = firstNonEmpty(inferred, stringValue(raw["status"]), "running")
 		patch["startedAtMs"] = millis()
 	}
+	streamKind := ""
+	if kind == "assistant" || kind == "reasoning" {
+		streamKind = kind
+	} else if kind == "tool" {
+		streamKind = "tool-output"
+	}
+	streamText, streamMessageID := "", ""
+	if streamKind != "" {
+		streamText, streamMessageID = provider.deltaStreamSnapshot(streamKind, providerID, inferred == "completed")
+	}
+	if streamText != "" {
+		field := "text"
+		if kind == "tool" {
+			field = "result"
+		}
+		if stringValue(patch[field]) == "" {
+			patch[field] = streamText
+		}
+	}
 	provider.session.mu.RLock()
-	existingID := ""
+	existingID := streamMessageID
 	preserveUserText := false
-	for _, message := range provider.session.Messages {
-		if stringValue(message["providerId"]) == providerID && providerID != "" {
-			existingID = stringValue(message["id"])
-			preserveUserText = kind == "user" &&
-				(stringValue(message["clientMessageId"]) != "" || stringValue(message["agentText"]) != "")
-			break
+	if existingID == "" {
+		for _, message := range provider.session.Messages {
+			if stringValue(message["providerId"]) == providerID && providerID != "" {
+				existingID = stringValue(message["id"])
+				preserveUserText = kind == "user" &&
+					(stringValue(message["clientMessageId"]) != "" || stringValue(message["agentText"]) != "")
+				break
+			}
 		}
 	}
 	provider.session.mu.RUnlock()
@@ -523,7 +589,10 @@ func (provider *CodexProvider) applyItem(raw map[string]any, inferred string) {
 		}
 		provider.session.patchMessage(existingID, patch)
 	} else {
-		provider.session.appendMessage(patch)
+		message := provider.session.appendMessage(patch)
+		if message != nil && streamKind != "" {
+			provider.bindDeltaStream(streamKind, providerID, stringValue(message["id"]))
+		}
 	}
 }
 
@@ -575,46 +644,109 @@ func (provider *CodexProvider) appendDelta(method string, params map[string]any)
 	}
 	providerID := firstNonEmpty(stringValue(params["itemId"]), stringValue(params["id"]))
 	delta := stringValue(params["delta"])
-	provider.session.mu.RLock()
-	existingID := ""
-	existingText := ""
-	for _, m := range provider.session.Messages {
-		if stringValue(m["providerId"]) == providerID && stringValue(m["kind"]) == kind {
-			existingID = stringValue(m["id"])
-			existingText = stringValue(m["text"])
-			break
-		}
+	stream := provider.deltaStream(kind, providerID, 0)
+	if !stream.append(delta) {
+		provider.streamMu.Unlock()
+		return
 	}
-	provider.session.mu.RUnlock()
 	patch := map[string]any{
-		"text":     existingText + delta,
+		"text":     stream.text(),
 		"threadId": params["threadId"],
 		"turnId":   firstNonNil(params["turnId"], provider.turnID),
 	}
-	if existingID != "" {
-		provider.session.patchMessage(existingID, patch)
+	if stream.messageID != "" {
+		provider.session.patchMessage(stream.messageID, patch)
 	} else {
 		patch["kind"] = kind
 		patch["providerId"] = providerID
 		patch["streaming"] = true
-		provider.session.appendMessage(patch)
-	}
-}
-func (provider *CodexProvider) patchProviderItem(id, delta string) {
-	provider.session.mu.RLock()
-	targetID := ""
-	result := ""
-	for _, m := range provider.session.Messages {
-		if stringValue(m["providerId"]) == id {
-			targetID = stringValue(m["id"])
-			result = stringValue(m["result"])
-			break
+		message := provider.session.appendMessage(patch)
+		if message != nil {
+			stream.messageID = stringValue(message["id"])
 		}
 	}
-	provider.session.mu.RUnlock()
-	if targetID != "" {
-		provider.session.patchMessage(targetID, map[string]any{"result": result + delta})
+	provider.streamMu.Unlock()
+}
+func (provider *CodexProvider) patchProviderItem(id, delta string) {
+	stream := provider.deltaStream("tool-output", id, maxCodexToolOutputBytes)
+	if !stream.append(delta) {
+		provider.streamMu.Unlock()
+		return
 	}
+	if stream.messageID != "" {
+		provider.session.patchMessage(stream.messageID, map[string]any{"result": stream.text()})
+	}
+	provider.streamMu.Unlock()
+}
+
+// deltaStream returns a locked accumulator. Callers must unlock streamMu after
+// updating the corresponding Session message so stream contents and IDs stay
+// ordered with provider notifications.
+func (provider *CodexProvider) deltaStream(kind, providerID string, limit int) *codexDeltaStream {
+	provider.streamMu.Lock()
+	key := kind + "\x00" + providerID
+	stream := provider.streams[key]
+	if stream == nil {
+		stream = &codexDeltaStream{limit: limit}
+		provider.session.mu.RLock()
+		for _, message := range provider.session.Messages {
+			if stringValue(message["providerId"]) != providerID {
+				continue
+			}
+			if kind != "tool-output" && stringValue(message["kind"]) != kind {
+				continue
+			}
+			stream.messageID = stringValue(message["id"])
+			field := "text"
+			if kind == "tool-output" {
+				field = "result"
+			}
+			stream.append(stringValue(message[field]))
+			break
+		}
+		provider.session.mu.RUnlock()
+		provider.streams[key] = stream
+	}
+	return stream
+}
+
+func (provider *CodexProvider) deltaStreamSnapshot(kind, providerID string, remove bool) (string, string) {
+	provider.streamMu.Lock()
+	defer provider.streamMu.Unlock()
+	key := kind + "\x00" + providerID
+	stream := provider.streams[key]
+	if stream == nil {
+		return "", ""
+	}
+	if remove {
+		delete(provider.streams, key)
+	}
+	return stream.text(), stream.messageID
+}
+
+func (provider *CodexProvider) bindDeltaStream(kind, providerID, messageID string) {
+	provider.streamMu.Lock()
+	if stream := provider.streams[kind+"\x00"+providerID]; stream != nil && stream.messageID == "" {
+		stream.messageID = messageID
+	}
+	provider.streamMu.Unlock()
+}
+
+func (provider *CodexProvider) clearDeltaStreams() {
+	provider.streamMu.Lock()
+	provider.streams = map[string]*codexDeltaStream{}
+	provider.streamMu.Unlock()
+}
+
+func limitCodexToolOutput(value string) string {
+	if len(value) <= maxCodexToolOutputBytes {
+		return value
+	}
+	available := maxCodexToolOutputBytes - len(codexOutputTruncatedMarker)
+	for available > 0 && !utf8.ValidString(value[:available]) {
+		available--
+	}
+	return value[:available] + codexOutputTruncatedMarker
 }
 
 func (provider *CodexProvider) requestLocked(
@@ -837,6 +969,7 @@ func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, err
 }
 
 func (provider *CodexProvider) hydrateThread(ctx context.Context, thread map[string]any) {
+	provider.clearDeltaStreams()
 	threadID := firstNonEmpty(stringValue(thread["id"]), provider.threadID)
 	turns := sliceValue(thread["turns"])
 	if len(turns) == 0 && threadID != "" {
@@ -956,6 +1089,7 @@ func (provider *CodexProvider) Close(context.Context) error {
 	provider.cmd = nil
 	provider.stdin = nil
 	provider.mu.Unlock()
+	provider.clearDeltaStreams()
 	return nil
 }
 

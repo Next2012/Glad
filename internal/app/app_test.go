@@ -840,3 +840,92 @@ func TestSessionSnapshotSubscriptionStartsAfterSnapshotState(t *testing.T) {
 		t.Fatal("post-snapshot event was not delivered")
 	}
 }
+
+func TestCodexLargeCommandOutputDoesNotBlockTurnCompletion(t *testing.T) {
+	session := newSession(
+		"large-output", "Codex", "codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"}, t.TempDir(),
+	)
+	provider := NewCodexProvider(session, nil)
+	session.Provider = provider
+	slow := session.events.Subscribe(session.ID, 1)
+	defer slow.Close()
+
+	provider.threadID = "thread-large"
+	provider.handleNotification(
+		"turn/started",
+		map[string]any{"threadId": "thread-large", "turn": map[string]any{"id": "turn-large"}},
+	)
+	provider.handleNotification(
+		"item/started",
+		map[string]any{
+			"threadId": "thread-large", "turnId": "turn-large",
+			"item": map[string]any{
+				"id": "command-large", "type": "commandExecution", "command": "large-output",
+			},
+		},
+	)
+	chunk := strings.Repeat("x", 256<<10)
+	for index := 0; index < 64; index++ {
+		provider.handleNotification(
+			"item/commandExecution/outputDelta",
+			map[string]any{"itemId": "command-large", "delta": chunk},
+		)
+	}
+	provider.handleNotification(
+		"turn/completed",
+		map[string]any{
+			"threadId": "thread-large",
+			"turn":     map[string]any{"id": "turn-large", "status": "completed"},
+		},
+	)
+
+	select {
+	case <-slow.Done():
+	case <-time.After(time.Second):
+		t.Fatal("slow subscriber was not disconnected during large output")
+	}
+	session.mu.RLock()
+	status := session.StatusValue
+	result := ""
+	foundTurnEnd := false
+	for _, message := range session.Messages {
+		if stringValue(message["providerId"]) == "command-large" {
+			result = stringValue(message["result"])
+		}
+		if stringValue(message["kind"]) == "turn-end" && stringValue(message["turnId"]) == "turn-large" {
+			foundTurnEnd = true
+		}
+	}
+	session.mu.RUnlock()
+	provider.streamMu.Lock()
+	remainingStreams := len(provider.streams)
+	provider.streamMu.Unlock()
+	if status != "idle" || !foundTurnEnd {
+		t.Fatalf("large output prevented completion: status=%s turnEnd=%v", status, foundTurnEnd)
+	}
+	if len(result) > maxCodexToolOutputBytes+len(codexOutputTruncatedMarker) ||
+		!strings.Contains(result, codexOutputTruncatedMarker) {
+		t.Fatalf("large output was not bounded: bytes=%d", len(result))
+	}
+	if remainingStreams != 0 {
+		t.Fatalf("completed turn retained %d delta streams", remainingStreams)
+	}
+}
+
+func BenchmarkCodexAssistantDeltaAccumulation(b *testing.B) {
+	chunk := strings.Repeat("x", 4096)
+	for iteration := 0; iteration < b.N; iteration++ {
+		session := newSession(
+			"benchmark", "Codex", "codex-structured",
+			ToolInfo{Key: "codex", DisplayName: "Codex"}, ".",
+		)
+		provider := NewCodexProvider(session, nil)
+		for index := 0; index < 256; index++ {
+			provider.appendDelta(
+				"item/agentMessage/delta",
+				map[string]any{"itemId": "assistant", "delta": chunk},
+			)
+		}
+	}
+}

@@ -45,6 +45,35 @@ input.on('line', line => {
     write({ id: request.id, result: { turn: { id: turnId } } });
     setImmediate(() => {
       write({ method: 'turn/started', params: { threadId: 'thread-e2e', turn: { id: turnId } } });
+      if (text.includes('__GLAD_E2E_LARGE_OUTPUT__')) {
+        const itemId = `large-command-${turnNumber}`;
+        write({
+          method: 'item/started',
+          params: {
+            threadId: 'thread-e2e', turnId,
+            item: { id: itemId, type: 'commandExecution', command: 'large-output', status: 'running' }
+          }
+        });
+        const chunk = 'x'.repeat(256 * 1024);
+        for (let index = 0; index < 40; index += 1) {
+          write({
+            method: 'item/commandExecution/outputDelta',
+            params: { threadId: 'thread-e2e', turnId, itemId, delta: chunk }
+          });
+        }
+        write({
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-e2e', turnId,
+            item: { id: itemId, type: 'commandExecution', command: 'large-output', status: 'completed', exitCode: 0 }
+          }
+        });
+        write({
+          method: 'turn/completed',
+          params: { threadId: 'thread-e2e', turn: { id: turnId, status: 'completed' } }
+        });
+        return;
+      }
       write({
         method: 'item/completed',
         params: {

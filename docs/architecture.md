@@ -43,6 +43,8 @@ Provider output is normalized into a small set of message kinds:
 
 Large Codex tool and subagent details remain server-side until the browser requests them. Browser data is display state, never an authority for filesystem access or provider permissions.
 
+Codex text and tool-output deltas are accumulated in provider-owned builders instead of repeatedly copying the complete message. Stream lookups cache the Glad message ID, completed or abandoned streams are released with their provider lifecycle, and retained tool output is capped at 8 MiB before lazy detail delivery.
+
 ## Provider lifecycle
 
 Each Glad session owns one provider process and a process group. Deleting a session or stopping Glad terminates the complete provider process tree.

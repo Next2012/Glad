@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rejected duplicate or concurrent session IDs and kept initializing sessions private until their provider is ready.
 - Added time and output limits to Git commands, bounded workspace file reads, and coalesced concurrent usage report loads.
 - Made configuration updates copy-on-write, surfaced persistence failures, and rejected corrupt configuration instead of silently replacing it.
+- Made Codex delta accumulation linear, cached streamed message lookups, and capped retained command output at 8 MiB so large tool output cannot starve later lifecycle events.
 
 ## [2.1.0] - 2026-09-05
 
