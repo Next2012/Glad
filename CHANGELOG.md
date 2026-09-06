@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-09-06
+
+### Changed
+
+- Persisted Codex model, effort, approval, and sandbox selections as Glad defaults for new sessions, with an explicit action for atomically updating Codex global defaults.
+
+### Fixed
+
+- Isolated root Codex turn state from subagent lifecycle and error events so a completed or idle child thread no longer makes an active conversation appear stopped.
+- Restored the live active-subagent count and jump control, including immediate updates when child turns start or finish and cleanup after root completion or process shutdown.
+
 ## [2.2.0] - 2026-09-06
 
 ### Changed
