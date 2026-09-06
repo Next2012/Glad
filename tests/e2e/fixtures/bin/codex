@@ -262,6 +262,47 @@ input.on('line', line => {
         });
         return;
       }
+      if (text.includes('__GLAD_E2E_SUBAGENT_LIFECYCLE__')) {
+        const childThreadId = `child-thread-${turnNumber}`;
+        const childTurnId = `child-turn-${turnNumber}`;
+        write({ method: 'turn/started', params: { threadId: childThreadId, turn: { id: childTurnId, startedAt: 1 } } });
+        write({
+          method: 'item/started',
+          params: {
+            threadId: childThreadId, turnId: childTurnId,
+            item: { id: `child-command-${turnNumber}`, type: 'commandExecution', command: 'child-command', status: 'running' }
+          }
+        });
+        setTimeout(() => {
+          write({
+            method: 'item/completed',
+            params: {
+              threadId: childThreadId, turnId: childTurnId,
+              item: { id: `child-command-${turnNumber}`, type: 'commandExecution', command: 'child-command', status: 'completed' }
+            }
+          });
+          write({ method: 'thread/status/changed', params: { threadId: childThreadId, status: { type: 'idle' } } });
+          write({
+            method: 'turn/completed',
+            params: { threadId: childThreadId, turn: { id: childTurnId, status: 'completed', startedAt: 1, completedAt: 2 } }
+          });
+          write({ method: 'thread/status/changed', params: { threadId: 'thread-e2e', status: { type: 'idle' } } });
+        }, 500);
+        setTimeout(() => {
+          write({
+            method: 'item/completed',
+            params: {
+              threadId: 'thread-e2e', turnId,
+              item: { id: `agent-e2e-${turnNumber}`, type: 'agentMessage', text: 'root completed after child' }
+            }
+          });
+          write({
+            method: 'turn/completed',
+            params: { threadId: 'thread-e2e', turn: { id: turnId, status: 'completed' } }
+          });
+        }, 1500);
+        return;
+      }
       write({
         method: 'item/completed',
         params: {

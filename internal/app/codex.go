@@ -27,6 +27,10 @@ type codexPendingPermission struct {
 	Method string
 	Params map[string]any
 }
+type codexActiveTurn struct {
+	ID        string
+	StartedAt int64
+}
 
 const maxCodexToolOutputBytes = 8 << 20
 const defaultCodexAbortGrace = 5 * time.Second
@@ -80,6 +84,7 @@ type CodexProvider struct {
 	threadID             string
 	turnID               string
 	turnStarted          int64
+	activeTurns          map[string]codexActiveTurn
 	models               []map[string]any
 	tokenUsage           map[string]any
 	reconnectAbortTurnID string
@@ -108,6 +113,7 @@ func NewCodexProvider(session *Session, options map[string]any) *CodexProvider {
 		options:       options,
 		pending:       map[int64]chan codexRPCResult{},
 		permissions:   map[string]codexPendingPermission{},
+		activeTurns:   map[string]codexActiveTurn{},
 		streams:       map[string]*codexDeltaStream{},
 		expectedStops: map[*exec.Cmd]struct{}{},
 		threadID:      stringValue(options["resume"]),
@@ -315,6 +321,7 @@ func (provider *CodexProvider) wait(command *exec.Cmd) {
 		provider.forking = false
 		provider.resumeInFlight = false
 		provider.aborting = false
+		provider.activeTurns = map[string]codexActiveTurn{}
 		provider.abortSequence++
 		if !provider.closed && provider.threadID != "" {
 			provider.needsThreadResume = true
@@ -435,9 +442,12 @@ func (provider *CodexProvider) handleServerRequest(message map[string]any) {
 }
 
 func (provider *CodexProvider) handleNotification(method string, params map[string]any) {
-	threadID := firstNonEmpty(stringValue(params["threadId"]), provider.threadID)
+	provider.mu.Lock()
+	currentThreadID, currentTurnID := provider.threadID, provider.turnID
+	provider.mu.Unlock()
+	threadID := firstNonEmpty(stringValue(params["threadId"]), currentThreadID)
 	turn := mapValue(params["turn"])
-	turnID := firstNonEmpty(stringValue(turn["id"]), stringValue(params["turnId"]), provider.turnID)
+	turnID := firstNonEmpty(stringValue(turn["id"]), stringValue(params["turnId"]), currentTurnID)
 	switch method {
 	case "thread/name/updated":
 		provider.mu.Lock()
@@ -455,25 +465,49 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 		provider.mu.Unlock()
 	case "turn/started":
 		provider.mu.Lock()
-		provider.turnID = turnID
+		rootTurn := threadID != "" && threadID == provider.threadID
 		started := timestampMillis(turn["startedAt"])
 		if started == 0 {
 			started = millis()
 		}
-		provider.turnStarted = started
+		if rootTurn {
+			provider.turnID = turnID
+			provider.turnStarted = started
+		}
+		if threadID != "" && turnID != "" {
+			provider.activeTurns[threadID] = codexActiveTurn{ID: turnID, StartedAt: started}
+		}
 		provider.mu.Unlock()
 		provider.session.appendMessage(
 			map[string]any{"kind": "turn-start", "threadId": threadID, "turnId": turnID, "createdAt": started},
 		)
-		provider.updatePublicState("running")
+		if rootTurn {
+			provider.updatePublicState("running")
+		} else {
+			provider.refreshPublicState()
+		}
 	case "turn/completed":
 		provider.mu.Lock()
-		started := provider.turnStarted
-		provider.turnID = ""
-		provider.turnStarted = 0
-		provider.permissions = map[string]codexPendingPermission{}
-		provider.aborting = false
-		provider.abortSequence++
+		rootThread := threadID != "" && threadID == provider.threadID
+		rootTurn := rootThread && turnID != "" && turnID == provider.turnID
+		started := timestampMillis(turn["startedAt"])
+		if tracked, ok := provider.activeTurns[threadID]; ok && tracked.ID == turnID {
+			if tracked.StartedAt > 0 {
+				started = tracked.StartedAt
+			}
+			delete(provider.activeTurns, threadID)
+		}
+		if rootTurn {
+			if provider.turnStarted > 0 {
+				started = provider.turnStarted
+			}
+			provider.turnID = ""
+			provider.turnStarted = 0
+			provider.permissions = map[string]codexPendingPermission{}
+			provider.aborting = false
+			provider.activeTurns = map[string]codexActiveTurn{}
+			provider.abortSequence++
+		}
 		provider.mu.Unlock()
 		status := "completed"
 		if stringValue(turn["status"]) == "failed" || turn["error"] != nil {
@@ -486,23 +520,32 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 		if completed == 0 {
 			completed = millis()
 		}
-		provider.session.appendMessage(
-			map[string]any{
-				"kind":       "turn-end",
-				"threadId":   threadID,
-				"turnId":     turnID,
-				"status":     status,
-				"durationMs": max64(0, completed-started),
-				"createdAt":  completed,
-				"context":    provider.contextStatus(),
-			},
-		)
-		provider.session.mu.Lock()
-		provider.session.HasUnreadCompletion = true
-		provider.session.Permissions = map[string]Permission{}
-		provider.session.mu.Unlock()
-		provider.updatePublicState("idle")
-		provider.clearDeltaStreams()
+		duration := numberInt64(turn["durationMs"])
+		if duration <= 0 && started > 0 {
+			duration = max64(0, completed-started)
+		}
+		message := map[string]any{
+			"kind":       "turn-end",
+			"threadId":   threadID,
+			"turnId":     turnID,
+			"status":     status,
+			"durationMs": duration,
+			"createdAt":  completed,
+		}
+		if rootTurn {
+			message["context"] = provider.contextStatus()
+		}
+		provider.session.appendMessage(message)
+		if rootTurn {
+			provider.session.mu.Lock()
+			provider.session.HasUnreadCompletion = true
+			provider.session.Permissions = map[string]Permission{}
+			provider.session.mu.Unlock()
+			provider.updatePublicState("idle")
+			provider.clearDeltaStreams()
+		} else {
+			provider.refreshPublicState()
+		}
 	case "thread/compacted":
 		provider.applyItem(
 			map[string]any{
@@ -523,9 +566,10 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 	case "thread/status/changed":
 		if stringValue(mapValue(params["status"])["type"]) == "idle" {
 			provider.mu.Lock()
-			aborting := provider.aborting
+			rootThread := threadID != "" && threadID == provider.threadID
+			busy := provider.turnID != "" || provider.resumeInFlight || provider.aborting
 			provider.mu.Unlock()
-			if !aborting {
+			if rootThread && !busy {
 				provider.updatePublicState("idle")
 			}
 		}
@@ -542,11 +586,15 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 	case "error":
 		text := firstNonEmpty(stringValue(mapValue(params["error"])["message"]), "Codex reported an error.")
 		provider.session.appendMessage(map[string]any{"kind": "event", "level": "error", "text": text})
+		provider.mu.Lock()
+		rootThread := threadID != "" && threadID == provider.threadID
+		busy := provider.turnID != "" || provider.resumeInFlight || provider.aborting
+		provider.mu.Unlock()
 		attempt, maximum := codexReconnectProgress(text)
-		if boolValue(params["willRetry"]) && attempt == 4 && maximum == 5 {
+		if rootThread && boolValue(params["willRetry"]) && attempt == 4 && maximum == 5 {
 			provider.abortAfterReconnect(threadID, turnID)
 		}
-		if !boolValue(params["willRetry"]) {
+		if rootThread && !busy && !boolValue(params["willRetry"]) {
 			provider.updatePublicState("idle")
 		}
 	case "warning", "guardianWarning":
@@ -1072,6 +1120,7 @@ func (provider *CodexProvider) forceAbort(sequence uint64, reason string) bool {
 	provider.stdin = nil
 	provider.turnID = ""
 	provider.turnStarted = 0
+	provider.activeTurns = map[string]codexActiveTurn{}
 	provider.permissions = map[string]codexPendingPermission{}
 	provider.needsThreadResume = provider.threadID != ""
 	provider.resuming = false
@@ -1682,6 +1731,12 @@ func codexSandboxPolicy(mode, workingDirectory string) any {
 func (provider *CodexProvider) updatePublicState(status string) {
 	provider.mu.Lock()
 	resuming, forking, aborting := provider.resuming, provider.forking, provider.aborting
+	activeSubagentCount := 0
+	for threadID := range provider.activeTurns {
+		if threadID != provider.threadID {
+			activeSubagentCount++
+		}
+	}
 	state := map[string]any{
 		"permissionMode": firstNonEmpty(stringValue(provider.options["permissionMode"]), "default"),
 		"sandboxMode":    firstNonEmpty(stringValue(provider.options["sandboxMode"]), "default"),
@@ -1701,11 +1756,18 @@ func (provider *CodexProvider) updatePublicState(status string) {
 		"canCompact":             status == "idle" && !resuming && !forking && !aborting && provider.threadID != "",
 		"compacting":             false,
 		"pendingPermissionCount": len(provider.permissions),
-		"activeSubagentCount":    0,
+		"activeSubagentCount":    activeSubagentCount,
 		"models":                 provider.models,
 	}
 	provider.mu.Unlock()
 	provider.session.setState(state)
+}
+
+func (provider *CodexProvider) refreshPublicState() {
+	provider.session.mu.RLock()
+	status := provider.session.StatusValue
+	provider.session.mu.RUnlock()
+	provider.updatePublicState(status)
 }
 func (provider *CodexProvider) contextStatus() any {
 	provider.mu.Lock()

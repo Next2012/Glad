@@ -118,6 +118,28 @@ test('large Codex command output still reaches turn completion', async ({ page }
   await page.request.delete(`/api/sessions/${session.id}`);
 });
 
+test('Codex tracks active subagents without marking the root turn idle', async ({ page }) => {
+  const session = await openCodexSession(page);
+  await page.locator('#cmd-input').fill('__GLAD_E2E_SUBAGENT_LIFECYCLE__');
+  await page.locator('#send-btn').click();
+
+  const subagentJump = page.getByRole('button', { name: 'Jump to active subagent' });
+  await expect(subagentJump).toContainText('1 subagent running');
+  await expect.poll(async () => {
+    const debug = await (await page.request.get(`/api/sessions/${session.id}/debug`)).json();
+    return debug.diagnostics.status;
+  }).toBe('running');
+  await expect(page.locator('#codex-abort-btn')).toBeEnabled();
+  await expect(page.locator('#send-btn')).toBeDisabled();
+  await expect(subagentJump).toHaveCount(0);
+
+  await expect(page.locator('.codex-message-block.assistant')).toContainText('root completed after child');
+  await expect(page.locator('#send-btn')).toBeEnabled();
+  const debug = await (await page.request.get(`/api/sessions/${session.id}/debug`)).json();
+  expect(debug.diagnostics.status).toBe('idle');
+  await page.request.delete(`/api/sessions/${session.id}`);
+});
+
 test('stuck Codex interrupt force-recovers and restarts before the next send', async ({ page }) => {
   test.skip(page.viewportSize().width < 920, 'Abort watchdog regression runs once on desktop');
   test.setTimeout(60000);

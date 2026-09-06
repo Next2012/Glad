@@ -721,6 +721,110 @@ func TestCodexApprovalAndTurnLifecycle(t *testing.T) {
 	}
 }
 
+func TestCodexTracksSubagentsWithoutSettlingRootTurn(t *testing.T) {
+	session := newSession(
+		"session",
+		"Codex",
+		"codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"},
+		t.TempDir(),
+	)
+	provider := NewCodexProvider(session, nil)
+	provider.threadID = "root-thread"
+
+	provider.handleNotification(
+		"turn/started",
+		map[string]any{"threadId": "root-thread", "turn": map[string]any{"id": "root-turn"}},
+	)
+	provider.handleNotification(
+		"turn/started",
+		map[string]any{
+			"threadId": "child-thread",
+			"turn":     map[string]any{"id": "child-turn", "startedAt": int64(1)},
+		},
+	)
+	session.mu.RLock()
+	activeSubagents := numberInt64(session.State["activeSubagentCount"])
+	session.mu.RUnlock()
+	if activeSubagents != 1 {
+		t.Fatalf("active subagent count after child start = %d, want 1", activeSubagents)
+	}
+	provider.handleNotification(
+		"thread/status/changed",
+		map[string]any{"threadId": "child-thread", "status": map[string]any{"type": "idle"}},
+	)
+	provider.handleNotification(
+		"error",
+		map[string]any{
+			"threadId": "child-thread", "turnId": "child-turn", "willRetry": false,
+			"error": map[string]any{"message": "child failed"},
+		},
+	)
+	provider.handleNotification(
+		"turn/completed",
+		map[string]any{
+			"threadId": "child-thread",
+			"turn": map[string]any{
+				"id": "child-turn", "status": "failed", "startedAt": int64(1), "completedAt": int64(2),
+			},
+		},
+	)
+	provider.handleNotification(
+		"thread/status/changed",
+		map[string]any{"threadId": "root-thread", "status": map[string]any{"type": "idle"}},
+	)
+
+	provider.mu.Lock()
+	turnID := provider.turnID
+	provider.mu.Unlock()
+	session.mu.RLock()
+	status := session.StatusValue
+	canAbort := boolValue(session.State["canAbort"])
+	unread := session.HasUnreadCompletion
+	activeSubagents = numberInt64(session.State["activeSubagentCount"])
+	session.mu.RUnlock()
+	if turnID != "root-turn" || status != "running" || !canAbort || unread || activeSubagents != 0 {
+		t.Fatalf(
+			"child lifecycle settled root turn: turn=%s status=%s canAbort=%v unread=%v subagents=%d",
+			turnID, status, canAbort, unread, activeSubagents,
+		)
+	}
+
+	childEnd := false
+	for _, message := range session.Messages {
+		if stringValue(message["kind"]) == "turn-end" && stringValue(message["turnId"]) == "child-turn" {
+			childEnd = true
+			if numberInt64(message["durationMs"]) != 1000 || message["context"] != nil {
+				t.Fatalf("child completion metadata was not scoped: %#v", message)
+			}
+		}
+	}
+	if !childEnd {
+		t.Fatal("child completion was omitted from conversation history")
+	}
+
+	provider.handleNotification(
+		"turn/completed",
+		map[string]any{
+			"threadId": "root-thread",
+			"turn":     map[string]any{"id": "root-turn", "status": "completed"},
+		},
+	)
+	provider.mu.Lock()
+	turnID = provider.turnID
+	provider.mu.Unlock()
+	session.mu.RLock()
+	status, unread = session.StatusValue, session.HasUnreadCompletion
+	canAbort = boolValue(session.State["canAbort"])
+	session.mu.RUnlock()
+	if turnID != "" || status != "idle" || canAbort || !unread {
+		t.Fatalf(
+			"root completion did not settle turn: turn=%s status=%s canAbort=%v unread=%v",
+			turnID, status, canAbort, unread,
+		)
+	}
+}
+
 func TestUsageNormalizationOnlyPricesCodexGPTModels(t *testing.T) {
 	agent := map[string]any{"modelBreakdowns": []any{
 		map[string]any{
