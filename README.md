@@ -39,7 +39,7 @@ Our design philosophy is **Easy to use, Stable, and Restrained**. Glad focuses s
 - **Responsive workspace:** Use a resizable session sidebar or a live tiled multi-session dashboard on wide screens, and focused lobby/chat pages on mobile, with light and dark themes.
 - **File attachments:** Upload images or arbitrary local files from the composer; Glad stores them privately for the active session and cleans them up automatically.
 - **Local usage dashboard:** Select a week or month, compare per-model and daily token totals, and inspect model-stacked token and cost charts through the bundled read-only `ccusage` engine. Costs use `ccusage` estimates and are shown only for GPT models used by Codex.
-- **Structured provider sessions:** Native streaming, approvals, resume, fork, model, effort, sandbox, and context controls for Codex and Claude.
+- **Structured provider sessions:** Native streaming, approvals, resume, fork, model, effort, sandbox, and context controls for Codex and Claude. Codex choices persist as Glad defaults for new sessions, with a separate explicit action to update Codex's global defaults.
 - **Codex history browsing:** Sort current-directory history by creation or update time, load older sessions, and preview recent messages before explicitly resuming or forking.
 - **Automatic Codex titles:** Generate short titles through isolated temporary turns using the existing Codex provider, while preserving manual names. Title generation may consume additional model usage; failures do not block the conversation.
 - **Fast history viewing:** Responsive structured conversation history with lazy tool details.

@@ -71,6 +71,7 @@ type CodexProvider struct {
 	streamMu             sync.Mutex
 	session              *Session
 	options              map[string]any
+	defaultsStore        *ConfigStore
 	cmd                  *exec.Cmd
 	stdin                io.WriteCloser
 	pending              map[int64]chan codexRPCResult
@@ -976,34 +977,6 @@ func (provider *CodexProvider) Approve(ctx context.Context, id, decision string,
 	return nil
 }
 
-func (provider *CodexProvider) UpdateSettings(ctx context.Context, settings map[string]any) error {
-	provider.mu.Lock()
-	for key, value := range settings {
-		provider.options[key] = value
-	}
-	if provider.threadID != "" {
-		params := map[string]any{"threadId": provider.threadID}
-		if value := settings["permissionMode"]; value != nil {
-			params["approvalPolicy"] = value
-		}
-		if value := settings["sandboxMode"]; value != nil {
-			params["sandboxPolicy"] = codexSandboxPolicy(stringValue(value), provider.session.WorkingDirectory)
-		}
-		if value := settings["model"]; value != nil {
-			params["model"] = value
-		}
-		if value := settings["effort"]; value != nil {
-			params["effort"] = value
-		}
-		_, err := provider.requestLocked(ctx, "thread/settings/update", params)
-		provider.mu.Unlock()
-		provider.updatePublicState(provider.session.StatusValue)
-		return err
-	}
-	provider.mu.Unlock()
-	provider.updatePublicState(provider.session.StatusValue)
-	return nil
-}
 func (provider *CodexProvider) Interrupt(ctx context.Context) error {
 	provider.titles.cancelGeneration()
 	provider.mu.Lock()

@@ -28,6 +28,10 @@ type SettingsProvider interface {
 	UpdateSettings(context.Context, map[string]any) error
 }
 
+type CodexGlobalSettingsProvider interface {
+	WriteGlobalDefaults(context.Context) (map[string]any, error)
+}
+
 type InterruptProvider interface {
 	Interrupt(context.Context) error
 }
@@ -410,6 +414,7 @@ func (session *Session) detail(ids []string, threadID string) map[string]any {
 type SessionManager struct {
 	mu       sync.RWMutex
 	baseDir  string
+	config   *ConfigStore
 	sessions map[string]*Session
 	creating map[string]struct{}
 	events   *sessioncore.EventHub
@@ -494,7 +499,10 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 	session.NameManual = strings.TrimSpace(request.Name) != ""
 	session.events = manager.events
 	if request.ToolKey == "codex" {
-		session.Provider = NewCodexProvider(session, request.CodexOptions)
+		options := manager.codexOptions(request.CodexOptions)
+		provider := NewCodexProvider(session, options)
+		provider.defaultsStore = manager.config
+		session.Provider = provider
 	} else {
 		session.Provider = NewClaudeProvider(session, request.ClaudeOptions)
 	}
@@ -507,6 +515,21 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 	manager.sessions[id] = session
 	manager.mu.Unlock()
 	return session, nil
+}
+
+func (manager *SessionManager) codexOptions(overrides map[string]any) map[string]any {
+	options := map[string]any{}
+	if manager.config != nil {
+		for key, value := range mapValue(manager.config.Get("codexDefaults")) {
+			if normalized, err := normalizeCodexSettings(map[string]any{key: value}); err == nil {
+				options[key] = normalized[key]
+			}
+		}
+	}
+	for key, value := range overrides {
+		options[key] = value
+	}
+	return options
 }
 
 func (manager *SessionManager) Delete(ctx context.Context, id string) bool {

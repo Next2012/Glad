@@ -276,7 +276,23 @@ input.on('line', line => {
     });
     return;
   } else if (request.method === 'config/read') {
-    result = { config: { model: 'gpt-e2e', model_reasoning_effort: 'medium' } };
+    result = { config: {
+      model: 'gpt-e2e', model_reasoning_effort: 'medium',
+      sandbox_mode: 'read-only', approval_policy: 'untrusted'
+    } };
+  } else if (request.method === 'config/batchWrite') {
+    const edits = Array.isArray(request.params?.edits) ? request.params.edits : [];
+    const values = Object.fromEntries(edits.map(edit => [edit.keyPath, edit.value]));
+    const expectedKeys = ['approval_policy', 'model', 'model_reasoning_effort', 'sandbox_mode'];
+    const valid = edits.length === 4
+      && edits.every(edit => edit.mergeStrategy === 'upsert')
+      && Object.keys(values).sort().join(',') === expectedKeys.join(',')
+      && Object.values(values).every(value => typeof value === 'string' && value.length > 0);
+    if (!valid) {
+      write({ id: request.id, error: { message: `invalid global defaults batch: ${JSON.stringify(values)}` } });
+      return;
+    }
+    result = {};
   } else if (request.method === 'model/list') {
     result = {
       data: [{

@@ -65,6 +65,31 @@ func (store *ConfigStore) Set(key string, value any) error {
 	return nil
 }
 
+// UpdateMap atomically merges a shallow patch into an object-valued setting.
+// It avoids the read/modify/write race that would otherwise occur when two
+// live sessions persist different parts of the same preference group.
+func (store *ConfigStore) UpdateMap(key string, patch map[string]any) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	next := cloneConfigData(store.data)
+	current := mapValue(next[key])
+	merged := cloneMap(current)
+	for patchKey, value := range patch {
+		copy, err := cloneConfigValue(value)
+		if err != nil {
+			return err
+		}
+		merged[patchKey] = copy
+	}
+	next[key] = merged
+	next["lastUpdated"] = time.Now().UTC().Format(time.RFC3339)
+	if err := store.saveLocked(next); err != nil {
+		return err
+	}
+	store.data = next
+	return nil
+}
+
 func (store *ConfigStore) Delete(key string) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()

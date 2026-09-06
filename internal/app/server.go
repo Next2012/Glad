@@ -39,8 +39,10 @@ func NewServer(baseDir string, port int, assets fs.FS) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	sessions := NewSessionManager(baseDir)
+	sessions.config = config
 	server := &Server{
-		baseDir: baseDir, port: port, sessions: NewSessionManager(baseDir), config: config,
+		baseDir: baseDir, port: port, sessions: sessions, config: config,
 		attachments: NewAttachmentStore(), schedules: NewScheduleStore(config),
 		usage:  NewUsageService(),
 		assets: assets,

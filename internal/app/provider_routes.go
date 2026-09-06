@@ -21,6 +21,7 @@ func (server *Server) registerProviderRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/sessions/{id}/claude-resume", server.claudeResume)
 	mux.HandleFunc("POST /api/sessions/{id}/claude-fork", server.claudeFork)
 	mux.HandleFunc("PATCH /api/sessions/{id}/codex-settings", server.providerSettings)
+	mux.HandleFunc("POST /api/sessions/{id}/codex-global-defaults", server.codexGlobalDefaults)
 	mux.HandleFunc("GET /api/sessions/{id}/codex-resume-threads", server.codexResumeThreads)
 	mux.HandleFunc("GET /api/sessions/{id}/codex-thread-preview", server.codexThreadPreview)
 	mux.HandleFunc("GET /api/sessions/{id}/codex-prompts", server.codexPrompts)
@@ -31,6 +32,25 @@ func (server *Server) registerProviderRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/debug/client-log", func(writer http.ResponseWriter, request *http.Request) {
 		respondJSON(writer, 200, map[string]any{"success": true})
 	})
+}
+
+func (server *Server) codexGlobalDefaults(writer http.ResponseWriter, request *http.Request) {
+	session := server.sessions.Get(request.PathValue("id"))
+	if session == nil || session.Kind != "codex-structured" {
+		notFound(writer, "Codex session not found")
+		return
+	}
+	provider, ok := session.Provider.(CodexGlobalSettingsProvider)
+	if !ok {
+		respondError(writer, http.StatusConflict, errors.New("Codex global settings are not supported"))
+		return
+	}
+	settings, err := provider.WriteGlobalDefaults(request.Context())
+	if err != nil {
+		respondError(writer, http.StatusBadRequest, err)
+		return
+	}
+	respondJSON(writer, http.StatusOK, map[string]any{"success": true, "settings": settings})
 }
 
 func (server *Server) providerSettings(writer http.ResponseWriter, request *http.Request) {

@@ -1,8 +1,14 @@
 const { defineConfig } = require('@playwright/test');
 const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
 
 const providerBin = path.join(__dirname, 'tests', 'e2e', 'fixtures', 'bin');
 const port = Number(process.env.GLAD_E2E_PORT || 3001);
+const testHome = fs.mkdtempSync(path.join(os.tmpdir(), 'glad-e2e-'));
+const testCodexHome = path.join(testHome, '.codex');
+fs.mkdirSync(testCodexHome, { recursive: true });
+process.once('exit', () => fs.rmSync(testHome, { recursive: true, force: true }));
 
 module.exports = defineConfig({
   testDir: './tests/e2e',
@@ -25,6 +31,9 @@ module.exports = defineConfig({
     url: `http://127.0.0.1:${port}/api/config`,
     env: {
       ...process.env,
+      HOME: testHome,
+      USERPROFILE: testHome,
+      CODEX_HOME: testCodexHome,
       PATH: `${providerBin}${path.delimiter}${process.env.PATH || ''}`
     },
     reuseExistingServer: !process.env.CI,
