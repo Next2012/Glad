@@ -345,8 +345,11 @@ func codexTitleThreadParams(config map[string]any, model, provider, cwd string) 
 	}
 	overrides["web_search"] = "disabled"
 	mcp := map[string]any{}
-	for name := range mapValue(config["mcp_servers"]) {
-		mcp[name] = map[string]any{"enabled": false}
+	for name, value := range mapValue(config["mcp_servers"]) {
+		// 保留连接参数，只禁用标题线程的 MCP；不能用 enabled 单字段替换整份配置。
+		server := codexTitleConfigTable(mapValue(value))
+		server["enabled"] = false
+		mcp[name] = server
 	}
 	overrides["mcp_servers"] = mcp
 	params := map[string]any{
@@ -360,6 +363,22 @@ func codexTitleThreadParams(config map[string]any, model, provider, cwd string) 
 		params["permissions"] = profile
 	}
 	return params
+}
+
+// config/read 包含可选字段的 null，而线程覆盖参数会转成不支持 null 的 TOML。
+// 复制时去掉空值，避免修改主会话配置，也避免空值被转成错误类型的字符串。
+func codexTitleConfigTable(config map[string]any) map[string]any {
+	result := make(map[string]any, len(config))
+	for key, value := range config {
+		if value == nil {
+			continue
+		}
+		if nested, ok := value.(map[string]any); ok {
+			value = codexTitleConfigTable(nested)
+		}
+		result[key] = value
+	}
+	return result
 }
 
 func (titles *codexTitles) cleanup(id string) {

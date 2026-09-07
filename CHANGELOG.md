@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.2] - 2026-09-07
+
+### Fixed
+
+- Recover Codex sessions when the output stream closes or the app server stops responding, fail pending requests promptly, and prevent late process events or responses from reviving stale running states.
+- Keep Codex stderr draining across long log lines and bound writes to an unresponsive app server.
+- Preserve MCP transport settings when creating automatic-title threads, including command-line configuration, while removing optional null values before TOML conversion and keeping title-thread MCP servers disabled.
+- Send ServerChan completion notifications only for the current root Codex turn, excluding subagent and stale-turn completion events.
+- Use bounded FIFO notification deduplication and distinct approval/disconnection identifiers, and allow a dropped queue entry to be retried.
+
 ## [2.2.1] - 2026-09-06
 
 ### Changed

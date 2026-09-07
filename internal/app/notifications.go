@@ -22,7 +22,7 @@ type NotificationService struct {
 	config       *ConfigStore
 	client       *http.Client
 	mu           sync.Mutex
-	seen         map[string]map[string]bool
+	seen         map[string]*notificationHistory
 	deliveries   chan notificationDelivery
 	sessions     *SessionManager
 	subscription *sessioncore.Subscription
@@ -30,6 +30,12 @@ type NotificationService struct {
 	wg           sync.WaitGroup
 	startOnce    sync.Once
 	closeOnce    sync.Once
+}
+
+// 保留最近 100 个已入队事件，按顺序淘汰，避免随机删除刚插入的去重键。
+type notificationHistory struct {
+	keys  map[string]bool
+	order []string
 }
 
 type notificationDelivery struct {
@@ -42,7 +48,7 @@ func NewNotificationService(config *ConfigStore, sessions *SessionManager) *Noti
 	service := &NotificationService{
 		config:     config,
 		client:     &http.Client{Timeout: 10 * time.Second},
-		seen:       map[string]map[string]bool{},
+		seen:       map[string]*notificationHistory{},
 		deliveries: make(chan notificationDelivery, 64),
 		sessions:   sessions,
 	}
@@ -106,7 +112,7 @@ func (service *NotificationService) Close() {
 		}
 		service.wg.Wait()
 		service.mu.Lock()
-		service.seen = map[string]map[string]bool{}
+		service.seen = map[string]*notificationHistory{}
 		service.mu.Unlock()
 	})
 }
@@ -188,52 +194,79 @@ func (service *NotificationService) HandleEvent(session *Session, event map[stri
 	}
 	message := mapValue(event["message"])
 	if eventType == "message" && stringValue(message["kind"]) == "turn-end" {
-		status := firstNonEmpty(stringValue(message["turnStatus"]), stringValue(message["status"]), "completed")
-		if status == "cancelled" {
+		// 主任务可能仍在运行，不能把子任务或旧轮次的结束当成整轮完成。
+		if session.Kind == "codex-structured" && !boolValue(message["isRootTurn"]) {
 			return
 		}
-		if status == "failed" {
-			kind = "执行失败"
-		} else {
+		switch firstNonEmpty(stringValue(message["turnStatus"]), stringValue(message["status"])) {
+		case "completed":
 			kind = "已完成"
+		case "failed":
+			kind = "执行失败"
+		default:
+			return
 		}
 	}
 	if kind == "" {
 		return
 	}
-	key := eventType + ":" + firstNonEmpty(
-		stringValue(message["turnId"]),
-		stringValue(mapValue(event["request"])["id"]),
-		stringValue(message["id"]),
-	)
-	service.mu.Lock()
-	seen := service.seen[session.ID]
-	if seen == nil {
-		seen = map[string]bool{}
-		service.seen[session.ID] = seen
-	}
-	if seen[key] {
-		service.mu.Unlock()
+	id := notificationEventID(event, message)
+	if id == "" {
 		return
 	}
-	seen[key] = true
-	if len(seen) > 100 {
-		for oldest := range seen {
-			delete(seen, oldest)
-			break
-		}
-	}
-	service.mu.Unlock()
 	settings := service.settings()
 	if settings.SendKey == "" {
 		return
 	}
 	title, description := formatNotification(kind, session, numberInt64(message["durationMs"]), settings.ClientType)
+	key := eventType + ":" + id
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	seen := service.seen[session.ID]
+	if seen != nil && seen.keys[key] {
+		return
+	}
 	select {
 	case service.deliveries <- notificationDelivery{settings: settings, title: title, description: description}:
+		// 队列满或尚未配置时不记作已发送，后续重投才有机会成功。
+		if seen == nil {
+			seen = &notificationHistory{keys: map[string]bool{}}
+			service.seen[session.ID] = seen
+		}
+		seen.keys[key] = true
+		seen.order = append(seen.order, key)
+		if len(seen.order) > 100 {
+			delete(seen.keys, seen.order[0])
+			seen.order = seen.order[1:]
+		}
 	default:
 		logDebug("[serverchan] notification queue is full; dropping %s", key)
 	}
+}
+
+func notificationEventID(event, message map[string]any) string {
+	switch stringValue(event["type"]) {
+	case "permission-request":
+		// 内部事件携带 Permission 结构体，JSON 事件则携带 map。
+		switch request := event["request"].(type) {
+		case Permission:
+			return request.ID
+		case *Permission:
+			if request != nil {
+				return request.ID
+			}
+		default:
+			return stringValue(mapValue(request)["id"])
+		}
+	case "runtime-disconnected":
+		return firstNonEmpty(stringValue(event["turnId"]), stringValue(event["id"]))
+	default:
+		if turn := stringValue(message["turnId"]); turn != "" {
+			return stringValue(message["threadId"]) + ":" + turn
+		}
+		return stringValue(message["id"])
+	}
+	return ""
 }
 func formatNotification(kind string, session *Session, duration int64, client string) (string, string) {
 	session.mu.RLock()

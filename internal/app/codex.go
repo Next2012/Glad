@@ -34,6 +34,8 @@ type codexActiveTurn struct {
 
 const maxCodexToolOutputBytes = 8 << 20
 const defaultCodexAbortGrace = 5 * time.Second
+const codexHealthInterval = 15 * time.Second
+const codexHealthTimeout = 5 * time.Second
 
 const codexOutputTruncatedMarker = "\n… output truncated by Glad …\n"
 
@@ -72,6 +74,7 @@ func (stream *codexDeltaStream) text() string { return stream.builder.String() }
 type CodexProvider struct {
 	titles               *codexTitles
 	mu                   sync.Mutex
+	eventMu              sync.Mutex
 	streamMu             sync.Mutex
 	session              *Session
 	options              map[string]any
@@ -138,6 +141,9 @@ func (provider *CodexProvider) startLocked(ctx context.Context) error {
 	if provider.closed {
 		return errors.New("Codex session is closed")
 	}
+	if provider.aborting {
+		return errors.New("Codex session is stopping")
+	}
 	if provider.cmd != nil {
 		return nil
 	}
@@ -161,9 +167,14 @@ func (provider *CodexProvider) startLocked(ctx context.Context) error {
 		return err
 	}
 	provider.cmd, provider.stdin = command, stdin
-	go provider.readStdout(stdout)
+	done := make(chan struct{})
+	go provider.readStdout(command, stdout)
 	go provider.readStderr(stderr)
-	go provider.wait(command)
+	go func() {
+		defer close(done)
+		provider.wait(command)
+	}()
+	go provider.monitorTransport(command, done, codexHealthInterval, codexHealthTimeout)
 	initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	initializeParams := map[string]any{
@@ -173,8 +184,10 @@ func (provider *CodexProvider) startLocked(ctx context.Context) error {
 	if _, err := provider.requestLocked(initCtx, "initialize", initializeParams); err != nil {
 		provider.expectedStops[command] = struct{}{}
 		killProcessTree(command)
-		provider.cmd = nil
-		provider.stdin = nil
+		if provider.cmd == command {
+			provider.cmd = nil
+			provider.stdin = nil
+		}
 		return err
 	}
 	_ = provider.notifyLocked("initialized", map[string]any{})
@@ -185,6 +198,9 @@ func (provider *CodexProvider) startLocked(ctx context.Context) error {
 	)
 	provider.applyConfig(mapValue(config["config"]))
 	_ = provider.refreshModelsLocked(initCtx)
+	if provider.cmd != command {
+		return errors.New("Codex connection closed during initialization")
+	}
 	provider.titles.mu.Lock()
 	provider.titles.enabled = true
 	provider.titles.mu.Unlock()
@@ -278,12 +294,12 @@ func (provider *CodexProvider) Send(ctx context.Context, input ProviderInput) er
 	}
 	provider.turnID = firstNonEmpty(stringValue(mapValue(started["turn"])["id"]), stringValue(started["turnId"]))
 	provider.turnStarted = millis()
+	provider.updatePublicStateLocked("running")
 	provider.mu.Unlock()
-	provider.updatePublicState("running")
 	return nil
 }
 
-func (provider *CodexProvider) readStdout(reader io.Reader) {
+func (provider *CodexProvider) readStdout(command *exec.Cmd, reader io.Reader) {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 64*1024), 64<<20)
 	for scanner.Scan() {
@@ -292,54 +308,100 @@ func (provider *CodexProvider) readStdout(reader io.Reader) {
 		if json.Unmarshal(scanner.Bytes(), &message) != nil {
 			continue
 		}
+		provider.handleProcessRPC(command, message)
+	}
+	// 输出关闭也代表通信结束，不能继续等仍然存活的主进程退出。
+	err := scanner.Err()
+	if err == nil {
+		err = io.EOF
+	}
+	provider.transportFailed(command, fmt.Errorf("Codex output stream closed: %w", err))
+}
+
+// 消息分发和进程清理串行，防止旧 stdout 中残留的通知污染重启后的会话。
+func (provider *CodexProvider) handleProcessRPC(command *exec.Cmd, message map[string]any) {
+	provider.eventMu.Lock()
+	defer provider.eventMu.Unlock()
+	provider.mu.Lock()
+	current := provider.cmd == command && !provider.closed
+	provider.mu.Unlock()
+	if current {
 		provider.handleRPC(message)
 	}
 }
+
 func (provider *CodexProvider) readStderr(reader io.Reader) {
-	scanner := bufio.NewScanner(reader)
-	for scanner.Scan() {
-		if line := strings.TrimSpace(scanner.Text()); line != "" {
+	// 按有界片段持续排空，超长日志不能让 stderr 读取停止并堵住子进程。
+	buffer := bufio.NewReaderSize(reader, 64*1024)
+	for {
+		part, err := buffer.ReadSlice('\n')
+		if line := strings.TrimSpace(string(part)); line != "" {
 			logDebug("[codex] %s", line)
+		}
+		if err != nil && err != bufio.ErrBufferFull {
+			if err != io.EOF {
+				logDebug("[codex] stderr read failed: %v", err)
+			}
+			return
 		}
 	}
 }
+
 func (provider *CodexProvider) wait(command *exec.Cmd) {
 	err := command.Wait()
+	if err == nil {
+		err = errors.New("Codex app-server exited")
+	}
+	provider.transportFailed(command, err)
 	provider.mu.Lock()
-	_, expected := provider.expectedStops[command]
 	delete(provider.expectedStops, command)
-	current := provider.cmd == command
-	if current {
-		provider.titles.reset()
-		provider.cmd = nil
-		provider.stdin = nil
-		if provider.resumeCancel != nil {
-			provider.resumeCancel()
-		}
-		provider.resumeCancel = nil
-		provider.resuming = false
-		provider.forking = false
-		provider.resumeInFlight = false
-		provider.aborting = false
-		provider.activeTurns = map[string]codexActiveTurn{}
-		provider.abortSequence++
-		if !provider.closed && provider.threadID != "" {
-			provider.needsThreadResume = true
-		}
-		provider.failPendingLocked(errors.New("Codex app-server exited"))
-	}
-	closed := provider.closed
 	provider.mu.Unlock()
-	if current {
-		provider.clearDeltaStreams()
+}
+
+func (provider *CodexProvider) transportFailed(command *exec.Cmd, err error) {
+	provider.mu.Lock()
+	// 旧进程的 EOF、探活和退出回调均不能修改新进程的会话状态。
+	if provider.closed || provider.cmd != command || command == nil {
+		provider.mu.Unlock()
+		return
 	}
-	if !closed && !expected {
-		text := "Codex app-server exited."
-		if err != nil {
-			text += " " + err.Error()
+	provider.aborting = true
+	provider.abortSequence++
+	sequence := provider.abortSequence
+	provider.mu.Unlock()
+	provider.stopRuntime(sequence, "Codex connection lost: "+err.Error(), "failed")
+}
+
+func (provider *CodexProvider) monitorTransport(command *exec.Cmd, done <-chan struct{}, interval, timeout time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-provider.session.ctx.Done():
+			return
+		case <-ticker.C:
 		}
-		provider.session.appendMessage(map[string]any{"kind": "event", "level": "error", "text": text})
-		provider.updatePublicState("idle")
+		provider.mu.Lock()
+		if provider.cmd != command || provider.closed {
+			provider.mu.Unlock()
+			return
+		}
+		// 只检查有操作的会话。该 RPC 读取本地线程目录，不等待模型或网络。
+		if provider.aborting || (provider.turnID == "" && !provider.resuming && !provider.forking && len(provider.pending) == 0) {
+			provider.mu.Unlock()
+			continue
+		}
+		ctx, cancel := context.WithTimeout(provider.session.ctx, timeout)
+		_, err := provider.requestLocked(ctx, "thread/loaded/list", map[string]any{})
+		provider.mu.Unlock()
+		cancel()
+		// RPC 返回错误也说明通信仍通畅；只有探活超时才回收无响应进程。
+		if errors.Is(err, context.DeadlineExceeded) {
+			provider.transportFailed(command, errors.New("Codex app-server did not respond to a connection check"))
+			return
+		}
 	}
 }
 
@@ -525,6 +587,8 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 			duration = max64(0, completed-started)
 		}
 		message := map[string]any{
+			// 通知资格在事件产生时确定，子任务和旧轮次只保留历史展示。
+			"isRootTurn": rootTurn,
 			"kind":       "turn-end",
 			"threadId":   threadID,
 			"turnId":     turnID,
@@ -922,7 +986,8 @@ func (provider *CodexProvider) requestLocked(
 	return provider.requestLockedTracked(ctx, method, params, nil)
 }
 
-func (provider *CodexProvider) requestLockedTracked(ctx context.Context, method string, params map[string]any, hidden *codexTitleResponse) (map[string]any, error) {
+func (provider *CodexProvider) requestLockedTracked(ctx context.Context, method string, params map[string]any, hidden *codexTitleResponse) (result map[string]any, err error) {
+	command := provider.cmd
 	id := provider.requestID.Add(1)
 	channel := make(chan codexRPCResult, 1)
 	if hidden != nil {
@@ -942,7 +1007,14 @@ func (provider *CodexProvider) requestLockedTracked(ctx context.Context, method 
 		return nil, err
 	}
 	provider.mu.Unlock()
-	defer provider.mu.Lock()
+	defer func() {
+		provider.mu.Lock()
+		// 响应入队后进程仍可能断开；旧成功结果不能把已清理的会话改回 running。
+		if err == nil && (provider.cmd != command || provider.closed) {
+			result = nil
+			err = errors.New("Codex connection closed before the request completed")
+		}
+	}()
 	select {
 	case response := <-channel:
 		return response.Result, response.Err
@@ -966,7 +1038,18 @@ func (provider *CodexProvider) writeLocked(value any) error {
 		return err
 	}
 	bytes = append(bytes, '\n')
+	// 管道写入也必须有上限，否则持锁 Write 会阻塞探活和中止操作。
+	if pipe, ok := provider.stdin.(*os.File); ok {
+		if err := pipe.SetWriteDeadline(time.Now().Add(codexHealthTimeout)); err != nil {
+			return err
+		}
+		defer pipe.SetWriteDeadline(time.Time{})
+	}
 	_, err = provider.stdin.Write(bytes)
+	if err != nil {
+		command := provider.cmd
+		go provider.transportFailed(command, fmt.Errorf("Codex input write failed: %w", err))
+	}
 	return err
 }
 func (provider *CodexProvider) respondRPC(id any, result any) {
@@ -1103,6 +1186,12 @@ func (provider *CodexProvider) abortWatchdog(sequence uint64) {
 }
 
 func (provider *CodexProvider) forceAbort(sequence uint64, reason string) bool {
+	return provider.stopRuntime(sequence, reason, "cancelled")
+}
+
+func (provider *CodexProvider) stopRuntime(sequence uint64, reason, status string) bool {
+	provider.eventMu.Lock()
+	defer provider.eventMu.Unlock()
 	provider.mu.Lock()
 	if provider.closed || !provider.aborting || provider.abortSequence != sequence {
 		provider.mu.Unlock()
@@ -1116,6 +1205,10 @@ func (provider *CodexProvider) forceAbort(sequence uint64, reason string) bool {
 		_ = provider.stdin.Close()
 	}
 	threadID, turnID, started := provider.threadID, provider.turnID, provider.turnStarted
+	provider.titles.reset()
+	if provider.resumeCancel != nil {
+		provider.resumeCancel()
+	}
 	provider.cmd = nil
 	provider.stdin = nil
 	provider.turnID = ""
@@ -1126,7 +1219,7 @@ func (provider *CodexProvider) forceAbort(sequence uint64, reason string) bool {
 	provider.resuming = false
 	provider.forking = false
 	provider.resumeCancel = nil
-	provider.aborting = false
+	// 清理完成前保持 stopping，新的 Send/Resume 不能越过此处。
 	provider.abortSequence++
 	pending := provider.takePendingLocked()
 	provider.mu.Unlock()
@@ -1134,14 +1227,21 @@ func (provider *CodexProvider) forceAbort(sequence uint64, reason string) bool {
 	if command != nil {
 		killProcessTree(command)
 	}
-	provider.settleForcedAbort(threadID, turnID, started, reason)
+	provider.settleStoppedTurn(threadID, turnID, started, reason, status)
 	provider.clearDeltaStreams()
-	provider.updatePublicState("idle")
-	failCodexRequests(pending, errors.New("Codex app-server was stopped"))
+	provider.mu.Lock()
+	provider.aborting = false
+	provider.updatePublicStateLocked("idle")
+	provider.mu.Unlock()
+	failure := errors.New("Codex app-server was stopped")
+	if status == "failed" {
+		failure = errors.New(reason)
+	}
+	failCodexRequests(pending, failure)
 	return true
 }
 
-func (provider *CodexProvider) settleForcedAbort(threadID, turnID string, started int64, reason string) {
+func (provider *CodexProvider) settleStoppedTurn(threadID, turnID string, started int64, reason, status string) {
 	provider.session.appendMessage(map[string]any{"kind": "event", "level": "warning", "text": reason})
 	if turnID != "" {
 		exists := false
@@ -1158,11 +1258,11 @@ func (provider *CodexProvider) settleForcedAbort(threadID, turnID string, starte
 		}
 		provider.session.mu.RUnlock()
 		for _, id := range runningTools {
-			provider.session.patchMessage(id, map[string]any{"toolStatus": "cancelled", "completedAtMs": millis()})
+			provider.session.patchMessage(id, map[string]any{"toolStatus": status, "completedAtMs": millis()})
 		}
 		if !exists {
 			message := map[string]any{
-				"kind": "turn-end", "threadId": threadID, "turnId": turnID, "status": "cancelled",
+				"kind": "turn-end", "threadId": threadID, "turnId": turnID, "status": status, "isRootTurn": true,
 				"createdAt": millis(),
 			}
 			if started > 0 {
@@ -1591,6 +1691,8 @@ func (provider *CodexProvider) Status(ctx context.Context) error {
 	return nil
 }
 func (provider *CodexProvider) Close(context.Context) error {
+	provider.eventMu.Lock()
+	defer provider.eventMu.Unlock()
 	provider.mu.Lock()
 	provider.titles.reset()
 	provider.closed = true
@@ -1730,6 +1832,11 @@ func codexSandboxPolicy(mode, workingDirectory string) any {
 }
 func (provider *CodexProvider) updatePublicState(status string) {
 	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	provider.updatePublicStateLocked(status)
+}
+
+func (provider *CodexProvider) updatePublicStateLocked(status string) {
 	resuming, forking, aborting := provider.resuming, provider.forking, provider.aborting
 	activeSubagentCount := 0
 	for threadID := range provider.activeTurns {
@@ -1759,7 +1866,6 @@ func (provider *CodexProvider) updatePublicState(status string) {
 		"activeSubagentCount":    activeSubagentCount,
 		"models":                 provider.models,
 	}
-	provider.mu.Unlock()
 	provider.session.setState(state)
 }
 

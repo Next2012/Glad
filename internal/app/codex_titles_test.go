@@ -3,10 +3,16 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -18,7 +24,35 @@ func TestCodexTitleNativeProtocol(t *testing.T) {
 	if binary == "" {
 		t.Skip("set GLAD_TITLE_PROTOCOL_BINARY for native protocol verification")
 	}
-	session := newSession("native-title", "Codex", "codex-structured", ToolInfo{Key: "codex", Command: binary}, t.TempDir())
+	if runtime.GOOS == "windows" {
+		t.Skip("native CLI-injection fixture uses a POSIX shell")
+	}
+	// 使用无凭据目录，真实覆盖 AFM 的命令行注入方式，且不调用模型。
+	isolatedHome := t.TempDir()
+	t.Setenv("CODEX_HOME", isolatedHome)
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("CODEX_API_KEY", "")
+	var httpCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		httpCalls.Add(1)
+		http.Error(w, "title MCP must stay disabled", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	marker := filepath.Join(isolatedHome, "mcp-started")
+	t.Setenv("GLAD_TITLE_TEST_MARKER", marker)
+	wrapper := filepath.Join(isolatedHome, "codex-with-mcp")
+	script := fmt.Sprintf(`#!/bin/sh
+exec "$GLAD_TITLE_PROTOCOL_BINARY" \
+  -c 'mcp_servers.http_probe.url=%q' \
+  -c 'mcp_servers.http_probe.required=true' \
+  -c 'mcp_servers.stdio_probe.command="sh"' \
+  -c 'mcp_servers.stdio_probe.args=["-c", "printf started > \"$GLAD_TITLE_TEST_MARKER\"; exit 1"]' \
+  -c 'mcp_servers.stdio_probe.required=true' "$@"
+`, server.URL)
+	if err := os.WriteFile(wrapper, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	session := newSession("native-title", "Codex", "codex-structured", ToolInfo{Key: "codex", Command: wrapper}, isolatedHome)
 	provider := NewCodexProvider(session, nil)
 	t.Cleanup(func() { session.cancel(); _ = provider.Close(context.Background()) })
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -29,6 +63,12 @@ func TestCodexTitleNativeProtocol(t *testing.T) {
 	config, err := provider.rpc(ctx, "config/read", map[string]any{"cwd": session.WorkingDirectory, "includeLayers": false})
 	if err != nil {
 		t.Fatal(err)
+	}
+	servers := mapValue(mapValue(config["config"])["mcp_servers"])
+	if len(servers) != 2 || mapValue(servers["http_probe"])["url"] != server.URL ||
+		mapValue(servers["stdio_probe"])["command"] != "sh" ||
+		mapValue(servers["http_probe"])["required"] != true || mapValue(servers["stdio_probe"])["required"] != true {
+		t.Fatal("native fixture did not inject the expected HTTP and stdio MCP configuration")
 	}
 	provider.mu.Lock()
 	model := stringValue(provider.options["model"])
@@ -54,6 +94,12 @@ func TestCodexTitleNativeProtocol(t *testing.T) {
 	session.mu.RUnlock()
 	if current != "" || count != 0 {
 		t.Fatalf("native title thread leaked into main session: %q %d", current, count)
+	}
+	if httpCalls.Load() != 0 {
+		t.Fatalf("title thread connected to disabled HTTP MCP %d times", httpCalls.Load())
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("title thread started disabled stdio MCP: %v", err)
 	}
 }
 
@@ -107,7 +153,7 @@ func newTitleTestPeer(t *testing.T, delayed, invalid bool) (*CodexProvider, *tit
 				case "thread/name/set":
 					peer.names[stringValue(params["threadId"])] = stringValue(params["name"])
 				case "config/read":
-					result["config"] = map[string]any{"model_provider": "openai", "mcp_servers": map[string]any{"sensitive": map[string]any{"enabled": true}}}
+					result["config"] = map[string]any{"model_provider": "openai", "mcp_servers": map[string]any{"sensitive": map[string]any{"url": "http://127.0.0.1:9/mcp", "enabled": true}}}
 				case "account/read":
 					result["account"] = map[string]any{"type": "chatgpt"}
 				case "thread/start":
