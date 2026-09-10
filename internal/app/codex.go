@@ -83,6 +83,7 @@ type CodexProvider struct {
 	stdin                io.WriteCloser
 	pending              map[int64]chan codexRPCResult
 	permissions          map[string]codexPendingPermission
+	userInputs           map[string]codexPendingUserInput
 	requestID            atomic.Int64
 	threadID             string
 	turnID               string
@@ -116,6 +117,7 @@ func NewCodexProvider(session *Session, options map[string]any) *CodexProvider {
 		options:       options,
 		pending:       map[int64]chan codexRPCResult{},
 		permissions:   map[string]codexPendingPermission{},
+		userInputs:    map[string]codexPendingUserInput{},
 		activeTurns:   map[string]codexActiveTurn{},
 		streams:       map[string]*codexDeltaStream{},
 		expectedStops: map[*exec.Cmd]struct{}{},
@@ -461,7 +463,7 @@ func (provider *CodexProvider) handleServerRequest(message map[string]any) {
 	method, params := stringValue(message["method"]), mapValue(message["params"])
 	id := stringValue(message["id"])
 	if method == "item/tool/requestUserInput" {
-		provider.respondRPC(message["id"], map[string]any{"answers": map[string]any{}})
+		provider.addUserInput(message["id"], params, false)
 		return
 	}
 	if method != "mcpServer/elicitation/request" && method != "item/commandExecution/requestApproval" &&
@@ -511,6 +513,8 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 	turn := mapValue(params["turn"])
 	turnID := firstNonEmpty(stringValue(turn["id"]), stringValue(params["turnId"]), currentTurnID)
 	switch method {
+	case "serverRequest/resolved":
+		provider.resolveUserInput(params)
 	case "thread/name/updated":
 		provider.mu.Lock()
 		current := threadID == provider.threadID
@@ -560,6 +564,7 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 			delete(provider.activeTurns, threadID)
 		}
 		if rootTurn {
+			provider.cancelUserInputsLocked("", "", stringValue(turn["status"]) == "completed" && turn["error"] == nil)
 			if provider.turnStarted > 0 {
 				started = provider.turnStarted
 			}
@@ -569,6 +574,8 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 			provider.aborting = false
 			provider.activeTurns = map[string]codexActiveTurn{}
 			provider.abortSequence++
+		} else {
+			provider.cancelUserInputsLocked(threadID, turnID, false)
 		}
 		provider.mu.Unlock()
 		status := "completed"
@@ -717,6 +724,10 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 }
 
 func (provider *CodexProvider) applyItem(raw map[string]any, inferred string) {
+	if raw["type"] == "agentMessage" && raw["delivery"] == "async" && len(sliceValue(raw["questions"])) > 0 {
+		provider.addUserInput(nil, raw, true)
+		return
+	}
 	itemType, providerID := stringValue(raw["type"]), stringValue(raw["id"])
 	threadID := firstNonEmpty(stringValue(raw["threadId"]), provider.threadID)
 	turnID := firstNonEmpty(stringValue(raw["turnId"]), provider.turnID)
@@ -1215,6 +1226,7 @@ func (provider *CodexProvider) stopRuntime(sequence uint64, reason, status strin
 	provider.turnStarted = 0
 	provider.activeTurns = map[string]codexActiveTurn{}
 	provider.permissions = map[string]codexPendingPermission{}
+	provider.cancelUserInputsLocked("", "", false)
 	provider.needsThreadResume = provider.threadID != ""
 	provider.resuming = false
 	provider.forking = false
@@ -1338,6 +1350,7 @@ func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
 			return err
 		}
 	}
+	provider.cancelUserInputsLocked("", "", false)
 	provider.resuming = true
 	provider.resumeInFlight = true
 	provider.resumeAborted = false
@@ -1409,6 +1422,7 @@ func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, err
 			return "", err
 		}
 	}
+	provider.cancelUserInputsLocked("", "", false)
 	provider.forking = true
 	provider.resumeInFlight = true
 	provider.resumeAborted = false
@@ -1627,6 +1641,13 @@ func codexHistoryItem(raw map[string]any) map[string]any {
 		message["text"] = textFromCodexInput(raw["content"])
 	case "assistant":
 		message["text"] = stringValue(raw["text"])
+		if raw["delivery"] == "async" && len(sliceValue(raw["questions"])) > 0 {
+			message["kind"] = "question"
+			message["questions"] = codexInputQuestions(raw["questions"], true)
+			message["delivery"] = "async"
+			// Persisted history does not say whether a question has been answered.
+			message["questionStatus"] = "historical"
+		}
 	case "reasoning":
 		message["text"] = firstNonEmpty(stringValue(raw["text"]), strings.Join(stringsFromAny(raw["summary"]), "\n"))
 	case "compaction":
@@ -1838,6 +1859,18 @@ func (provider *CodexProvider) updatePublicState(status string) {
 
 func (provider *CodexProvider) updatePublicStateLocked(status string) {
 	resuming, forking, aborting := provider.resuming, provider.forking, provider.aborting
+	if status == "running" || status == "waiting_input" || status == "waiting_approval" {
+		status = "running"
+		for _, input := range provider.userInputs {
+			if input.Blocking {
+				status = "waiting_input"
+				break
+			}
+		}
+		if len(provider.permissions) > 0 {
+			status = "waiting_approval"
+		}
+	}
 	activeSubagentCount := 0
 	for threadID := range provider.activeTurns {
 		if threadID != provider.threadID {
@@ -1863,6 +1896,7 @@ func (provider *CodexProvider) updatePublicStateLocked(status string) {
 		"canCompact":             status == "idle" && !resuming && !forking && !aborting && provider.threadID != "",
 		"compacting":             false,
 		"pendingPermissionCount": len(provider.permissions),
+		"pendingQuestionCount":   len(provider.userInputs),
 		"activeSubagentCount":    activeSubagentCount,
 		"models":                 provider.models,
 	}

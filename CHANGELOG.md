@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.3] - 2026-09-10
+
+### Fixed
+
+- Show Codex questions as answer cards with selectable options and free text. Keep blocking questions pending until the user submits all answers, and send asynchronous answers into the active turn without requiring an interrupt.
+- Preserve pending questions across browser reconnects and answer drafts across streamed updates or rejected submissions. Deduplicate retries and close stale questions after cancellation or transport loss.
+
 ## [2.2.2] - 2026-09-07
 
 ### Fixed

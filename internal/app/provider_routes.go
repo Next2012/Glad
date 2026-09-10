@@ -27,6 +27,7 @@ func (server *Server) registerProviderRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions/{id}/codex-prompts", server.codexPrompts)
 	mux.HandleFunc("GET /api/sessions/{id}/codex-skills", server.codexSkills)
 	mux.HandleFunc("POST /api/sessions/{id}/codex-abort", server.providerAbort)
+	mux.HandleFunc("POST /api/sessions/{id}/codex-user-input", server.codexUserInput)
 	mux.HandleFunc("POST /api/sessions/{id}/codex-resume", server.codexResume)
 	mux.HandleFunc("POST /api/sessions/{id}/codex-fork", server.codexFork)
 	mux.HandleFunc("POST /api/debug/client-log", func(writer http.ResponseWriter, request *http.Request) {

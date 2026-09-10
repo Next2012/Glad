@@ -686,7 +686,21 @@ body.tile-mode #lobby-collapse-button { left: -1px; border-radius: 5px 11px 11px
 .tile-status { display: inline-flex; min-height: 17px; flex: 0 0 auto; align-items: center; gap: 4px; padding: 0 6px; border: 1px solid color-mix(in srgb, currentColor 34%, transparent); border-radius: 999px; background: color-mix(in srgb, currentColor 10%, transparent); color: var(--text-dim); font-size: 9px; font-weight: 800; line-height: 1; }
 .tile-status::before { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 7px currentColor; content: ""; }
 .tile-status[data-status="running"], .tile-status[data-status="thinking"] { color: #0a84ff; }
-.tile-status[data-status="waiting_approval"] { color: #d49a00; }
+.tile-status[data-status="waiting_approval"], .tile-status[data-status="waiting_input"] { color: #d49a00; }
+
+.codex-question-card { margin: 12px 0; padding: 16px; border: 1px solid #688aac; border-radius: 12px; background: var(--bg-secondary, rgba(128,128,128,.08)); color: inherit; min-width: 0; }
+.codex-question-status { font-size: 12px; opacity: .8; margin-bottom: 12px; }
+.codex-question-field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; min-width: 0; }
+.codex-question-field > label { font-weight: 600; overflow-wrap: anywhere; }
+.codex-question-options { display: flex; flex-direction: column; gap: 6px; }
+.codex-question-option { display: flex; flex-direction: column; gap: 4px; padding: 10px; min-height: 44px; border: 1px solid #8888; border-radius: 8px; background: transparent; color: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; font: inherit; }
+.codex-question-option small { opacity: .75; }
+.codex-question-option[aria-pressed="true"] { border-color: #2685de; background: #2685de22; }
+.codex-question-field textarea, .codex-question-field input { box-sizing: border-box; width: 100%; max-width: 100%; min-height: 44px; padding: 10px; border: 1px solid #8888; border-radius: 8px; background: transparent; color: inherit; font: inherit; font-size: 16px; resize: vertical; }
+.codex-question-card :focus-visible { outline: 2px solid #2685de; outline-offset: 2px; }
+.codex-question-card button:disabled { opacity: .55; cursor: default; }
+.codex-question-error { color: #dc4848; overflow-wrap: anywhere; margin-bottom: 8px; }
+.codex-question-error:empty { display: none; }
 .tile-status[data-status="error"] { color: #ff453a; }
 .tile-approval-alert { display: inline-flex; min-width: 22px; height: 20px; flex: 0 0 auto; align-items: center; justify-content: center; gap: 3px; padding: 0 6px; border: 1px solid rgba(212,154,0,.46); border-radius: 999px; background: rgba(255,204,0,.14); color: #a96f00; font-size: 10px; font-weight: 850; line-height: 1; cursor: pointer; }
 .tile-approval-alert:hover { background: rgba(255,204,0,.24); }

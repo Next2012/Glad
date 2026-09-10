@@ -18,6 +18,18 @@ const input = readline.createInterface({ input: process.stdin, crlfDelay: Infini
 let turnSequence = 0;
 let outputLost = false;
 const approvalRequests = new Map();
+let inputQuestion = null;
+function finishInputQuestion(text, status = 'completed') {
+  const question = inputQuestion;
+  if (!question) return;
+  inputQuestion = null;
+  clearInterval(question.timer);
+  if (text) write({ method: 'item/completed', params: {
+    threadId: 'thread-e2e', turnId: question.turnId,
+    item: { id: `answer-${question.turnId}`, type: 'agentMessage', text }
+  } });
+  write({ method: 'turn/completed', params: { threadId: 'thread-e2e', turn: { id: question.turnId, status } } });
+}
 const threadNames = new Map();
 const hiddenThreads = new Set();
 let titleSequence = 0;
@@ -68,6 +80,15 @@ input.on('line', line => {
   }
   if (request.id == null) return;
   if (!request.method) {
+    if (inputQuestion?.rpcID === request.id) {
+      const answers = request.result?.answers || {};
+      if (!answers.count?.answers?.[0] || !answers.people?.answers?.[0]) {
+        finishInputQuestion('ERROR: question was answered automatically', 'failed');
+      } else {
+        finishInputQuestion(`Received answer: ${answers.count.answers[0]}; ${answers.people.answers[0]}`);
+      }
+      return;
+    }
     const approval = approvalRequests.get(String(request.id));
     if (approval) {
       approvalRequests.delete(String(request.id));
@@ -163,7 +184,29 @@ input.on('line', line => {
       result = { data: [], nextCursor: null };
     }
   } else if (request.method === 'turn/interrupt') {
+    if (inputQuestion?.turnId === request.params?.turnId) finishInputQuestion('', 'interrupted');
     result = {};
+  } else if (request.method === 'turn/steer') {
+    if (!inputQuestion?.async || request.params?.expectedTurnId !== inputQuestion.turnId
+      || request.params?.threadId !== 'thread-e2e' || request.params?.model || request.params?.cwd) {
+      write({ id: request.id, error: { message: 'invalid question steer' } });
+      return;
+    }
+    const answer = (request.params.input || []).map(item => item.text || '').join('\n');
+    if (answer.includes('reject-once') && !inputQuestion.rejected) {
+      inputQuestion.rejected = true;
+      write({ id: request.id, error: { message: 'forced answer failure' } });
+      return;
+    }
+    const turnId = inputQuestion.turnId;
+    write({ id: request.id, result: { turnId } });
+    setImmediate(() => {
+      write({ method: 'item/completed', params: { threadId: 'thread-e2e', turnId,
+        item: { id: `answer-echo-${turnId}`, type: 'userMessage', content: request.params.input }
+      } });
+      finishInputQuestion(`Received answer: ${answer}`);
+    });
+    return;
   } else if (request.method === 'thread/start') {
     if (request.params?.ephemeral) {
       const params = request.params;
@@ -208,6 +251,34 @@ input.on('line', line => {
     write({ id: request.id, result: { turn: { id: turnId } } });
     setImmediate(() => {
       write({ method: 'turn/started', params: { threadId: 'thread-e2e', turn: { id: turnId } } });
+      if (text.includes('__GLAD_E2E_ASYNC_QUESTION') || text.includes('__GLAD_E2E_SYNC_QUESTION__')) {
+        const async = text.includes('__GLAD_E2E_ASYNC_QUESTION');
+        inputQuestion = { async, turnId, rpcID: `question-${turnId}` };
+        if (async) {
+          write({ method: 'item/completed', params: { threadId: 'thread-e2e', turnId,
+            item: { id: `question-${turnId}`, type: 'agentMessage', delivery: 'async', text: '1000条是独立动作还是录制？', questions: [
+              { title: '1000条是独立动作还是录制？', options: ['1000次独立动作', '1000段录制'] },
+              { title: '预计几位参与者？' }
+            ] }
+          } });
+          inputQuestion.timer = setInterval(() => write({ method: 'item/agentMessage/delta', params: {
+            threadId: 'thread-e2e', turnId, itemId: `progress-${turnId}`, delta: '继续整理。'
+          } }), 250);
+          if (text.includes('_IDLE__')) setTimeout(() => finishInputQuestion('Work completed before the answer'), 500);
+        } else {
+          write({ id: inputQuestion.rpcID, method: 'item/tool/requestUserInput', params: {
+            threadId: 'thread-e2e', turnId, itemId: `question-${turnId}`, isBlocking: true,
+            questions: [
+              { id: 'count', header: '采集数量', question: '1000条是独立动作还是录制？', options: [
+                { label: '1000次独立动作', description: '每次动作单独计数' },
+                { label: '1000段录制', description: '每段可能包含多次动作' }
+              ] },
+              { id: 'people', header: '参与者', question: '预计几位参与者？' }
+            ]
+          } });
+        }
+        return;
+      }
       // 保持主进程和管道存活，模拟 Codex 输出线程单独失效。
       if (text.includes('__GLAD_E2E_SILENT_TRANSPORT__') || text.includes('__GLAD_E2E_CLOSE_STDOUT__')) {
         write({ method: 'item/started', params: {
