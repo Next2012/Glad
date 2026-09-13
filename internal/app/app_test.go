@@ -483,66 +483,6 @@ func TestCodexUserEchoMatchesProviderTextWithoutDuplicating(t *testing.T) {
 	}
 }
 
-func TestCodexStopsAfterFourthReconnectAttemptOnce(t *testing.T) {
-	session := newSession(
-		"session",
-		"Codex",
-		"codex-structured",
-		ToolInfo{Key: "codex", DisplayName: "Codex"},
-		t.TempDir(),
-	)
-	provider := NewCodexProvider(session, nil)
-	writes := make(chan []byte, 4)
-	provider.stdin = &channelWriteCloser{writes: writes}
-	provider.threadID = "thread-reconnect"
-	provider.turnID = "turn-reconnect"
-
-	provider.handleNotification("error", map[string]any{
-		"threadId":  "thread-reconnect",
-		"turnId":    "turn-reconnect",
-		"error":     map[string]any{"message": "Reconnecting... 4/5"},
-		"willRetry": true,
-	})
-
-	var request map[string]any
-	select {
-	case encoded := <-writes:
-		if err := json.Unmarshal(bytes.TrimSpace(encoded), &request); err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("automatic turn/interrupt was not sent")
-	}
-	if request["method"] != "turn/interrupt" ||
-		stringValue(mapValue(request["params"])["threadId"]) != "thread-reconnect" ||
-		stringValue(mapValue(request["params"])["turnId"]) != "turn-reconnect" {
-		t.Fatalf("unexpected automatic interrupt: %#v", request)
-	}
-	provider.handleRPC(map[string]any{"id": request["id"], "result": map[string]any{}})
-
-	provider.handleNotification("error", map[string]any{
-		"threadId":  "thread-reconnect",
-		"turnId":    "turn-reconnect",
-		"error":     map[string]any{"message": "Reconnecting... 4/5"},
-		"willRetry": true,
-	})
-	select {
-	case duplicate := <-writes:
-		t.Fatalf("automatic interrupt was sent twice: %s", duplicate)
-	case <-time.After(50 * time.Millisecond):
-	}
-
-	reasonCount := 0
-	for _, message := range session.Messages {
-		if stringValue(message["text"]) == "Aborted after Codex reconnect attempt 4/5." {
-			reasonCount++
-		}
-	}
-	if reasonCount != 1 {
-		t.Fatalf("expected one automatic-abort message, got %d: %#v", reasonCount, session.Messages)
-	}
-}
-
 func TestCodexStatusIncludesCurrentChatGPTRateLimits(t *testing.T) {
 	session := newSession(
 		"session",

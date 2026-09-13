@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Let Codex finish connection retries and fall back to HTTP by removing Glad's automatic interruption at reconnect attempt 4/5.
+
 ## [2.2.3] - 2026-09-10
 
 ### Fixed

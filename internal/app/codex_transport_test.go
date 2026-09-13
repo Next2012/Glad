@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -282,5 +283,61 @@ func TestCodexTransportRejectsSuccessFromStoppedProcess(t *testing.T) {
 	err := provider.Send(context.Background(), ProviderInput{Text: "do not revive the old turn"})
 	if err == nil || provider.turnID != "" || provider.session.StatusValue != "idle" {
 		t.Fatalf("stale success revived session: err=%v turn=%q status=%s", err, provider.turnID, provider.session.StatusValue)
+	}
+}
+
+func TestCodexLetsNativeReconnectFinish(t *testing.T) {
+	for _, status := range []string{"completed", "failed"} {
+		t.Run(status, func(t *testing.T) {
+			session := newSession("reconnect", "Codex", "codex-structured", ToolInfo{Key: "codex", DisplayName: "Codex"}, t.TempDir())
+			t.Cleanup(session.cancel)
+			provider := NewCodexProvider(session, nil)
+			writes := make(chan []byte, 4)
+			provider.stdin = &channelWriteCloser{writes: writes}
+			provider.threadID = "thread-reconnect"
+			provider.handleNotification("turn/started", map[string]any{
+				"threadId": "thread-reconnect", "turn": map[string]any{"id": "turn-reconnect"},
+			})
+
+			for attempt := 1; attempt <= 5; attempt++ {
+				provider.handleNotification("error", map[string]any{
+					"threadId": "thread-reconnect", "turnId": "turn-reconnect",
+					"error": map[string]any{"message": fmt.Sprintf("Reconnecting... %d/5", attempt)}, "willRetry": true,
+				})
+			}
+			select {
+			case encoded := <-writes:
+				var request map[string]any
+				if err := json.Unmarshal(encoded, &request); err != nil {
+					t.Fatal(err)
+				}
+				provider.handleRPC(map[string]any{"id": request["id"], "result": map[string]any{}})
+				t.Fatalf("Glad interrupted native connection recovery: %s", encoded)
+			case <-time.After(50 * time.Millisecond):
+			}
+			if session.StatusValue != "running" || provider.turnID != "turn-reconnect" || provider.aborting {
+				t.Fatal("retries settled or aborted the active turn")
+			}
+
+			if status == "failed" {
+				provider.handleNotification("error", map[string]any{
+					"threadId": "thread-reconnect", "turnId": "turn-reconnect",
+					"error": map[string]any{"message": "Connection retries exhausted"}, "willRetry": false,
+				})
+				if session.StatusValue != "running" || provider.turnID != "turn-reconnect" {
+					t.Fatal("terminal error settled the turn before turn/completed")
+				}
+			}
+			provider.handleNotification("turn/completed", map[string]any{
+				"threadId": "thread-reconnect", "turn": map[string]any{"id": "turn-reconnect", "status": status},
+			})
+			if session.StatusValue != "idle" || provider.turnID != "" {
+				t.Fatal("native completion did not settle the turn")
+			}
+			last := session.Messages[len(session.Messages)-1]
+			if last["kind"] != "turn-end" || last["status"] != status {
+				t.Fatalf("unexpected completion after retries: %#v", last)
+			}
+		})
 	}
 }

@@ -9,8 +9,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -72,41 +70,38 @@ func (stream *codexDeltaStream) append(delta string) bool {
 func (stream *codexDeltaStream) text() string { return stream.builder.String() }
 
 type CodexProvider struct {
-	titles               *codexTitles
-	mu                   sync.Mutex
-	eventMu              sync.Mutex
-	streamMu             sync.Mutex
-	session              *Session
-	options              map[string]any
-	defaultsStore        *ConfigStore
-	cmd                  *exec.Cmd
-	stdin                io.WriteCloser
-	pending              map[int64]chan codexRPCResult
-	permissions          map[string]codexPendingPermission
-	userInputs           map[string]codexPendingUserInput
-	requestID            atomic.Int64
-	threadID             string
-	turnID               string
-	turnStarted          int64
-	activeTurns          map[string]codexActiveTurn
-	models               []map[string]any
-	tokenUsage           map[string]any
-	reconnectAbortTurnID string
-	streams              map[string]*codexDeltaStream
-	expectedStops        map[*exec.Cmd]struct{}
-	resumeCancel         context.CancelFunc
-	resuming             bool
-	forking              bool
-	resumeInFlight       bool
-	resumeAborted        bool
-	aborting             bool
-	needsThreadResume    bool
-	abortSequence        uint64
-	abortGrace           time.Duration
-	closed               bool
+	titles            *codexTitles
+	mu                sync.Mutex
+	eventMu           sync.Mutex
+	streamMu          sync.Mutex
+	session           *Session
+	options           map[string]any
+	defaultsStore     *ConfigStore
+	cmd               *exec.Cmd
+	stdin             io.WriteCloser
+	pending           map[int64]chan codexRPCResult
+	permissions       map[string]codexPendingPermission
+	userInputs        map[string]codexPendingUserInput
+	requestID         atomic.Int64
+	threadID          string
+	turnID            string
+	turnStarted       int64
+	activeTurns       map[string]codexActiveTurn
+	models            []map[string]any
+	tokenUsage        map[string]any
+	streams           map[string]*codexDeltaStream
+	expectedStops     map[*exec.Cmd]struct{}
+	resumeCancel      context.CancelFunc
+	resuming          bool
+	forking           bool
+	resumeInFlight    bool
+	resumeAborted     bool
+	aborting          bool
+	needsThreadResume bool
+	abortSequence     uint64
+	abortGrace        time.Duration
+	closed            bool
 }
-
-var codexReconnectPattern = regexp.MustCompile(`(?i)\bReconnecting(?:\.\.\.)?\s*(\d+)\s*/\s*(\d+)\b`)
 
 func NewCodexProvider(session *Session, options map[string]any) *CodexProvider {
 	if options == nil {
@@ -661,10 +656,8 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 		rootThread := threadID != "" && threadID == provider.threadID
 		busy := provider.turnID != "" || provider.resumeInFlight || provider.aborting
 		provider.mu.Unlock()
-		attempt, maximum := codexReconnectProgress(text)
-		if rootThread && boolValue(params["willRetry"]) && attempt == 4 && maximum == 5 {
-			provider.abortAfterReconnect(threadID, turnID)
-		}
+		// Codex owns retry limits and HTTP fallback. Keep active turns running
+		// until turn/completed reports the final result.
 		if rootThread && !busy && !boolValue(params["willRetry"]) {
 			provider.updatePublicState("idle")
 		}
@@ -1293,45 +1286,6 @@ func (provider *CodexProvider) settleStoppedTurn(threadID, turnID string, starte
 	})
 }
 
-func codexReconnectProgress(message string) (int, int) {
-	match := codexReconnectPattern.FindStringSubmatch(message)
-	if len(match) != 3 {
-		return 0, 0
-	}
-	attempt, attemptErr := strconv.Atoi(match[1])
-	maximum, maximumErr := strconv.Atoi(match[2])
-	if attemptErr != nil || maximumErr != nil {
-		return 0, 0
-	}
-	return attempt, maximum
-}
-
-func (provider *CodexProvider) abortAfterReconnect(threadID, turnID string) {
-	provider.mu.Lock()
-	threadID = firstNonEmpty(threadID, provider.threadID)
-	turnID = firstNonEmpty(turnID, provider.turnID)
-	if threadID == "" || turnID == "" || provider.reconnectAbortTurnID == turnID {
-		provider.mu.Unlock()
-		return
-	}
-	provider.reconnectAbortTurnID = turnID
-	provider.mu.Unlock()
-
-	const reason = "Aborted after Codex reconnect attempt 4/5."
-	provider.session.appendMessage(map[string]any{"kind": "event", "level": "info", "text": reason})
-	provider.session.emit(map[string]any{"type": "runtime-disconnected", "activeTurn": true, "turnId": turnID})
-
-	// Notifications are read on the same goroutine that resolves JSON-RPC
-	// responses, so the interrupt must wait for its response asynchronously.
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		err := provider.Interrupt(ctx)
-		if err != nil {
-			logDebug("[codex-app-server] automatic turn/interrupt failed for %s/%s: %v", threadID, turnID, err)
-		}
-	}()
-}
 func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {

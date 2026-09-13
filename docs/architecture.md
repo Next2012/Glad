@@ -57,7 +57,9 @@ Each Glad session owns one provider process and a process group. Deleting a sess
 
 Sessions also own a cancellation context used by timed inputs, while WebSocket provider commands inherit the connection context and a bounded command timeout. The scheduler derives its workers from the application context and waits for them during shutdown. Sessions are added to the public manager only after provider initialization succeeds.
 
-Codex interruption is provider-owned state. Glad first requests `turn/interrupt`; if no interrupted completion arrives within five seconds, it stops the app-server process group, settles the active turn as cancelled, and restarts plus resumes the thread before the next message. Resume has no turn id, so stopping during resume cancels the request and recycles app-server immediately.
+Explicit Codex interruption is provider-owned state. Glad first requests `turn/interrupt`; if no interrupted completion arrives within five seconds, it stops the app-server process group, settles the active turn as cancelled, and restarts plus resumes the thread before the next message. Resume has no turn id, so stopping during resume cancels the request and recycles app-server immediately.
+
+Codex controls retries for upstream model connections, including fallback from WebSocket to HTTP. Glad displays retry errors and keeps the active turn running until Codex reports `turn/completed`, allowing recovery to finish without an automatic interruption based on reconnect counts.
 
 Codex uses newline-delimited JSON-RPC over `codex app-server --stdio`. Claude uses the same bidirectional stream protocol as the Agent SDK, including control requests for interactive tool approvals. Provider-specific events are tolerated as JSON maps so newer CLI fields do not break older Glad binaries.
 
