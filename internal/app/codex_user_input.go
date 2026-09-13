@@ -102,6 +102,12 @@ func (provider *CodexProvider) addUserInput(rpcID any, params map[string]any, as
 		provider.session.appendMessage(message)
 	}
 	provider.updatePublicStateLocked("running")
+	if async {
+		// Emit once when the question is created, including streamed cards.
+		provider.session.emit(map[string]any{
+			"type": "question-request", "id": id, "threadId": threadID, "turnId": turnID,
+		})
+	}
 }
 
 // Called with provider.mu held. Empty thread/turn matches all pending cards.

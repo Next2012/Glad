@@ -32,6 +32,8 @@ Structured user inputs carry a `clientMessageId`. The daemon serializes commands
 
 Provider output is published through a bounded session event hub. WebSocket clients and background consumers have independent queues, so a slow browser or notification transport cannot block provider stdout processing. Falling-behind subscribers are disconnected and recover from a fresh session snapshot.
 
+New Codex asynchronous question cards emit `question-request` events. ServerChan sends a pending-answer reminder when the integration is configured and notifications are enabled for that session. Deduplication uses the question card ID, allowing separate questions and turn completion to notify independently. Card updates, submitted answers, and restored history do not emit new question notifications.
+
 Provider output is normalized into a small set of message kinds:
 
 - `user` and `assistant`

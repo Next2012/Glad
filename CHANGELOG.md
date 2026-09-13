@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Send a ServerChan reminder when Codex asks an asynchronous question, with one notification per new question card and the existing per-chat notification settings.
 - Let Codex finish connection retries and fall back to HTTP by removing Glad's automatic interruption at reconnect attempt 4/5.
 
 ## [2.2.3] - 2026-09-10

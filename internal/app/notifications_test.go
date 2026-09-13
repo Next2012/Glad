@@ -33,6 +33,89 @@ func notificationFixture(t *testing.T) (*Session, *CodexProvider, *NotificationS
 	return session, provider, service, drain
 }
 
+func TestServerChanAsyncQuestionsNotifyOncePerCard(t *testing.T) {
+	for _, streamed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("streamed=%t", streamed), func(t *testing.T) {
+			session, provider, service, drain := notificationFixture(t)
+			provider.handleNotification("turn/started", map[string]any{
+				"threadId": "root", "turn": map[string]any{"id": "current"},
+			})
+			for i := 0; i < 2; i++ {
+				id := fmt.Sprintf("question-%d", i)
+				if streamed {
+					provider.handleNotification("item/agentMessage/delta", map[string]any{
+						"threadId": "root", "turnId": "current", "itemId": id, "delta": "需要确认一个问题",
+					})
+				}
+				item := map[string]any{
+					"id": id, "type": "agentMessage", "delivery": "async",
+					"questions": []any{map[string]any{"title": "使用哪种材料？", "options": []string{"铝", "塑料"}}},
+				}
+				event := map[string]any{"threadId": "root", "turnId": "current", "item": item}
+				provider.handleNotification("item/completed", event)
+				provider.handleNotification("item/completed", event)
+			}
+			drain()
+			if len(service.deliveries) != 2 {
+				t.Fatalf("expected one notification per question, got %d", len(service.deliveries))
+			}
+			for i := 0; i < 2; i++ {
+				if title := (<-service.deliveries).title; title != "待回复｜当前对话" {
+					t.Fatalf("unexpected question notification: %s", title)
+				}
+			}
+			for _, message := range session.Messages {
+				if message["kind"] != "question" {
+					continue
+				}
+				// A replayed notification or a changed card must not send it again.
+				service.HandleEvent(session, map[string]any{"type": "question-request", "id": message["id"]})
+				session.patchMessage(stringValue(message["id"]), map[string]any{"questionStatus": "answered"})
+			}
+			drain()
+			if len(service.deliveries) != 0 {
+				t.Fatal("duplicate question or submitted answer triggered a notification")
+			}
+			provider.handleNotification("turn/completed", map[string]any{
+				"threadId": "root", "turn": map[string]any{"id": "current", "status": "completed"},
+			})
+			drain()
+			if len(service.deliveries) != 1 || (<-service.deliveries).title != "已完成｜当前对话" {
+				t.Fatal("question notification suppressed completion of the same turn")
+			}
+		})
+	}
+}
+
+func TestServerChanAsyncQuestionsRespectSettingsAndSkipHistory(t *testing.T) {
+	for _, disabled := range []string{"session", "configuration"} {
+		t.Run(disabled, func(t *testing.T) {
+			session, provider, service, drain := notificationFixture(t)
+			if disabled == "session" {
+				session.ServerChanNotificationEnabled = false
+			} else {
+				service.config.data["serverChan"] = map[string]any{}
+			}
+			addTestQuestion(provider, true)
+			drain()
+			if len(service.deliveries) != 0 || len(service.seen) != 0 {
+				t.Fatal("disabled question notification was queued or marked delivered")
+			}
+		})
+	}
+	session, provider, service, drain := notificationFixture(t)
+	addTestQuestion(provider, false)
+	history := codexHistoryItem(map[string]any{
+		"id": "old-question", "type": "agentMessage", "delivery": "async",
+		"questions": []any{map[string]any{"title": "以前的问题？"}},
+	})
+	session.replaceMessages([]map[string]any{history})
+	drain()
+	if len(service.deliveries) != 0 {
+		t.Fatal("blocking question or restored history triggered an async-question notification")
+	}
+}
+
 func TestServerChanOnlyCurrentRootCompletionNotifies(t *testing.T) {
 	for _, status := range []string{"completed", "failed", "interrupted"} {
 		t.Run(status, func(t *testing.T) {
@@ -190,7 +273,7 @@ func TestServerChanClaudeCompletionAndUnknownStatus(t *testing.T) {
 	}
 }
 
-func TestServerChanRealEventPipelineSendsOnlyRootToLocalReceiver(t *testing.T) {
+func TestServerChanRealEventPipelineSendsQuestionsAndRootCompletionToLocalReceiver(t *testing.T) {
 	received := make(chan string, 8)
 	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
@@ -217,6 +300,16 @@ func TestServerChanRealEventPipelineSendsOnlyRootToLocalReceiver(t *testing.T) {
 	service.Start(context.Background())
 	defer service.Close()
 	provider.handleNotification("turn/started", map[string]any{"threadId": "root", "turn": map[string]any{"id": "root-turn"}})
+	addTestQuestion(provider, true)
+	select {
+	case title := <-received:
+		if title != "待回复｜当前对话" {
+			t.Fatalf("wrong async question notification: %s", title)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("async question notification missing")
+	}
+	addTestQuestion(provider, true)
 	provider.handleNotification("turn/completed", map[string]any{"threadId": "child", "turn": map[string]any{"id": "child-turn", "status": "completed"}})
 	// 审批通知作为 FIFO 屏障，收到它即证明前面的子任务事件已被消费。
 	session.addPermission(Permission{ID: "barrier-approval", Status: "pending"})

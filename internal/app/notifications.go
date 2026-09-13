@@ -192,6 +192,9 @@ func (service *NotificationService) HandleEvent(session *Session, event map[stri
 	if eventType == "runtime-disconnected" {
 		kind = "连接中断"
 	}
+	if eventType == "question-request" {
+		kind = "待回复"
+	}
 	message := mapValue(event["message"])
 	if eventType == "message" && stringValue(message["kind"]) == "turn-end" {
 		// 主任务可能仍在运行，不能把子任务或旧轮次的结束当成整轮完成。
@@ -219,6 +222,9 @@ func (service *NotificationService) HandleEvent(session *Session, event map[stri
 		return
 	}
 	title, description := formatNotification(kind, session, numberInt64(message["durationMs"]), settings.ClientType)
+	if eventType == "question-request" {
+		description += "\n\n模型有新问题，请打开 Glad 会话回复。"
+	}
 	key := eventType + ":" + id
 	service.mu.Lock()
 	defer service.mu.Unlock()
@@ -260,6 +266,9 @@ func notificationEventID(event, message map[string]any) string {
 		}
 	case "runtime-disconnected":
 		return firstNonEmpty(stringValue(event["turnId"]), stringValue(event["id"]))
+	case "question-request":
+		// Cards in the same turn need separate reminders and completion keys.
+		return stringValue(event["id"])
 	default:
 		if turn := stringValue(message["turnId"]); turn != "" {
 			return stringValue(message["threadId"]) + ":" + turn
