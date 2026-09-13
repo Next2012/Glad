@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.4] - 2026-09-13
+
 ### Fixed
 
 - Send a ServerChan reminder when Codex asks an asynchronous question, with one notification per new question card and the existing per-chat notification settings.
