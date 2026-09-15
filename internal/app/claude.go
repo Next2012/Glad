@@ -237,6 +237,7 @@ func (provider *ClaudeProvider) Send(ctx context.Context, input ProviderInput) e
 		provider.mu.Unlock()
 		return err
 	}
+	provider.session.clearUnreadCompletion()
 	provider.turns = append(provider.turns, turn)
 	provider.session.appendMessage(
 		map[string]any{
@@ -604,9 +605,7 @@ func (provider *ClaudeProvider) handleMessage(message map[string]any) {
 				map[string]any{"kind": "turn-end", "turnId": turn.ID, "turnStatus": status, "durationMs": duration},
 			)
 		}
-		provider.session.mu.Lock()
-		provider.session.HasUnreadCompletion = true
-		provider.session.mu.Unlock()
+		provider.session.markCompletionUnread()
 		provider.session.setState(map[string]any{"status": "idle", "canAbort": false})
 		return
 	}

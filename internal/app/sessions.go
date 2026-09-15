@@ -122,6 +122,7 @@ type Session struct {
 	Permissions                   map[string]Permission
 	CompletedPermissions          []Permission
 	HasUnreadCompletion           bool
+	CompletionRevision            uint64
 	ServerChanNotificationEnabled bool
 	TimedInputs                   map[string]*TimedInput
 	Attachments                   map[string]Attachment
@@ -170,6 +171,7 @@ func (session *Session) listItem() map[string]any {
 		"startTime": session.StartTime, "toolKey": session.Tool.Key, "status": session.StatusValue,
 		"workingDirectory": session.WorkingDirectory, "mode": "structured",
 		"hasUnreadCompletion":           session.HasUnreadCompletion,
+		"completionRevision":            session.CompletionRevision,
 		"serverChanNotificationEnabled": session.ServerChanNotificationEnabled,
 		"timedInputCount":               timed,
 	}
@@ -195,8 +197,39 @@ func (session *Session) snapshotLocked() map[string]any {
 		"id": session.ID, "name": session.Name, "tool": session.Tool.DisplayName,
 		"toolKey": session.Tool.Key, "status": session.StatusValue,
 		"state": cloneMap(session.State), "messages": messages,
-		"pendingPermissions": permissions,
+		"pendingPermissions": permissions, "hasUnreadCompletion": session.HasUnreadCompletion,
+		"completionRevision": session.CompletionRevision,
 	}
+}
+
+func (session *Session) markCompletionUnread() uint64 {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.closed {
+		return session.CompletionRevision
+	}
+	session.CompletionRevision++
+	session.HasUnreadCompletion = true
+	session.publishLocked(
+		map[string]any{"type": "completion", "revision": session.CompletionRevision},
+	)
+	return session.CompletionRevision
+}
+
+func (session *Session) markCompletionRead(revision uint64) (bool, uint64) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	// Revision zero is the legacy/wildcard acknowledgement used when a new turn
+	// supersedes an older completion. Browser acknowledgements carry a revision.
+	if revision != 0 && revision != session.CompletionRevision {
+		return false, session.CompletionRevision
+	}
+	session.HasUnreadCompletion = false
+	return true, session.CompletionRevision
+}
+
+func (session *Session) clearUnreadCompletion() {
+	session.markCompletionRead(0)
 }
 
 func (session *Session) subscribeWithSnapshot(capacity int) (*sessioncore.Subscription, map[string]any) {

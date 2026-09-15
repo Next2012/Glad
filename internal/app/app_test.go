@@ -92,6 +92,47 @@ func TestWebSocketRoutesAcceptCanonicalAndLegacyPaths(t *testing.T) {
 	}
 }
 
+func TestCompletionReadOnlyClearsTheAcknowledgedRevision(t *testing.T) {
+	session := newSession(
+		"completion-revision",
+		"Codex",
+		"codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"},
+		t.TempDir(),
+	)
+	subscription := session.events.Subscribe(session.ID, 4)
+	defer subscription.Close()
+
+	first := session.markCompletionUnread()
+	event := <-subscription.Events()
+	eventRevision, _ := event.Payload["revision"].(uint64)
+	if stringValue(event.Payload["type"]) != "completion" || eventRevision != first {
+		t.Fatalf("unexpected completion event: %#v", event.Payload)
+	}
+	second := session.markCompletionUnread()
+	if second != first+1 {
+		t.Fatalf("completion revision = %d, want %d", second, first+1)
+	}
+	if cleared, current := session.markCompletionRead(first); cleared || current != second {
+		t.Fatalf("stale acknowledgement cleared revision: cleared=%v current=%d", cleared, current)
+	}
+	session.mu.RLock()
+	unread := session.HasUnreadCompletion
+	session.mu.RUnlock()
+	if !unread {
+		t.Fatal("stale acknowledgement removed the newer unread completion")
+	}
+	if cleared, current := session.markCompletionRead(second); !cleared || current != second {
+		t.Fatalf("current acknowledgement failed: cleared=%v current=%d", cleared, current)
+	}
+	session.mu.RLock()
+	unread = session.HasUnreadCompletion
+	session.mu.RUnlock()
+	if unread {
+		t.Fatal("current acknowledgement left the completion unread")
+	}
+}
+
 func TestImageTypeAndFilenameSanitization(t *testing.T) {
 	extension, media := imageType([]byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a})
 	if extension != "png" || media != "image/png" {

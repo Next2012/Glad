@@ -86,6 +86,70 @@ test('disconnected and whitespace-only sends keep the draft', async ({ page }) =
   await page.request.delete(`/api/sessions/${whitespace.id}`);
 });
 
+test('completion dots only mark work finished outside the visible session', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'iPhone 17 Pro Max', 'Completion visibility regression runs once');
+  test.setTimeout(30000);
+  const session = await openCodexSession(page);
+  await page.route(`**/api/sessions/${session.id}/completion/read`, async route => {
+    const revision = Number(route.request().postDataJSON()?.revision) || 0;
+    if (revision > 0) await new Promise(resolve => setTimeout(resolve, 400));
+    await route.continue();
+  });
+
+  await page.locator('#cmd-input').fill('visible completion');
+  await page.locator('#send-btn').click();
+  await expect(page.locator('#send-btn')).toBeEnabled();
+  await page.locator('#back-btn').click();
+  await expect(page.locator(`.session-card[data-session-id="${session.id}"] .completion-dot`)).toHaveCount(0);
+  await expect.poll(async () => {
+    const sessions = await (await page.request.get('/api/sessions')).json();
+    return sessions.find(item => item.id === session.id)?.hasUnreadCompletion;
+  }).toBe(false);
+
+  await page.locator(`.session-card[data-session-id="${session.id}"]`).getByRole('button', { name: 'Connect' }).click();
+  await page.locator('#cmd-input').fill('__GLAD_E2E_SUBAGENT_LIFECYCLE__');
+  await page.locator('#send-btn').click();
+  await page.locator('#back-btn').click();
+  await expect.poll(async () => {
+    const sessions = await (await page.request.get('/api/sessions')).json();
+    return sessions.find(item => item.id === session.id)?.hasUnreadCompletion;
+  }).toBe(true);
+  await page.evaluate(() => refreshSessionsNow());
+  await expect(page.locator(`.session-card[data-session-id="${session.id}"] .completion-dot`)).toBeVisible();
+
+  await page.locator(`.session-card[data-session-id="${session.id}"]`).getByRole('button', { name: 'Connect' }).click();
+  await expect.poll(async () => {
+    const sessions = await (await page.request.get('/api/sessions')).json();
+    return sessions.find(item => item.id === session.id)?.hasUnreadCompletion;
+  }).toBe(false);
+  await page.request.delete(`/api/sessions/${session.id}`);
+});
+
+test('visible tiled previews acknowledge completed work', async ({ page }) => {
+  test.skip(page.viewportSize().width < 920, 'Tiled completion regression runs once on desktop');
+  test.setTimeout(30000);
+  const session = await openCodexSession(page);
+
+  await page.getByRole('button', { name: 'Collapse lobby and tile sessions' }).click();
+  const tile = page.locator(`.tile-session-window[data-session-id="${session.id}"]`);
+  await expect(tile).toBeVisible();
+  await tile.getByRole('button', { name: 'Connect' }).click();
+  await page.locator('#cmd-input').fill('__GLAD_E2E_SUBAGENT_LIFECYCLE__');
+  await page.locator('#send-btn').click();
+  await expect.poll(async () => {
+    const sessions = await (await page.request.get('/api/sessions')).json();
+    return sessions.find(item => item.id === session.id)?.status;
+  }).toBe('running');
+  await page.getByRole('button', { name: 'Return to tiled view' }).click();
+  await expect(page.locator('#tile-workspace')).toBeVisible();
+  await expect.poll(async () => {
+    const sessions = await (await page.request.get('/api/sessions')).json();
+    const current = sessions.find(item => item.id === session.id);
+    return `${current?.status}:${current?.hasUnreadCompletion}`;
+  }).toBe('idle:false');
+  await page.request.delete(`/api/sessions/${session.id}`);
+});
+
 test('provider rejection keeps the draft and unlocks send', async ({ page }) => {
   const session = await openCodexSession(page);
   const text = '__GLAD_E2E_FAIL_SEND__ keep this draft';

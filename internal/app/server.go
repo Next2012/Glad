@@ -196,10 +196,18 @@ func (server *Server) markCompletionRead(writer http.ResponseWriter, request *ht
 		notFound(writer, "Session not found")
 		return
 	}
-	session.mu.Lock()
-	session.HasUnreadCompletion = false
-	session.mu.Unlock()
-	respondJSON(writer, 200, map[string]any{"success": true})
+	input := map[string]any{}
+	if err := decodeJSON(request, &input); err != nil && !errors.Is(err, io.EOF) {
+		respondError(writer, http.StatusBadRequest, errors.New("Invalid completion acknowledgement"))
+		return
+	}
+	requestedRevision := uint64(max64(0, numberInt64(input["revision"])))
+	cleared, currentRevision := session.markCompletionRead(requestedRevision)
+	respondJSON(
+		writer,
+		200,
+		map[string]any{"success": true, "cleared": cleared, "revision": currentRevision},
+	)
 }
 
 func (server *Server) sessionHistory(writer http.ResponseWriter, request *http.Request) {

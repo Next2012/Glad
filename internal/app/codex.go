@@ -290,6 +290,7 @@ func (provider *CodexProvider) Send(ctx context.Context, input ProviderInput) er
 		)
 		return err
 	}
+	provider.session.clearUnreadCompletion()
 	provider.turnID = firstNonEmpty(stringValue(mapValue(started["turn"])["id"]), stringValue(started["turnId"]))
 	provider.turnStarted = millis()
 	provider.updatePublicStateLocked("running")
@@ -605,9 +606,9 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 		provider.session.appendMessage(message)
 		if rootTurn {
 			provider.session.mu.Lock()
-			provider.session.HasUnreadCompletion = true
 			provider.session.Permissions = map[string]Permission{}
 			provider.session.mu.Unlock()
+			provider.session.markCompletionUnread()
 			provider.updatePublicState("idle")
 			provider.clearDeltaStreams()
 		} else {
@@ -1279,8 +1280,8 @@ func (provider *CodexProvider) settleStoppedTurn(threadID, turnID string, starte
 	}
 	provider.session.mu.Lock()
 	provider.session.Permissions = map[string]Permission{}
-	provider.session.HasUnreadCompletion = true
 	provider.session.mu.Unlock()
+	provider.session.markCompletionUnread()
 	provider.session.appendMessage(map[string]any{
 		"kind": "event", "level": "info",
 		"text": "Codex app-server stopped. It will restart before the next message.",
