@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -762,6 +763,56 @@ func TestCodexTracksSubagentsWithoutSettlingRootTurn(t *testing.T) {
 			"root completion did not settle turn: turn=%s status=%s canAbort=%v unread=%v",
 			turnID, status, canAbort, unread,
 		)
+	}
+}
+
+func TestCodexPublishesActiveSubagentThreadIDsByStartTime(t *testing.T) {
+	session := newSession(
+		"session",
+		"Codex",
+		"codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"},
+		t.TempDir(),
+	)
+	provider := NewCodexProvider(session, nil)
+	provider.threadID = "root-thread"
+
+	provider.handleNotification(
+		"turn/started",
+		map[string]any{
+			"threadId": "newer-child",
+			"turn":     map[string]any{"id": "newer-turn", "startedAt": int64(2)},
+		},
+	)
+	provider.handleNotification(
+		"turn/started",
+		map[string]any{
+			"threadId": "older-child",
+			"turn":     map[string]any{"id": "older-turn", "startedAt": int64(1)},
+		},
+	)
+
+	session.mu.RLock()
+	activeSubagents := stringsFromAny(session.State["activeSubagentThreadIds"])
+	session.mu.RUnlock()
+	if !reflect.DeepEqual(activeSubagents, []string{"older-child", "newer-child"}) {
+		t.Fatalf("active subagent thread IDs = %#v, want oldest to newest", activeSubagents)
+	}
+
+	provider.handleNotification(
+		"turn/completed",
+		map[string]any{
+			"threadId": "newer-child",
+			"turn": map[string]any{
+				"id": "newer-turn", "status": "completed", "startedAt": int64(2), "completedAt": int64(3),
+			},
+		},
+	)
+	session.mu.RLock()
+	activeSubagents = stringsFromAny(session.State["activeSubagentThreadIds"])
+	session.mu.RUnlock()
+	if !reflect.DeepEqual(activeSubagents, []string{"older-child"}) {
+		t.Fatalf("active subagent thread IDs after completion = %#v, want older child only", activeSubagents)
 	}
 }
 

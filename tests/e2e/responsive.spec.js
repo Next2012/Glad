@@ -1114,6 +1114,112 @@ test('Codex lazily loads folded tool and subagent details', async ({ page }) => 
   expect(pageErrors).toEqual([]);
 });
 
+test('Codex active-subagent jump ignores a later completed group', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  await page.evaluate(() => {
+    activeSessionId = 'subagent-jump';
+    activeToolKey = 'codex';
+    codexState = { ...createDefaultCodexState(), status: 'running', threadId: 'root-thread' };
+    codexMessages = [
+      { id: 'root-start', kind: 'turn-start', threadId: 'root-thread', turnId: 'root-turn', createdAt: 1 },
+      { id: 'active-start', kind: 'turn-start', threadId: 'active-child', turnId: 'active-turn', createdAt: 2 },
+      { id: 'active-message', kind: 'assistant', threadId: 'active-child', turnId: 'active-turn',
+        text: 'The current subagent is still working.', createdAt: 3 },
+      { id: 'completed-start', kind: 'turn-start', threadId: 'completed-child', turnId: 'completed-turn', createdAt: 4 },
+      { id: 'completed-message', kind: 'assistant', threadId: 'completed-child', turnId: 'completed-turn',
+        text: 'This later DOM group already finished.', createdAt: 5 },
+      { id: 'completed-end', kind: 'turn-end', threadId: 'completed-child', turnId: 'completed-turn',
+        status: 'completed', createdAt: 6 }
+    ];
+    codexPendingPermissions = [];
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    document.getElementById('terminal-view').classList.add('active');
+    setClaudeModeEnabled(false);
+    applyCodexState({ activeSubagentCount: 2, activeSubagentThreadIds: ['active-child', 'starting-child'] });
+    commitCodexChatRender();
+  });
+
+  const activeGroup = page.locator('.codex-subagent-group[data-codex-thread-id="active-child"]');
+  const completedGroup = page.locator('.codex-subagent-group[data-codex-thread-id="completed-child"]');
+  await expect(activeGroup).not.toHaveAttribute('open', '');
+  await expect(completedGroup).not.toHaveAttribute('open', '');
+
+  await page.getByRole('button', { name: 'Jump to active subagent' }).click();
+  await expect(activeGroup).not.toHaveAttribute('open', '');
+  await expect(completedGroup).not.toHaveAttribute('open', '');
+
+  await page.evaluate(() => applyCodexState({
+    activeSubagentCount: 1,
+    activeSubagentThreadIds: ['active-child']
+  }));
+  await page.getByRole('button', { name: 'Jump to active subagent' }).click();
+
+  await expect(activeGroup).toHaveAttribute('open', '');
+  await expect(completedGroup).not.toHaveAttribute('open', '');
+});
+
+test('mobile Codex live updates keep authored text size and the conversation tail reachable', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  const result = await page.evaluate(async () => {
+    activeSessionId = 'mobile-text-sizing';
+    activeToolKey = 'codex';
+    codexState = { ...createDefaultCodexState(), status: 'running', threadId: 'root-thread' };
+    codexMessages = Array.from({ length: 24 }, (_, index) => ({
+      id: `history-${index}`,
+      kind: 'assistant',
+      threadId: 'root-thread',
+      turnId: `history-turn-${index}`,
+      text: `Earlier conversation message ${index} with enough text to occupy several lines on a phone viewport.`,
+      createdAt: index + 1
+    }));
+    codexMessages.push(
+      { id: 'live-message', kind: 'assistant', threadId: 'root-thread', turnId: 'live-turn',
+        text: 'Live assistant text before the tool group updates.', createdAt: 30 },
+      { id: 'tool-one', kind: 'tool', threadId: 'root-thread', turnId: 'live-turn',
+        name: 'Read', toolStatus: 'completed', createdAt: 31 }
+    );
+    codexPendingPermissions = [];
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    document.getElementById('terminal-view').classList.add('active');
+    setClaudeModeEnabled(false);
+    commitCodexChatRender();
+
+    const chat = document.getElementById('codex-chat-container');
+    chat.scrollTop = chat.scrollHeight;
+    const beforeFontSize = getComputedStyle(document.querySelector('[data-codex-key="message-live-message"] .codex-message')).fontSize;
+
+    codexMessages.push(
+      { id: 'tool-two', kind: 'tool', threadId: 'root-thread', turnId: 'live-turn',
+        name: 'Grep', toolStatus: 'completed', createdAt: 32 },
+      { id: 'tool-three', kind: 'tool', threadId: 'root-thread', turnId: 'live-turn',
+        name: 'Read', toolStatus: 'completed', createdAt: 33 },
+      { id: 'tail-message', kind: 'assistant', threadId: 'root-thread', turnId: 'live-turn',
+        text: 'CONVERSATION_TAIL_REMAINS_VISIBLE', createdAt: 34 }
+    );
+    commitCodexChatRender();
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    const tail = document.querySelector('[data-codex-key="message-tail-message"]');
+    return {
+      textSizeAdjust: getComputedStyle(document.documentElement).webkitTextSizeAdjust,
+      beforeFontSize,
+      afterFontSize: getComputedStyle(document.querySelector('[data-codex-key="message-live-message"] .codex-message')).fontSize,
+      tailText: tail?.textContent || '',
+      distanceFromBottom: chat.scrollHeight - chat.clientHeight - chat.scrollTop
+    };
+  });
+
+  expect(result).toEqual({
+    textSizeAdjust: '100%',
+    beforeFontSize: '14px',
+    afterFontSize: '14px',
+    tailText: expect.stringContaining('CONVERSATION_TAIL_REMAINS_VISIBLE'),
+    distanceFromBottom: 0
+  });
+});
+
 test('Codex unlocks resume controls after the server rejects recovery', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));

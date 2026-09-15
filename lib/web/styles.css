@@ -1,5 +1,5 @@
         :root { --primary: #007aff; --bg: #000; --card-bg: #1c1c1e; --text: #fff; --text-dim: #8e8e93; --terminal-controls-rest-height: 108px; --chat-content-max: 900px; --control-content-max: 1100px; }
-        body, html { margin: 0; padding: 0; height: 100dvh; width: 100vw; background: var(--bg); color: var(--text); overflow: hidden; overflow-anchor: none; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        body, html { margin: 0; padding: 0; height: 100dvh; width: 100vw; background: var(--bg); color: var(--text); overflow: hidden; overflow-anchor: none; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
         .view { display: none; height: 100%; width: 100%; flex-direction: column; }
         .view.active { display: flex; }
         #lobby { overflow-y: auto; padding: 20px; padding-top: env(safe-area-inset-top); box-sizing: border-box; }

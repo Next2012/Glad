@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1825,11 +1826,25 @@ func (provider *CodexProvider) updatePublicStateLocked(status string) {
 			status = "waiting_approval"
 		}
 	}
-	activeSubagentCount := 0
-	for threadID := range provider.activeTurns {
+	type activeSubagent struct {
+		threadID  string
+		startedAt int64
+	}
+	activeSubagents := []activeSubagent{}
+	for threadID, turn := range provider.activeTurns {
 		if threadID != provider.threadID {
-			activeSubagentCount++
+			activeSubagents = append(activeSubagents, activeSubagent{threadID: threadID, startedAt: turn.StartedAt})
 		}
+	}
+	sort.Slice(activeSubagents, func(i, j int) bool {
+		if activeSubagents[i].startedAt == activeSubagents[j].startedAt {
+			return activeSubagents[i].threadID < activeSubagents[j].threadID
+		}
+		return activeSubagents[i].startedAt < activeSubagents[j].startedAt
+	})
+	activeSubagentThreadIDs := make([]string, len(activeSubagents))
+	for index, subagent := range activeSubagents {
+		activeSubagentThreadIDs[index] = subagent.threadID
 	}
 	state := map[string]any{
 		"permissionMode": firstNonEmpty(stringValue(provider.options["permissionMode"]), "default"),
@@ -1838,21 +1853,22 @@ func (provider *CodexProvider) updatePublicStateLocked(status string) {
 			provider.options["permissionMode"],
 			provider.options["configPermissionMode"],
 		),
-		"effectiveSandboxMode":   firstNonNil(provider.options["sandboxMode"], provider.options["configSandboxMode"]),
-		"model":                  provider.options["model"],
-		"effort":                 provider.options["effort"],
-		"status":                 status,
-		"threadId":               nilIfEmpty(provider.threadID),
-		"aborting":               aborting,
-		"resuming":               resuming,
-		"forking":                forking,
-		"canAbort":               (status != "idle" || resuming || forking) && !aborting,
-		"canCompact":             status == "idle" && !resuming && !forking && !aborting && provider.threadID != "",
-		"compacting":             false,
-		"pendingPermissionCount": len(provider.permissions),
-		"pendingQuestionCount":   len(provider.userInputs),
-		"activeSubagentCount":    activeSubagentCount,
-		"models":                 provider.models,
+		"effectiveSandboxMode":    firstNonNil(provider.options["sandboxMode"], provider.options["configSandboxMode"]),
+		"model":                   provider.options["model"],
+		"effort":                  provider.options["effort"],
+		"status":                  status,
+		"threadId":                nilIfEmpty(provider.threadID),
+		"aborting":                aborting,
+		"resuming":                resuming,
+		"forking":                 forking,
+		"canAbort":                (status != "idle" || resuming || forking) && !aborting,
+		"canCompact":              status == "idle" && !resuming && !forking && !aborting && provider.threadID != "",
+		"compacting":              false,
+		"pendingPermissionCount":  len(provider.permissions),
+		"pendingQuestionCount":    len(provider.userInputs),
+		"activeSubagentCount":     len(activeSubagentThreadIDs),
+		"activeSubagentThreadIds": activeSubagentThreadIDs,
+		"models":                  provider.models,
 	}
 	provider.session.setState(state)
 }

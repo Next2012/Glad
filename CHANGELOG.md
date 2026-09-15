@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Jump to the newest active Codex subagent by its thread ID instead of opening the last historical subagent group in the DOM.
+- Prevent mobile WebKit text autosizing during live conversation updates so message fonts remain stable and later content stays reachable.
+
 ## [2.2.4] - 2026-09-13
 
 ### Fixed
