@@ -1,8 +1,8 @@
-        :root { --primary: #007aff; --bg: #000; --card-bg: #1c1c1e; --text: #fff; --text-dim: #8e8e93; --terminal-controls-rest-height: 108px; --chat-content-max: 900px; --control-content-max: 1100px; }
+        :root { --primary: #007aff; --bg: #000; --card-bg: #1c1c1e; --text: #fff; --text-dim: #8e8e93; --terminal-controls-rest-height: 108px; --chat-content-max: 900px; --control-content-max: 1100px; --lobby-top-inset: env(safe-area-inset-top); }
         body, html { margin: 0; padding: 0; height: 100dvh; width: 100vw; background: var(--bg); color: var(--text); overflow: hidden; overflow-anchor: none; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
         .view { display: none; height: 100%; width: 100%; flex-direction: column; }
         .view.active { display: flex; }
-        #lobby { overflow-y: auto; padding: 20px; padding-top: env(safe-area-inset-top); box-sizing: border-box; }
+        #lobby { overflow-y: auto; padding: 20px; padding-top: var(--lobby-top-inset); box-sizing: border-box; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
         .header-actions { display: flex; align-items: center; gap: 5px; margin-left: auto; }
         .skill-hall-entry-btn { height: 36px; padding: 0 11px; border: 1px solid rgba(0,122,255,.38); border-radius: 10px; background: rgba(0,122,255,.12); color: var(--primary); display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-size: 13px; font-weight: 800; cursor: pointer; flex-shrink: 0; }
@@ -750,7 +750,15 @@ body.tile-focus-open .subview-nav-row { padding-left: 50px; }
 
 #terminal-view.active { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }
 #top-ui { display: contents; }
-#nav-bar { grid-row: 1; z-index: 20; padding-top: max(8px, env(safe-area-inset-top)); background: var(--surface); border-color: var(--line); }
+/* iOS 27 standalone PWAs exempt a real top-anchored app bar from the native
+   progressive edge blur. Sticky preserves this grid row's existing geometry. */
+#nav-bar { position: sticky; top: 0; grid-row: 1; z-index: 20; padding-top: max(8px, env(safe-area-inset-top)); background: var(--surface); border-color: var(--line); }
+/* Unlike the other full-screen views, Lobby used to put its safe-area inset on
+   the scrolling parent. Move that inset into the bar so the bar itself starts
+   at the physical top edge without moving its controls. */
+html.ios-standalone #lobby { padding-top: 0; }
+html.ios-standalone #lobby-view .header { position: sticky; top: 0; z-index: 20; padding-top: var(--lobby-top-inset); background: var(--bg); }
+html.ios-standalone :is(.usage-nav, .subview-nav) { position: sticky; top: 0; z-index: 20; }
 #session-status-strip { display: none; grid-row: 2; z-index: 19; padding: 6px 12px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 97%, transparent); }
 #session-attention-rail { display: flex; width: min(100%, var(--chat-content-max)); min-width: 0; margin: 0 auto; gap: 7px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
 #session-attention-rail::-webkit-scrollbar { display: none; }
@@ -811,7 +819,7 @@ html[data-theme="light"] .session-attention-pill.subagent { border-color: #99c8f
 @media (min-width: 920px) {
     #lobby-collapse-button { display: flex; }
     #lobby-view { display: flex !important; width: min(var(--sidebar-w), calc(100vw - 484px)); flex: 0 0 min(var(--sidebar-w), calc(100vw - 484px)); border-right: 1px solid var(--line); background: var(--bg); }
-    #lobby { width: 100%; padding: 18px 14px; }
+    #lobby { --lobby-top-inset: 18px; width: 100%; padding: 18px 14px; }
     #lobby-view .header { margin-bottom: 18px; }
     #lobby-view .header-actions { gap: 3px; }
     #lobby-view .header-action-btn.icon-only { width: 34px; min-width: 34px; }

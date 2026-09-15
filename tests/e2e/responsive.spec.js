@@ -40,6 +40,37 @@ async function limitVisibleSessions(page, sessionIds) {
   });
 }
 
+test('iOS standalone top bars are anchored for native edge handling', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'iPhone 17 Pro Max', 'iOS standalone regression runs once');
+
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'userAgent', {
+      configurable: true,
+      value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148'
+    });
+    Object.defineProperty(navigator, 'standalone', { configurable: true, value: true });
+  });
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  await expect(page.locator('html')).toHaveClass(/ios-standalone/);
+  const topBars = await page.locator('#lobby-view .header, .usage-nav, #nav-bar, .subview-nav').evaluateAll(elements =>
+    elements.map(element => {
+      const style = getComputedStyle(element);
+      return {
+        position: style.position,
+        top: style.top,
+        backgroundColor: style.backgroundColor
+      };
+    })
+  );
+  expect(topBars).toHaveLength(5);
+  for (const topBar of topBars) {
+    expect(topBar.position).toBe('sticky');
+    expect(topBar.top).toBe('0px');
+    expect(topBar.backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
+  }
+});
+
 test('structured sessions connect through the canonical WebSocket route', async ({ page }) => {
   await page.addInitScript(() => {
     window.__webSocketUrls = [];
