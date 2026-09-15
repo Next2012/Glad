@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.5] - 2026-09-15
+
 ### Fixed
 
 - Jump to the newest active Codex subagent by its thread ID instead of opening the last historical subagent group in the DOM.
