@@ -240,6 +240,7 @@ func (provider *CodexProvider) Send(ctx context.Context, input ProviderInput) er
 			"thread/resume",
 			map[string]any{
 				"threadId": provider.threadID, "cwd": provider.session.WorkingDirectory, "excludeTurns": true,
+				"config": codexPlanConfig(),
 			},
 		)
 		if err != nil {
@@ -549,6 +550,8 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 		} else {
 			provider.refreshPublicState()
 		}
+	case "turn/plan/updated":
+		provider.updatePlan(threadID, turnID, params)
 	case "turn/completed":
 		provider.mu.Lock()
 		rootThread := threadID != "" && threadID == provider.threadID
@@ -581,6 +584,10 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 		}
 		if stringValue(turn["status"]) == "interrupted" {
 			status = "cancelled"
+		}
+		provider.finishPlans(threadID, turnID, status)
+		if rootTurn {
+			provider.finishPlans("", "", "cancelled")
 		}
 		completed := timestampMillis(turn["completedAt"])
 		if completed == 0 {
@@ -1249,6 +1256,7 @@ func (provider *CodexProvider) stopRuntime(sequence uint64, reason, status strin
 }
 
 func (provider *CodexProvider) settleStoppedTurn(threadID, turnID string, started int64, reason, status string) {
+	provider.finishPlans("", "", status)
 	provider.session.appendMessage(map[string]any{"kind": "event", "level": "warning", "text": reason})
 	if turnID != "" {
 		exists := false
@@ -1320,6 +1328,7 @@ func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
 		map[string]any{
 			"threadId": id, "cwd": provider.session.WorkingDirectory,
 			"excludeTurns": true, "initialTurnsPage": codexInitialTurnsPageParams(),
+			"config": codexPlanConfig(),
 		},
 	)
 	if err == nil {
@@ -1392,6 +1401,7 @@ func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, err
 		map[string]any{
 			"threadId": id, "cwd": provider.session.WorkingDirectory, "ephemeral": false,
 			"excludeTurns": true, "initialTurnsPage": codexInitialTurnsPageParams(),
+			"config": codexPlanConfig(),
 		},
 	)
 	newID := stringValue(mapValue(result["thread"])["id"])
@@ -1455,6 +1465,19 @@ func (provider *CodexProvider) hydrateThread(ctx context.Context, result map[str
 	if err != nil {
 		return err
 	}
+	historicalPlans, planErr := readCodexPlanHistory(ctx, stringValue(thread["path"]), threadID)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if planErr != nil {
+		// Task history is optional; an unavailable local rollout must not block
+		// opening the conversation returned by Codex's history API.
+		logDebug("[codex-plan-history] %v", planErr)
+	}
+	for turnID, plan := range historicalPlans {
+		plan["threadId"], plan["turnId"] = threadID, turnID
+	}
+	messages = provider.retainPlans(messages, historicalPlans)
 	if !provider.session.replaceMessages(messages) {
 		return errors.New("Codex session is closed")
 	}
@@ -1764,6 +1787,7 @@ func (provider *CodexProvider) applyConfig(config map[string]any) {
 	provider.options["configSandboxMode"] = config["sandbox_mode"]
 }
 func (provider *CodexProvider) applyThreadOptions(params map[string]any) {
+	params["config"] = codexPlanConfig()
 	if value := stringValue(provider.options["model"]); value != "" {
 		params["model"] = value
 	}

@@ -19,6 +19,20 @@ let turnSequence = 0;
 let outputLost = false;
 const approvalRequests = new Map();
 let inputQuestion = null;
+let taskPlan = null;
+function finishTaskPlan(status = 'completed') {
+  if (!taskPlan) return;
+  const { turnId, steps, timers } = taskPlan;
+  taskPlan = null;
+  timers.forEach(clearTimeout);
+  if (status === 'completed') write({ method: 'turn/plan/updated', params: {
+    threadId: 'thread-e2e', turnId, plan: steps.map(step => ({ step, status: 'completed' }))
+  } });
+  write({ method: 'item/completed', params: { threadId: 'thread-e2e', turnId,
+    item: { id: `plan-answer-${turnId}`, type: 'agentMessage', text: status === 'completed' ? 'Implementation and verification complete.' : 'Work stopped.' }
+  } });
+  write({ method: 'turn/completed', params: { threadId: 'thread-e2e', turn: { id: turnId, status } } });
+}
 function finishInputQuestion(text, status = 'completed') {
   const question = inputQuestion;
   if (!question) return;
@@ -66,6 +80,36 @@ function largeHistoryTurns() {
   return turns.reverse();
 }
 
+function historicalPlanThread(threadId) {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const rollout = path.join(process.env.CODEX_HOME, `${threadId}.jsonl`);
+  const records = [{ type: 'session_meta', payload: { id: threadId } }];
+  const turns = ['completed', 'interrupted'].map((status, index) => {
+    const turnId = `saved-plan-turn-${index + 1}`;
+    const steps = ['读取历史任务', '恢复步骤状态', '显示任务卡片'];
+    const params = { plan: steps.map((step, stepIndex) => ({ step,
+      status: index === 0 || stepIndex === 0 ? 'completed' : stepIndex === 1 ? 'in_progress' : 'pending'
+    })) };
+    records.push({ type: 'event_msg', payload: { type: 'task_started', turn_id: turnId } });
+    const callId = `saved-plan-call-${index}`;
+    records.push({ type: 'response_item', payload: index === 0
+      ? { type: 'function_call', name: 'update_plan', call_id: callId, arguments: JSON.stringify(params) }
+      : { type: 'custom_tool_call', name: 'exec', call_id: callId, input: `text(await tools.update_plan(${JSON.stringify(params)}));` }
+    });
+    records.push({ type: 'response_item', payload: { type: index === 0 ? 'function_call_output' : 'custom_tool_call_output',
+      call_id: callId, output: index === 0 ? 'Plan updated' : [{ type: 'input_text', text: 'Script completed\nOutput:\n{}' }]
+    } });
+    records.push({ type: 'event_msg', payload: { type: index === 0 ? 'task_complete' : 'turn_aborted', turn_id: turnId } });
+    return { id: turnId, status, createdAt: 1700000000 + index * 60, completedAt: 1700000010 + index * 60, items: [
+      { type: 'userMessage', id: `${turnId}-user`, content: [{ type: 'text', text: `历史命令 ${index + 1}` }] },
+      { type: 'agentMessage', id: `${turnId}-reply`, text: `历史回复 ${index + 1}` }
+    ] };
+  });
+  fs.writeFileSync(rollout, records.map(record => JSON.stringify(record)).join('\n') + '\n');
+  return { thread: { id: threadId, path: rollout, turns: [] }, initialTurnsPage: { data: turns.reverse(), nextCursor: null } };
+}
+
 function write(message) {
   if (outputLost) return;
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -79,6 +123,11 @@ input.on('line', line => {
     return;
   }
   if (request.id == null) return;
+  if (['thread/start', 'thread/resume', 'thread/fork'].includes(request.method)
+    && !request.params?.ephemeral && request.params?.config?.['tools.update_plan.enabled'] !== true) {
+    write({ id: request.id, error: { message: 'Glad conversation threads must enable the planning tool' } });
+    return;
+  }
   if (!request.method) {
     if (inputQuestion?.rpcID === request.id) {
       const answers = request.result?.answers || {};
@@ -140,11 +189,14 @@ input.on('line', line => {
   } else if (request.method === 'thread/fork') {
     threadNames.set(`fork-of-${request.params?.threadId}`, savedThreadName(request.params?.threadId));
     result = { thread: { id: `fork-of-${request.params?.threadId}`, turns: [] }, initialTurnsPage: { data: [], nextCursor: null } };
+    if (request.params?.threadId === 'plan-history-e2e') result = historicalPlanThread('fork-of-plan-history-e2e');
   } else if (request.method === 'thread/resume') {
     const threadId = request.params?.threadId || 'thread-e2e';
     if (threadId === 'stuck-resume-e2e') return;
     if (threadId === 'disconnected-resume-e2e') { outputLost = true; return; }
-    if (threadId === 'large-history-e2e') {
+    if (threadId === 'plan-history-e2e') {
+      result = historicalPlanThread(threadId);
+    } else if (threadId === 'large-history-e2e') {
       if (request.params?.excludeTurns !== true || request.params?.initialTurnsPage?.itemsView !== 'full') {
         write({ id: request.id, error: { message: 'large history must use metadata-only paginated resume' } });
         return;
@@ -185,6 +237,7 @@ input.on('line', line => {
     }
   } else if (request.method === 'turn/interrupt') {
     if (inputQuestion?.turnId === request.params?.turnId) finishInputQuestion('', 'interrupted');
+    if (taskPlan?.turnId === request.params?.turnId) finishTaskPlan('interrupted');
     result = {};
   } else if (request.method === 'turn/steer') {
     if (!inputQuestion?.async || request.params?.expectedTurnId !== inputQuestion.turnId
@@ -251,6 +304,34 @@ input.on('line', line => {
     write({ id: request.id, result: { turn: { id: turnId } } });
     setImmediate(() => {
       write({ method: 'turn/started', params: { threadId: 'thread-e2e', turn: { id: turnId } } });
+      if (text.includes('__GLAD_E2E_PLAN')) {
+        write({ method: 'item/completed', params: { threadId: 'thread-e2e', turnId,
+          item: { id: `plan-intro-${turnId}`, type: 'agentMessage', text: '我会先检查实现，再进行验证。' }
+        } });
+        const steps = ['分析现有实现', '修改代码 <script>unsafe()</script>', '运行测试', '整理结果'];
+        if (text.includes('_LONG')) {
+          steps.push(...Array.from({ length: 24 }, (_, index) => `额外验证步骤 ${index + 1}：${'检查长任务文本'.repeat(8)}`));
+          write({ method: 'item/agentMessage/delta', params: {
+            threadId: 'thread-e2e', turnId, itemId: `plan-progress-${turnId}`,
+            delta: Array.from({ length: 35 }, (_, index) => `检查记录 ${index + 1}：正在核对事件处理、任务状态和界面布局。`).join('\n\n')
+          } });
+        }
+        taskPlan = { turnId, steps, timers: [] };
+        const update = done => write({ method: 'turn/plan/updated', params: {
+          threadId: 'thread-e2e', turnId, explanation: '先定位问题，再修改并验证。',
+          plan: steps.map((step, index) => ({ step, status: index < done ? 'completed' : index === done ? 'inProgress' : 'pending' }))
+        } });
+        update(1);
+        taskPlan.timers.push(setTimeout(() => update(2), 1200));
+        if (text.includes('_CHILD')) {
+          write({ method: 'turn/started', params: { threadId: 'child-plan-thread', turn: { id: 'child-plan-turn' } } });
+          write({ method: 'turn/plan/updated', params: { threadId: 'child-plan-thread', turnId: 'child-plan-turn', plan: [
+            { step: '子任务独立检查', status: 'inProgress' }
+          ] } });
+        }
+        if (!text.includes('_HOLD')) taskPlan.timers.push(setTimeout(() => finishTaskPlan(text.includes('_FAIL') ? 'failed' : 'completed'), 4000));
+        return;
+      }
       if (text.includes('__GLAD_E2E_ASYNC_QUESTION') || text.includes('__GLAD_E2E_SYNC_QUESTION__')) {
         const async = text.includes('__GLAD_E2E_ASYNC_QUESTION');
         inputQuestion = { async, turnId, rpcID: `question-${turnId}` };
