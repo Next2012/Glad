@@ -37,6 +37,38 @@ func TestEmbeddedFrontendIsServed(t *testing.T) {
 	}
 }
 
+func TestBrandIconAndManifestAreServed(t *testing.T) {
+	server := &Server{assets: os.DirFS("../..")}
+	mux := http.NewServeMux()
+	server.registerStaticRoutes(mux)
+
+	for _, route := range []string{"/glad-app-icon.png", "/favicon.ico"} {
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, route, nil))
+		if recorder.Code != http.StatusOK || recorder.Header().Get("Content-Type") != "image/png" {
+			t.Fatalf("brand icon %s response is invalid: status=%d type=%q", route, recorder.Code, recorder.Header().Get("Content-Type"))
+		}
+		if !bytes.HasPrefix(recorder.Body.Bytes(), []byte("\x89PNG\r\n\x1a\n")) {
+			t.Fatalf("brand icon %s is not a PNG", route)
+		}
+	}
+
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/manifest.json", nil))
+	var manifest map[string]any
+	if recorder.Code != http.StatusOK || json.Unmarshal(recorder.Body.Bytes(), &manifest) != nil {
+		t.Fatalf("manifest response is invalid: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	icons := sliceValue(manifest["icons"])
+	if len(icons) != 1 {
+		t.Fatalf("manifest icons = %#v", icons)
+	}
+	icon := mapValue(icons[0])
+	if icon["src"] != "glad-app-icon.png?v=full-bleed" || icon["sizes"] != "1254x1254" || icon["type"] != "image/png" {
+		t.Fatalf("manifest icon is invalid: %#v", icon)
+	}
+}
+
 func TestWebSocketRoutesAcceptCanonicalAndLegacyPaths(t *testing.T) {
 	manager := NewSessionManager(t.TempDir())
 	session := newSession(

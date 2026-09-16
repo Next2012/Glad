@@ -521,7 +521,8 @@ func (server *Server) registerStaticRoutes(mux *http.ServeMux) {
 		"/vendor/xterm.js":           "node_modules/@xterm/xterm/lib/xterm.js",
 		"/vendor/xterm.css":          "node_modules/@xterm/xterm/css/xterm.css",
 		"/vendor/xterm-addon-fit.js": "node_modules/@xterm/addon-fit/lib/addon-fit.js",
-		"/logo.svg":                  "assets/logo.svg", "/favicon.ico": "assets/logo.svg",
+		"/glad-app-icon.png":         "assets/glad-app-icon.png",
+		"/favicon.ico":               "assets/glad-app-icon.png",
 	}
 	for route, filename := range assets {
 		filename := filename
@@ -541,7 +542,9 @@ func (server *Server) registerStaticRoutes(mux *http.ServeMux) {
 				"display":          "standalone",
 				"background_color": "#000000",
 				"theme_color":      "#007aff",
-				"icons":            []map[string]any{{"src": "logo.svg", "sizes": "any", "type": "image/svg+xml"}},
+				"icons": []map[string]any{{
+					"src": "glad-app-icon.png?v=full-bleed", "sizes": "1254x1254", "type": "image/png", "purpose": "any",
+				}},
 			},
 		)
 	})

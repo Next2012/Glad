@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./assets/logo.svg" alt="Glad Logo" width="150" height="150" />
+  <img src="./assets/glad-app-icon.png" alt="Glad Logo" width="150" height="150" />
   <h1>Glad</h1>
 </div>
 

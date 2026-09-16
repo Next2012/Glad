@@ -110,6 +110,9 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
 
   await page.goto('/', { waitUntil: 'networkidle' });
   await expect(page).toHaveTitle('Glad - AI Sessions');
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', 'glad-app-icon.png?v=full-bleed');
+  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute('href', 'glad-app-icon.png?v=full-bleed');
+  await expect(page.locator('#detail-empty img')).toHaveAttribute('src', 'glad-app-icon.png?v=full-bleed');
   await expect(page.locator('#lobby-view')).toHaveClass(/active/);
   await expect(page.locator('.header')).toBeVisible();
   await expect(page.locator('#lobby-view .header h1')).toHaveCount(0);
