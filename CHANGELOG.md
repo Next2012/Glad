@@ -10,6 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-09-16
+
+### Added
+
+- Show Codex task progress in collapsible floating cards with responsive layouts, light/dark themes, and separate cards for tiled conversations.
+- Place each finished task list between its user message and first reply, preserving unfinished steps when a turn is interrupted or fails.
+- Restore historical task lists when resuming or forking Codex conversations by reading their local rollout logs. Supported JSON and literal code-mode parameters are parsed without executing saved code; missing or dynamically computed plans that cannot be recovered are skipped.
+
+### Changed
+
+- Enable the Codex planning tool for Glad's new, resumed, and forked conversation threads.
+
 ## [2.2.6] - 2026-09-16
 
 ### Changed
