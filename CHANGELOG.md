@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.6] - 2026-09-16
+
+### Changed
+
+- Replaced the Glad app icon with a full-bleed paper-plane and lightbulb mark across the PWA manifest, Apple touch icon, favicon, in-app empty state, and project documentation.
+
+### Fixed
+
+- Avoided the native iOS 27 standalone-PWA top-edge blur by exposing every full-screen navigation row as an opaque top-anchored app bar without shifting its controls.
+- Show completion dots only for work that finished outside a visible session, including revision-safe acknowledgements for normal, background, reconnected, and tiled conversations.
+
 ## [2.2.5] - 2026-09-15
 
 ### Fixed
