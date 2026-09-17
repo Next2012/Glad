@@ -58,6 +58,20 @@ npm run test:e2e
 
 Playwright reuses a server already listening on 3001 outside CI. The manually triggered `Browser E2E` GitHub Actions workflow starts `go run . --port 3001` itself. Browser tests are intentionally separate from the required PR checks; run them locally before release.
 
+The installed iOS app layout checks cover the full-width top edge, keyboard
+viewport changes, and tapping the composer again after sending a long message:
+
+```bash
+npm run test:e2e -- tests/e2e/pwa-top-edge.spec.js tests/e2e/ios-composer.spec.js
+npx playwright install webkit
+GLAD_E2E_BROWSER=webkit npm run test:e2e -- tests/e2e/pwa-top-edge.spec.js tests/e2e/ios-composer.spec.js
+```
+
+These checks emulate standalone mode and keyboard viewport changes. Verify the
+native top-edge effect and keyboard behavior separately in an installed app on
+an iPad or iPhone. Rebuild and restart the server after frontend changes because
+the HTML, CSS, and JavaScript are embedded in the Go binary.
+
 ## Native builds
 
 ```bash

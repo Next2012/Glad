@@ -22,7 +22,7 @@ module.exports = defineConfig({
   reporter: [['list'], ['html', { outputFolder: '.playwright-report', open: 'never' }]],
   use: {
     baseURL: `http://127.0.0.1:${port}`,
-    browserName: 'chromium',
+    browserName: process.env.GLAD_E2E_BROWSER || 'chromium',
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure'
   },

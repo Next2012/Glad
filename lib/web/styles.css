@@ -657,6 +657,19 @@ html[data-theme="dark"] { color-scheme: dark; }
 .action-label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 #app-shell { display: flex; width: 100%; height: 100%; min-height: 0; overflow: hidden; background: var(--bg); }
+/* WebKit samples the top midpoint and rejects narrow fixed/sticky containers.
+   Split-view headers cannot cover the full viewport, so installed iOS apps
+   provide a real, opaque element outside the panes. Its 12px height covers the
+   inset sampling strip and exceeds WebKit's 10px thin-border threshold.
+   See LocalFrameView::fixedContainerEdges in WebKit's Source/WebCore/page.
+   Reserve the strip so it never paints over buttons, including tiled controls. */
+#pwa-top-edge { display: none; }
+html.ios-standalone { --pwa-top-edge-height: 12px; }
+html.ios-standalone #pwa-top-edge { display: block; position: fixed; top: var(--app-viewport-top, 0px); left: 0; right: 0; height: var(--pwa-top-edge-height); z-index: 12000; background: var(--bg); pointer-events: none; }
+/* iOS may scroll the outer document to reveal a textarea's caret even with
+   overflow:hidden. Pin the shell independently of that scroll and size it to
+   the visible area above the keyboard, which can change without a dvh resize. */
+html.ios-standalone #app-shell { position: fixed; top: var(--app-viewport-top, 0px); left: 0; height: var(--app-viewport-height, 100dvh); padding-top: var(--pwa-top-edge-height); box-sizing: border-box; }
 #detail-pane { position: relative; display: flex; min-width: 0; min-height: 0; flex: 1; overflow: hidden; background: var(--bg); }
 #detail-pane > .view { min-width: 0; min-height: 0; }
 #detail-empty { display: none; flex: 1; flex-direction: column; align-items: center; justify-content: center; padding: 32px; color: var(--text-dim); text-align: center; }
@@ -751,12 +764,10 @@ body.tile-focus-open .subview-nav-row { padding-left: 50px; }
 
 #terminal-view.active { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }
 #top-ui { display: contents; }
-/* iOS 27 standalone PWAs exempt a real top-anchored app bar from the native
-   progressive edge blur. Sticky preserves this grid row's existing geometry. */
+/* Keep app bars anchored within their panes; the full-width PWA top edge above
+   handles native edge sampling even when these bars occupy only one pane. */
 #nav-bar { position: sticky; top: 0; grid-row: 1; z-index: 20; padding-top: max(8px, env(safe-area-inset-top)); background: var(--surface); border-color: var(--line); }
-/* Unlike the other full-screen views, Lobby used to put its safe-area inset on
-   the scrolling parent. Move that inset into the bar so the bar itself starts
-   at the physical top edge without moving its controls. */
+/* Keep the lobby inset inside the sticky bar instead of its scrolling parent. */
 html.ios-standalone #lobby { padding-top: 0; }
 html.ios-standalone #lobby-view .header { position: sticky; top: 0; z-index: 20; padding-top: var(--lobby-top-inset); background: var(--bg); }
 html.ios-standalone :is(.usage-nav, .subview-nav) { position: sticky; top: 0; z-index: 20; }
@@ -770,6 +781,7 @@ html.ios-standalone :is(.usage-nav, .subview-nav) { position: sticky; top: 0; z-
 html[data-theme="light"] .session-attention-pill.approval { border-color: #e5bd36; background: #fff7d6; color: #795500; }
 html[data-theme="light"] .session-attention-pill.subagent { border-color: #99c8f7; background: #e8f3ff; color: #075fae; }
 #terminal-controls { position: relative; inset: auto; grid-row: 4; z-index: 30; max-height: min(62dvh, 620px); overflow-y: auto; padding-bottom: env(safe-area-inset-bottom); border-top: 1px solid var(--line); border-bottom: 0; background: color-mix(in srgb, var(--surface) 96%, transparent); box-shadow: 0 -10px 28px rgba(0,0,0,.12); }
+html.ios-standalone #terminal-controls { max-height: min(620px, calc(var(--app-viewport-height, 100dvh) * .62)); }
 #terminal-controls-spacer { display: none; }
 #terminal-container, #claude-chat-container, #codex-chat-container { grid-row: 3; min-width: 0; min-height: 0; background: var(--chat-bg); }
 #composer-skill-prefix { display: none; width: min(100%, var(--control-content-max)); margin: 0 auto; padding: 8px 14px 0; box-sizing: border-box; }
