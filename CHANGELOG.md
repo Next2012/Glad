@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-09-17
+
+### Added
+
+- Render Mermaid diagrams and KaTeX formulas in Codex and Claude conversations, restored messages, and tiled previews. Bundle rendering libraries, fonts, and licenses locally for offline use.
+- Keep completed diagrams stable during streamed updates, redraw them for light/dark themes, and offer expandable source with readable fallbacks for invalid syntax.
+- Open Markdown file and image links from the correct session's working directory, with bounded file reads and plain-text handling for non-image files.
+
+### Changed
+
+- Replace the handwritten Markdown parser with markdown-it and task/math plugins, adding task checkboxes, nested lists, strikethrough, table alignment, reference links, automatic URL/email links, complete heading levels, and standard escaping.
+
+### Fixed
+
+- Cover the full viewport with an opaque top edge in installed iOS apps, including iPad split layouts.
+- Keep the application shell and composer aligned with the visible viewport when the keyboard opens, closes, or pans the page, including refocusing after a long message is sent.
+
 ## [2.3.0] - 2026-09-16
 
 ### Added
