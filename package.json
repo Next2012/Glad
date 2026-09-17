@@ -44,6 +44,11 @@
     "@playwright/test": "^1.61.1",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
-    "ccusage": "20.0.20"
+    "ccusage": "20.0.20",
+    "katex": "0.18.7",
+    "markdown-it": "15.0.2",
+    "markdown-it-task-lists": "2.1.1",
+    "markdown-it-texmath": "1.0.0",
+    "mermaid": "11.17.2"
   }
 }

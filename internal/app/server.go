@@ -518,11 +518,22 @@ func uniqueStrings(values []string) []string {
 
 func (server *Server) registerStaticRoutes(mux *http.ServeMux) {
 	assets := map[string]string{
-		"/vendor/xterm.js":           "node_modules/@xterm/xterm/lib/xterm.js",
-		"/vendor/xterm.css":          "node_modules/@xterm/xterm/css/xterm.css",
-		"/vendor/xterm-addon-fit.js": "node_modules/@xterm/addon-fit/lib/addon-fit.js",
-		"/glad-app-icon.png":         "assets/glad-app-icon.png",
-		"/favicon.ico":               "assets/glad-app-icon.png",
+		"/vendor/xterm.js":                       "node_modules/@xterm/xterm/lib/xterm.js",
+		"/vendor/xterm.css":                      "node_modules/@xterm/xterm/css/xterm.css",
+		"/vendor/xterm-addon-fit.js":             "node_modules/@xterm/addon-fit/lib/addon-fit.js",
+		"/vendor/mermaid.min.js":                 "node_modules/mermaid/dist/mermaid.min.js",
+		"/vendor/mermaid.LICENSE":                "node_modules/mermaid/LICENSE",
+		"/vendor/katex/katex.min.js":             "node_modules/katex/dist/katex.min.js",
+		"/vendor/katex/katex.min.css":            "node_modules/katex/dist/katex.min.css",
+		"/vendor/katex/LICENSE":                  "node_modules/katex/LICENSE",
+		"/vendor/markdown-it.min.js":             "node_modules/markdown-it/dist/browser/markdown-it.umd.min.js",
+		"/vendor/markdown-it.LICENSE":            "node_modules/markdown-it/LICENSE",
+		"/vendor/markdown-it-task-lists.min.js":  "node_modules/markdown-it-task-lists/dist/markdown-it-task-lists.min.js",
+		"/vendor/markdown-it-task-lists.LICENSE": "node_modules/markdown-it-task-lists/LICENSE",
+		"/vendor/markdown-it-texmath.js":         "node_modules/markdown-it-texmath/texmath.js",
+		"/vendor/markdown-it-texmath.LICENSE":    "node_modules/markdown-it-texmath/license.txt",
+		"/glad-app-icon.png":                     "assets/glad-app-icon.png",
+		"/favicon.ico":                           "assets/glad-app-icon.png",
 	}
 	for route, filename := range assets {
 		filename := filename
@@ -531,6 +542,14 @@ func (server *Server) registerStaticRoutes(mux *http.ServeMux) {
 			func(writer http.ResponseWriter, request *http.Request) { server.serveEmbedded(writer, filename) },
 		)
 	}
+	mux.HandleFunc("GET /vendor/katex/fonts/{name}", func(writer http.ResponseWriter, request *http.Request) {
+		name := request.PathValue("name")
+		if name != path.Base(name) || !strings.HasSuffix(name, ".woff2") && !strings.HasSuffix(name, ".woff") && !strings.HasSuffix(name, ".ttf") {
+			http.NotFound(writer, request)
+			return
+		}
+		server.serveEmbedded(writer, "node_modules/katex/dist/fonts/"+name)
+	})
 	mux.HandleFunc("GET /manifest.json", func(writer http.ResponseWriter, request *http.Request) {
 		respondJSON(
 			writer,

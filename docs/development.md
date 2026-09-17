@@ -72,6 +72,25 @@ native top-edge effect and keyboard behavior separately in an installed app on
 an iPad or iPhone. Rebuild and restart the server after frontend changes because
 the HTML, CSS, and JavaScript are embedded in the Go binary.
 
+## Markdown rendering
+
+Rich Markdown uses markdown-it in `lib/web/markdown.js`, with task-list and
+texmath plugins. `lib/web/markdown-rich.js` handles Mermaid and KaTeX rendering.
+Mermaid is loaded on demand; formulas use dedicated parser tokens so nesting,
+escaping and code spans keep their Markdown meaning. The Go binary embeds the
+npm browser bundles, their licenses, and KaTeX fonts; clients do not need a CDN.
+After changing these dependencies, run `npm ci` before building.
+
+Local file/image links use the session-scoped `workspace-resource` endpoint.
+It resolves paths inside the working directory, rejects escaping symlinks and
+files over 4 MB, and serves non-image files as plain text. Raw HTML in Markdown
+remains escaped. Task checkboxes display message state and are not editable.
+
+Run `npm run test:e2e -- tests/e2e/markdown.spec.js` for Markdown structure and
+links, local resources, math delimiters, literal code/prices, diagram streaming
+and theme changes, invalid input, and tiled previews.
+Set `GLAD_E2E_BROWSER=webkit` to run the same checks in WebKit.
+
 ## Native builds
 
 ```bash

@@ -37,6 +37,34 @@ func TestEmbeddedFrontendIsServed(t *testing.T) {
 	}
 }
 
+func TestRichMarkdownAssetsAreServedLocally(t *testing.T) {
+	server := &Server{assets: os.DirFS("../..")}
+	mux := http.NewServeMux()
+	server.registerStaticRoutes(mux)
+	for _, route := range []string{
+		"/vendor/mermaid.min.js", "/vendor/mermaid.LICENSE",
+		"/vendor/katex/katex.min.js", "/vendor/katex/katex.min.css", "/vendor/katex/LICENSE",
+		"/vendor/katex/fonts/KaTeX_Main-Regular.woff2",
+		"/vendor/markdown-it.min.js", "/vendor/markdown-it-task-lists.min.js", "/vendor/markdown-it-texmath.js",
+	} {
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, route, nil))
+		if recorder.Code != http.StatusOK || recorder.Body.Len() == 0 || bytes.Contains(recorder.Body.Bytes(), []byte("<title>Glad")) {
+			t.Fatalf("rich markdown asset %s: status=%d bytes=%d", route, recorder.Code, recorder.Body.Len())
+		}
+		if strings.HasSuffix(route, ".woff2") && !bytes.HasPrefix(recorder.Body.Bytes(), []byte("wOF2")) {
+			t.Fatalf("asset %s is not a WOFF2 font", route)
+		}
+	}
+	for _, route := range []string{"/vendor/katex/fonts/missing.woff2", "/vendor/katex/fonts/package.json", "/vendor/katex/fonts/..%2Fkatex.min.js"} {
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, route, nil))
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("invalid font request %s: status=%d", route, recorder.Code)
+		}
+	}
+}
+
 func TestBrandIconAndManifestAreServed(t *testing.T) {
 	server := &Server{assets: os.DirFS("../..")}
 	mux := http.NewServeMux()
