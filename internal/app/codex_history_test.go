@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ func historyTestProvider(t *testing.T) (*CodexProvider, chan []byte, *http.Serve
 	manager := NewSessionManager(t.TempDir())
 	session := newSession("history-test", "Codex", "codex-structured", ToolInfo{Key: "codex"}, manager.baseDir)
 	provider := NewCodexProvider(session, nil)
+	provider.cmd = exec.Command("codex")
 	writes := make(chan []byte, 4)
 	provider.stdin = &channelWriteCloser{writes: writes}
 	provider.threadID = "current"

@@ -35,6 +35,8 @@ const maxCodexToolOutputBytes = 8 << 20
 const defaultCodexAbortGrace = 5 * time.Second
 const codexHealthInterval = 15 * time.Second
 const codexHealthTimeout = 5 * time.Second
+const codexHistoryOperationTimeout = 2 * time.Minute
+const maxCodexHistoryPages = 100000
 
 const codexOutputTruncatedMarker = "\n… output truncated by Glad …\n"
 
@@ -156,6 +158,9 @@ func (provider *CodexProvider) startLocked(ctx context.Context) error {
 	stdout, err := command.StdoutPipe()
 	if err != nil {
 		return err
+	}
+	if err := enlargeCodexOutputPipe(stdout); err != nil {
+		logDebug("[codex] could not enlarge app-server output pipe: %v", err)
 	}
 	stderr, err := command.StderrPipe()
 	if err != nil {
@@ -388,8 +393,9 @@ func (provider *CodexProvider) monitorTransport(command *exec.Cmd, done <-chan s
 			provider.mu.Unlock()
 			return
 		}
-		// 只检查有操作的会话。该 RPC 读取本地线程目录，不等待模型或网络。
-		if provider.aborting || (provider.turnID == "" && !provider.resuming && !provider.forking && len(provider.pending) == 0) {
+		// app-server 可能串行处理恢复和分叉 RPC，此时发送探活会把正常慢请求误判为失联。
+		// 其他 pending RPC 仍需探活，避免请求超时后遗留一个永久卡死的空闲进程。
+		if provider.aborting || provider.resuming || provider.forking || (provider.turnID == "" && len(provider.pending) == 0) {
 			provider.mu.Unlock()
 			continue
 		}
@@ -1301,7 +1307,7 @@ func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
 	if id == "" {
 		return errors.New("Codex thread is unavailable")
 	}
-	resumeCtx, cancelResume := context.WithCancel(ctx)
+	resumeCtx, cancelResume := context.WithTimeout(ctx, codexHistoryOperationTimeout)
 	defer cancelResume()
 	provider.mu.Lock()
 	if provider.closed || provider.resumeInFlight || provider.aborting || provider.turnID != "" {
@@ -1369,7 +1375,7 @@ func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
 	return err
 }
 func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, error) {
-	forkCtx, cancelFork := context.WithCancel(ctx)
+	forkCtx, cancelFork := context.WithTimeout(ctx, codexHistoryOperationTimeout)
 	defer cancelFork()
 	provider.mu.Lock()
 	id = firstNonEmpty(strings.TrimSpace(id), provider.threadID)
@@ -1447,7 +1453,9 @@ func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, err
 }
 
 func codexInitialTurnsPageParams() map[string]any {
-	return map[string]any{"limit": 50, "sortDirection": "desc", "itemsView": "full"}
+	// Codex 目前会把一整页 JSON 作为一次非阻塞 stdout 写入。工具结果较大的会话
+	// 在默认页大小下可能触发 EAGAIN，因此按单个 turn 分页，再由 Glad 顺序合并。
+	return map[string]any{"limit": 1, "sortDirection": "desc", "itemsView": "full"}
 }
 
 func (provider *CodexProvider) hydrateThread(ctx context.Context, result map[string]any) error {
@@ -1504,8 +1512,8 @@ func (provider *CodexProvider) loadThreadTurns(
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if pageNumber > 1000 {
-			return nil, errors.New("Codex history pagination exceeded 1000 pages")
+		if pageNumber > maxCodexHistoryPages {
+			return nil, fmt.Errorf("Codex history pagination exceeded %d pages", maxCodexHistoryPages)
 		}
 		if len(page) == 0 {
 			params := codexInitialTurnsPageParams()

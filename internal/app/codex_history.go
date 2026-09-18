@@ -17,6 +17,9 @@ type codexThreadQuery struct {
 // Keep list requests metadata-only; searching and pagination belong to Codex's
 // index, not to a browser-side scan of the first page or of rollout files.
 func (provider *CodexProvider) listThreadPage(ctx context.Context, query codexThreadQuery) ([]map[string]any, string, error) {
+	if err := provider.ensureStarted(ctx); err != nil {
+		return nil, "", err
+	}
 	sortKey := "updated_at"
 	if query.Sort == "created_at" {
 		sortKey = query.Sort
@@ -84,6 +87,9 @@ func (server *Server) codexThreadPreview(writer http.ResponseWriter, request *ht
 // A preview must not resume, subscribe to, or replace the current conversation.
 // Fetch just three recent turn summaries, and return bounded user/assistant text.
 func (provider *CodexProvider) previewThread(ctx context.Context, threadID string) ([]map[string]any, error) {
+	if err := provider.ensureStarted(ctx); err != nil {
+		return nil, err
+	}
 	result, err := provider.rpc(ctx, "thread/turns/list", map[string]any{
 		"threadId": threadID, "limit": 3, "sortDirection": "desc", "itemsView": "summary",
 	})

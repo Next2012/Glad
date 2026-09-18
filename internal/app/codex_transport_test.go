@@ -89,6 +89,86 @@ func TestCodexTransportMonitorDetectsSilentLivePeer(t *testing.T) {
 	assertTransportStopped(t, provider)
 }
 
+func TestCodexTransportMonitorDoesNotInterruptSlowResume(t *testing.T) {
+	provider, writes := transportTestProvider(t)
+	provider.turnID = ""
+	command := provider.cmd
+	done := make(chan struct{})
+	monitorFinished := make(chan struct{})
+	go func() {
+		defer close(monitorFinished)
+		provider.monitorTransport(command, done, time.Millisecond, 3*time.Millisecond)
+	}()
+
+	resumeFinished := make(chan error, 1)
+	go func() { resumeFinished <- provider.Resume(context.Background(), "slow-history") }()
+	var request map[string]any
+	select {
+	case raw := <-writes:
+		if err := json.Unmarshal(raw, &request); err != nil {
+			t.Fatal(err)
+		}
+		if request["method"] != "thread/resume" {
+			t.Fatalf("unexpected request during resume: %v", request)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("resume did not start")
+	}
+
+	// 跨过多个探活周期，确认慢恢复不会被同一 RPC 通道上的探活打断。
+	time.Sleep(15 * time.Millisecond)
+	select {
+	case raw := <-writes:
+		t.Fatalf("monitor sent an RPC during resume: %s", raw)
+	default:
+	}
+	provider.mu.Lock()
+	alive := provider.cmd == command && !provider.aborting
+	provider.mu.Unlock()
+	if !alive {
+		t.Fatal("slow resume was mistaken for a dead transport")
+	}
+
+	provider.handleRPC(map[string]any{"id": request["id"], "result": map[string]any{
+		"thread":           map[string]any{"id": "slow-history"},
+		"initialTurnsPage": map[string]any{"data": []any{}, "nextCursor": nil},
+	}})
+	select {
+	case err := <-resumeFinished:
+		if err != nil {
+			t.Fatalf("slow resume failed: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("slow resume did not finish")
+	}
+	close(done)
+	<-monitorFinished
+}
+
+func TestCodexTransportMonitorStillRecoversOtherStuckRequests(t *testing.T) {
+	provider, _ := transportTestProvider(t)
+	provider.turnID = ""
+	stuck := make(chan codexRPCResult, 1)
+	provider.pending[99] = stuck
+	done := make(chan struct{})
+
+	provider.monitorTransport(provider.cmd, done, time.Millisecond, 5*time.Millisecond)
+	provider.mu.Lock()
+	stopped := provider.cmd == nil && !provider.aborting && len(provider.pending) == 0
+	provider.mu.Unlock()
+	if !stopped || provider.session.StatusValue != "idle" {
+		t.Fatal("stuck request did not recycle the transport")
+	}
+	select {
+	case result := <-stuck:
+		if result.Err == nil {
+			t.Fatal("stuck request succeeded after transport recovery")
+		}
+	default:
+		t.Fatal("stuck request was not released by transport recovery")
+	}
+}
+
 func TestCodexTransportMonitorAcceptsRPCErrorAsAlive(t *testing.T) {
 	provider, writes := transportTestProvider(t)
 	command := provider.cmd

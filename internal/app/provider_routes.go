@@ -292,6 +292,12 @@ func (provider *CodexProvider) rpc(ctx context.Context, method string, params ma
 	provider.mu.Unlock()
 	return result, err
 }
+
+func (provider *CodexProvider) ensureStarted(ctx context.Context) error {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	return provider.startLocked(ctx)
+}
 func (provider *CodexProvider) listThreads(ctx context.Context) ([]map[string]any, error) {
 	items, _, err := provider.listThreadPage(ctx, codexThreadQuery{})
 	return items, err
