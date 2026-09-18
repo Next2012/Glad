@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.2] - 2026-09-18
+
+### Fixed
+
+- Restore and fork long Codex conversations without treating a slow history RPC as a dead app-server connection.
+- Load full Codex history one turn at a time and enlarge the Linux app-server output pipe, preventing large persisted tool results from stalling recovery.
+- Restart a stopped Codex app-server when reopening the history list or a conversation preview.
+
 ## [2.4.1] - 2026-09-18
 
 ### Fixed
