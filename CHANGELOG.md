@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-09-18
+
+### Fixed
+
+- Truncate long session titles without widening or visually scaling the conversation pane.
+- Preserve long-conversation scroll position when the iPad keyboard opens or closes, keeping tiled focus dialogs, composers, and return controls inside the visible viewport.
+
 ## [2.4.0] - 2026-09-17
 
 ### Added
