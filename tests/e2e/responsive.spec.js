@@ -104,6 +104,44 @@ test('structured sessions connect through the canonical WebSocket route', async 
   ]);
 });
 
+test('long session titles are truncated without widening the conversation', async ({ page }) => {
+  const longTitle = '这是一个很长的会话标题，用于确认标题会显示省略号且不会缩放对话内容。'.repeat(8);
+  const sessionId = await createNamedSession(page, 'codex', longTitle);
+  await limitVisibleSessions(page, [sessionId]);
+
+  try {
+    await page.goto('/', { waitUntil: 'networkidle' });
+    await page.locator(`.session-card[data-session-id="${sessionId}"]`).getByRole('button', { name: 'Connect' }).click();
+
+    const title = page.locator('#session-title');
+    await expect(title).toHaveText(longTitle);
+    await expect(title).toHaveCSS('overflow', 'hidden');
+    await expect(title).toHaveCSS('text-overflow', 'ellipsis');
+    await expect(title).toHaveCSS('white-space', 'nowrap');
+
+    const layout = await page.evaluate(() => {
+      const rect = id => document.getElementById(id).getBoundingClientRect();
+      const terminal = rect('terminal-view');
+      const nav = rect('nav-bar');
+      const chat = rect('codex-chat-container');
+      const title = document.getElementById('session-title');
+      return {
+        terminalWidth: terminal.width,
+        navWidth: nav.width,
+        chatWidth: chat.width,
+        titleClientWidth: title.clientWidth,
+        titleScrollWidth: title.scrollWidth
+      };
+    });
+
+    expect(layout.titleScrollWidth).toBeGreaterThan(layout.titleClientWidth);
+    expect(layout.navWidth).toBeLessThanOrEqual(layout.terminalWidth + 1);
+    expect(layout.chatWidth).toBeLessThanOrEqual(layout.terminalWidth + 1);
+  } finally {
+    await page.request.delete(`/api/sessions/${sessionId}`);
+  }
+});
+
 test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));

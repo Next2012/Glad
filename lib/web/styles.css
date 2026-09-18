@@ -165,9 +165,10 @@
         .usage-empty { padding: 30px 10px; color: var(--text-dim); text-align: center; font-size: 13px; }
         #terminal-view { background: #000; overflow-anchor: none; position: relative; }
         #top-ui { flex-shrink: 0; background: #121212; border-bottom: 1px solid #222; z-index: 2000; padding-top: env(safe-area-inset-top); position: relative; }
-        #nav-bar { display: flex; align-items: center; padding: 8px 14px; border-bottom: 1px solid #222; }
+        #nav-bar { display: flex; width: 100%; min-width: 0; align-items: center; padding: 8px 14px; border-bottom: 1px solid #222; box-sizing: border-box; }
         #back-btn { color: var(--primary); font-size: 16px; font-weight: 500; display: flex; align-items: center; text-decoration: none; background: none; border: none; padding: 0; cursor: pointer; flex-shrink: 0; }
-        #session-title { flex: 1; text-align: center; font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 10px; min-width: 0; }
+        #session-title { flex: 1 1 0; text-align: center; font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 10px; min-width: 0; }
+        #nav-bar > div:last-child { flex: 0 0 auto; }
         #terminal-controls { position: absolute; top: 100%; left: 0; right: 0; z-index: 2200; background: linear-gradient(180deg, rgba(18,18,18,0.98) 0%, rgba(18,18,18,0.92) 78%, rgba(18,18,18,0) 100%); border-bottom: 1px solid rgba(255,255,255,0.06); }
         #terminal-controls-spacer { flex: 0 0 var(--terminal-controls-rest-height); height: var(--terminal-controls-rest-height); background: #000; }
         #input-row { display: flex; align-items: flex-end; width: min(100%, var(--control-content-max)); margin: 0 auto; padding: 10px 14px 8px 14px; box-sizing: border-box; }
@@ -780,7 +781,8 @@ body.tile-focus-open .subview-nav-row { padding-left: 50px; }
     #tile-focus-backdrop { background: rgba(0,0,0,.5); }
 }
 
-#terminal-view.active { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }
+/* A zero-minimum column keeps nowrap headers from widening the chat pane. */
+#terminal-view.active { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr) auto; }
 #top-ui { display: contents; }
 /* Keep app bars anchored within their panes; the full-width PWA top edge above
    handles native edge sampling even when these bars occupy only one pane. */
