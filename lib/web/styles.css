@@ -774,6 +774,9 @@ body.tile-focus-open #tile-focus-backdrop { display: block; }
 body.tile-focus-open #tile-return-button { display: flex; }
 body.tile-focus-open #detail-pane > :is(#terminal-view, #history-view, #git-view).active { position: fixed; z-index: 5002; left: 50%; top: 50%; width: min(1000px, calc(100vw - 80px)); height: min(820px, calc(100dvh - 64px)); overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--bg); box-shadow: 0 24px 70px rgba(0,0,0,.48); transform: translate(-50%, -50%); }
 body.tile-focus-open #detail-pane > :is(#terminal-view, #history-view, #git-view).active.tile-dialog-positioned { transform: none; }
+/* Fixed dialogs follow the layout viewport on iOS, not the keyboard-sized
+   visual viewport. Anchor them to the already corrected app pane instead. */
+html.ios-standalone body.tile-focus-open #detail-pane > :is(#terminal-view, #history-view, #git-view).active { position: absolute; width: min(1000px, calc(100% - 80px)); height: min(820px, calc(100% - 64px)); }
 body.tile-focus-open :is(#nav-bar, .subview-nav-row) { cursor: move; touch-action: none; }
 body.tile-focus-open .subview-nav-row { padding-left: 50px; }
 

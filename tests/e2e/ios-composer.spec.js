@@ -57,6 +57,43 @@ async function expectComposerInViewport(page) {
   });
 }
 
+async function seedLongCodexConversation(page) {
+  await page.evaluate(() => {
+    codexMessages = Array.from({ length: 120 }, (_, index) => ({
+      id: `keyboard-history-${index}`,
+      kind: 'assistant',
+      text: `History ${index + 1}\n${'Long conversation content. '.repeat(20)}`
+    }));
+    commitCodexChatRender();
+    const chat = document.getElementById('codex-chat-container');
+    chat.scrollTop = chat.scrollHeight;
+  });
+}
+
+async function expectChatAtBottom(page) {
+  await expect.poll(() => page.evaluate(() => {
+    const chat = document.getElementById('codex-chat-container');
+    return chat.scrollHeight - chat.clientHeight - chat.scrollTop;
+  })).toBeLessThanOrEqual(1);
+}
+
+async function expectTileFocusInsideViewport(page) {
+  await expect.poll(() => page.evaluate(() => {
+    const viewport = window.visualViewport;
+    const terminal = document.getElementById('terminal-view').getBoundingClientRect();
+    const input = document.getElementById('cmd-input').getBoundingClientRect();
+    const returnButton = document.getElementById('tile-return-button').getBoundingClientRect();
+    return {
+      terminalInside: terminal.top >= viewport.offsetTop - 1
+        && terminal.bottom <= viewport.offsetTop + viewport.height + 1,
+      inputInside: input.top >= viewport.offsetTop - 1
+        && input.bottom <= viewport.offsetTop + viewport.height + 1,
+      returnButtonInside: returnButton.top >= viewport.offsetTop - 1
+        && returnButton.bottom <= viewport.offsetTop + viewport.height + 1
+    };
+  })).toEqual({ terminalInside: true, inputInside: true, returnButtonInside: true });
+}
+
 test('long drafts and the next input stay at the bottom after root scrolling', async ({ page }) => {
   const input = page.locator('#cmd-input');
   await input.fill('很长的输入内容，左侧对话、右侧流程图。\n'.repeat(200));
@@ -161,4 +198,50 @@ test('composer follows keyboard opening, panning, dismissal and refocus', async 
   await page.evaluate(height => window.setTestVisualViewport({ height, offsetTop: 0 }), width);
   await expectComposerInViewport(page);
   await expect(input).toHaveValue(draft);
+});
+
+test('keyboard resizing preserves a long conversation scroll anchor', async ({ page }) => {
+  const { height } = page.viewportSize();
+  const visibleHeight = Math.round(height * .56);
+  await seedLongCodexConversation(page);
+  await expectChatAtBottom(page);
+
+  await page.evaluate(next => window.setTestVisualViewport(next), { height: visibleHeight, offsetTop: 0 });
+  await expectComposerInViewport(page);
+  await expectChatAtBottom(page);
+
+  await page.evaluate(height => window.setTestVisualViewport({ height, offsetTop: 0 }), height);
+  await expectComposerInViewport(page);
+  await expectChatAtBottom(page);
+
+  const readingPosition = await page.evaluate(() => {
+    const chat = document.getElementById('codex-chat-container');
+    chat.scrollTop = Math.min(420, chat.scrollHeight - chat.clientHeight - 200);
+    return chat.scrollTop;
+  });
+  await page.evaluate(next => window.setTestVisualViewport(next), { height: visibleHeight, offsetTop: 0 });
+  await expect.poll(() => page.evaluate(() => document.getElementById('codex-chat-container').scrollTop))
+    .toBeCloseTo(readingPosition, 0);
+});
+
+test('tiled focus composer stays inside the iPad keyboard viewport', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'iPad Air 7', 'Landscape tiled focus regression');
+  const { height } = page.viewportSize();
+  const visibleHeight = Math.round(height * .56);
+
+  await page.evaluate(() => {
+    document.body.classList.add('tile-mode', 'tile-focus-open');
+    document.getElementById('tile-workspace').classList.add('active');
+  });
+  await seedLongCodexConversation(page);
+  await page.evaluate(next => window.setTestVisualViewport(next), { height: visibleHeight, offsetTop: 0 });
+  await expectTileFocusInsideViewport(page);
+  await expectChatAtBottom(page);
+
+  await page.evaluate(next => window.setTestVisualViewport(next, 'scroll'), {
+    height: visibleHeight,
+    offsetTop: Math.round(height * .22)
+  });
+  await expectTileFocusInsideViewport(page);
+  await expectChatAtBottom(page);
 });
