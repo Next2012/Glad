@@ -763,6 +763,39 @@ func TestCodexApprovalAndTurnLifecycle(t *testing.T) {
 	}
 }
 
+func TestCodexApprovalKeepsThreadAndTurnOwnership(t *testing.T) {
+	session := newSession(
+		"session",
+		"Codex",
+		"codex-structured",
+		ToolInfo{Key: "codex", DisplayName: "Codex"},
+		t.TempDir(),
+	)
+	provider := NewCodexProvider(session, nil)
+	provider.threadID = "current-thread"
+	provider.turnID = "current-turn"
+	provider.handleServerRequest(map[string]any{
+		"id":     float64(7),
+		"method": "mcpServer/elicitation/request",
+		"params": map[string]any{
+			"callId":     "plugin-install",
+			"serverName": "codex_apps",
+			"threadId":   "owner-thread",
+			"turnId":     "owner-turn",
+		},
+	})
+
+	session.mu.RLock()
+	permission, ok := session.Permissions["plugin-install"]
+	session.mu.RUnlock()
+	if !ok {
+		t.Fatal("approval was not added to the session")
+	}
+	if permission.ThreadID != "owner-thread" || permission.TurnID != "owner-turn" {
+		t.Fatalf("approval ownership was lost: %#v", permission)
+	}
+}
+
 func TestCodexTracksSubagentsWithoutSettlingRootTurn(t *testing.T) {
 	session := newSession(
 		"session",

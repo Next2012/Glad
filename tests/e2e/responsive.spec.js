@@ -912,6 +912,64 @@ test('approval bubble expands and jumps to its pending request', async ({ page }
   await page.screenshot({ path: testInfo.outputPath('approval-jump.png'), fullPage: true });
 });
 
+test('standalone Codex approval is collapsed and stays with its owning turn', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  await page.evaluate(() => {
+    const now = Date.now();
+    activeToolKey = 'codex';
+    codexState = {
+      ...codexState,
+      status: 'waiting_approval',
+      pendingPermissionCount: 1,
+      threadId: 'root-thread'
+    };
+    codexMessages = [
+      { id: 'owner-user', kind: 'user', text: 'Install the plugin?', threadId: 'root-thread', turnId: 'owner-turn', createdAt: now },
+      { id: 'owner-reply', kind: 'assistant', text: 'This belongs after the approval.', threadId: 'root-thread', turnId: 'owner-turn', createdAt: now + 100 },
+      { id: 'later-user', kind: 'user', text: 'A later turn', threadId: 'root-thread', turnId: 'later-turn', createdAt: now + 200 }
+    ];
+    codexPendingPermissions = [{
+      id: 'plugin-approval',
+      status: 'pending',
+      title: 'codex_apps',
+      reason: 'Install GitHub plugin?',
+      threadId: 'root-thread',
+      turnId: 'owner-turn',
+      createdAt: now + 50
+    }];
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    document.getElementById('terminal-view').classList.add('active');
+    setClaudeModeEnabled(false);
+    commitCodexChatRender();
+  });
+
+  const approval = page.locator('[data-codex-permission-id="plugin-approval"]');
+  await expect(approval).toHaveCount(1);
+  await expect(approval).not.toHaveAttribute('open', '');
+  await expect(approval.locator('.claude-tool-body')).not.toBeVisible();
+  expect(await page.evaluate(() => {
+    const owner = document.querySelector('[data-codex-key="message-owner-user"]');
+    const approval = document.querySelector('[data-codex-permission-id="plugin-approval"]');
+    const reply = document.querySelector('[data-codex-key="message-owner-reply"]');
+    return Boolean(owner.compareDocumentPosition(approval) & Node.DOCUMENT_POSITION_FOLLOWING)
+      && Boolean(approval.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING);
+  })).toBe(true);
+
+  await approval.locator('summary').click();
+  await expect(approval).toHaveAttribute('open', '');
+  await expect(approval.locator('.claude-tool-body')).toBeVisible();
+
+  await page.evaluate(() => {
+    codexMessages.push({
+      id: 'later-reply', kind: 'assistant', text: 'Another update',
+      threadId: 'root-thread', turnId: 'later-turn', createdAt: Date.now() + 500
+    });
+    commitCodexChatRender();
+  });
+  await expect(approval).toHaveAttribute('open', '');
+});
+
 test('live approval attention works in normal, tiled monitor, and tiled focus views', async ({ page }) => {
   test.setTimeout(60000);
   const normalId = await createNamedSession(page, 'codex', 'Approval · Normal');

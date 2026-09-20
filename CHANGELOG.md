@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.3] - 2026-09-20
+
+### Fixed
+
+- Keep Codex approval details collapsed by default while preserving the user's expanded state across live conversation updates.
+- Place standalone approvals beside their owning thread and turn, including MCP and plugin-install requests, instead of appending them to the end of the conversation.
+
 ## [2.4.2] - 2026-09-18
 
 ### Fixed

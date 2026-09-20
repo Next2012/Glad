@@ -493,6 +493,8 @@ func (provider *CodexProvider) handleServerRequest(message map[string]any) {
 		name = firstNonEmpty(stringValue(params["serverName"]), "MCP tool")
 	}
 	provider.mu.Lock()
+	threadID := firstNonEmpty(stringValue(params["threadId"]), provider.threadID)
+	turnID := firstNonEmpty(stringValue(params["turnId"]), provider.turnID)
 	provider.permissions[permissionID] = codexPendingPermission{RPCID: message["id"], Method: method, Params: params}
 	provider.mu.Unlock()
 	provider.session.addPermission(
@@ -501,6 +503,8 @@ func (provider *CodexProvider) handleServerRequest(message map[string]any) {
 			Status:       "pending",
 			Title:        name,
 			ToolName:     name,
+			ThreadID:     threadID,
+			TurnID:       turnID,
 			Input:        params,
 			Reason:       stringValue(params["reason"]),
 			CanAllowTool: strings.Contains(method, "elicitation"),

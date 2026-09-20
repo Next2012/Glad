@@ -74,6 +74,8 @@ type Permission struct {
 	Status       string         `json:"status"`
 	Title        string         `json:"title"`
 	ToolName     string         `json:"toolName"`
+	ThreadID     string         `json:"threadId,omitempty"`
+	TurnID       string         `json:"turnId,omitempty"`
 	DisplayName  string         `json:"displayName,omitempty"`
 	Description  string         `json:"description,omitempty"`
 	Reason       string         `json:"reason,omitempty"`
