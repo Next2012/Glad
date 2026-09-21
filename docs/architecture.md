@@ -47,6 +47,16 @@ Large Codex tool and subagent details remain server-side until the browser reque
 
 Codex text and tool-output deltas are accumulated in provider-owned builders instead of repeatedly copying the complete message. Stream lookups cache the Glad message ID, completed or abandoned streams are released with their provider lifecycle, and retained tool output is capped at 8 MiB before lazy detail delivery.
 
+Claude's stream-json adapter uses the same normalized browser contract through a
+set of focused reducers. Partial assistant events patch one durable message,
+`AskUserQuestion` requests use a question lifecycle that is separate from tool
+approvals, Todo/Task calls update task-plan snapshots, and forwarded subagent
+messages retain their `parent_tool_use_id` relationship. Permission suggestions
+from Claude are returned verbatim when the user chooses “Allow & remember”;
+Glad does not synthesize broader persistent rules. Usage plus context commands
+are combined into one status card, while manual and automatic compaction events
+use the shared compaction presentation.
+
 Codex resume requests load only thread metadata plus an initial full-item page, follow `nextCursor` through the remaining turns, and build normalized history off-session. Glad swaps the completed history atomically and emits one `history-reset`; cancellation or page failure leaves the previous messages intact.
 
 Resume and fork share a provider-owned single-flight boundary, so multiple browsers cannot switch the active Codex thread concurrently. The history picker lists metadata in cursor pages and loads a bounded recent-message preview only when requested.

@@ -24,10 +24,11 @@ type claudeTurn struct {
 	Started int64
 }
 type claudePending struct {
-	RequestID string
-	ToolUseID string
-	ToolName  string
-	Input     map[string]any
+	RequestID   string
+	ToolUseID   string
+	ToolName    string
+	Input       map[string]any
+	Suggestions []any
 }
 
 type ClaudeProvider struct {
@@ -38,14 +39,22 @@ type ClaudeProvider struct {
 	stdin           io.WriteCloser
 	pending         map[string]chan map[string]any
 	permissions     map[string]claudePending
+	questions       map[string]claudePendingQuestion
+	streams         map[string]*claudeTextStream
+	streamAliases   map[string]string
+	taskPlans       map[string]*claudeTaskPlan
 	expectedStops   map[*exec.Cmd]struct{}
 	turns           []claudeTurn
 	closed          bool
 	initialized     bool
+	readyAnnounced  bool
 	resumeID        string
 	claudeSessionID string
 	allowedTools    map[string]bool
 	localCommand    string
+	statusPending   bool
+	statusUsage     map[string]any
+	contextTurnID   string
 }
 
 func NewClaudeProvider(session *Session, options map[string]any) *ClaudeProvider {
@@ -57,6 +66,10 @@ func NewClaudeProvider(session *Session, options map[string]any) *ClaudeProvider
 		options:       options,
 		pending:       map[string]chan map[string]any{},
 		permissions:   map[string]claudePending{},
+		questions:     map[string]claudePendingQuestion{},
+		streams:       map[string]*claudeTextStream{},
+		streamAliases: map[string]string{},
+		taskPlans:     map[string]*claudeTaskPlan{},
 		expectedStops: map[*exec.Cmd]struct{}{},
 		allowedTools:  map[string]bool{},
 		resumeID:      stringValue(options["resume"]),
@@ -113,9 +126,15 @@ func (provider *ClaudeProvider) startLocked(ctx context.Context, fork bool) erro
 		"--permission-prompt-tool",
 		"stdio",
 	}
+	if claudeSupportsRichStream(provider.session.Tool.Version) {
+		args = append(args, "--include-partial-messages", "--forward-subagent-text")
+	}
 	mode := stringValue(provider.options["permissionMode"])
-	if mode == "" || mode == "default" || mode == "bypassPermissions" {
+	if mode == "" || mode == "default" {
 		mode = "manual"
+	}
+	if mode == "bypassPermissions" {
+		args = append(args, "--allow-dangerously-skip-permissions")
 	}
 	args = append(args, "--permission-mode", mode)
 	if model := stringValue(provider.options["model"]); model != "" && model != "default" {
@@ -172,7 +191,10 @@ func (provider *ClaudeProvider) startLocked(ctx context.Context, fork bool) erro
 			"claudeSessionId":        nilIfEmpty(provider.claudeSessionID),
 			"resumeSessionId":        nilIfEmpty(provider.resumeID),
 			"canAbort":               false,
+			"canCompact":             true,
+			"compacting":             false,
 			"pendingPermissionCount": 0,
+			"pendingQuestionCount":   0,
 			"commands":               response["commands"],
 			"models":                 response["models"],
 		},
@@ -248,7 +270,7 @@ func (provider *ClaudeProvider) Send(ctx context.Context, input ProviderInput) e
 	provider.session.appendMessage(
 		map[string]any{
 			"kind": "user", "text": input.Text, "agentText": input.AgentText,
-			"attachments": attachments, "turnId": turn.ID, "createdAt": turn.Started,
+			"attachments": attachments, "skills": input.Skills, "turnId": turn.ID, "createdAt": turn.Started,
 			"clientMessageId": input.ClientMessageID,
 		},
 	)
@@ -272,6 +294,13 @@ func (provider *ClaudeProvider) readStdout(reader io.Reader) {
 			go provider.handleControlRequest(message)
 		case "control_cancel_request":
 			provider.cancelControlRequest(stringValue(message["request_id"]))
+		case "stream_event":
+			provider.mu.Lock()
+			localCommand := provider.localCommand
+			provider.mu.Unlock()
+			if localCommand == "" {
+				provider.handleStreamEvent(message)
+			}
 		case "keep_alive", "transcript_mirror":
 		default:
 			provider.handleMessage(message)
@@ -335,12 +364,23 @@ func (provider *ClaudeProvider) handleControlRequest(message map[string]any) {
 	}
 	toolName, toolUseID := stringValue(request["tool_name"]), stringValue(request["tool_use_id"])
 	input := mapValue(request["input"])
+	if toolName == "ExitPlanMode" || toolName == "exit_plan_mode" {
+		input = enrichClaudePlanInput(input)
+	}
+	if toolName == "AskUserQuestion" {
+		provider.addQuestion(requestID, toolUseID, input)
+		return
+	}
 	if provider.shouldAutoAllow(toolName, input) {
-		provider.sendPermissionResponse(requestID, toolUseID, true, input, nil)
+		provider.sendPermissionResponse(requestID, toolUseID, true, input, nil, "")
 		return
 	}
 	id := newUUID()
-	pending := claudePending{RequestID: requestID, ToolUseID: toolUseID, ToolName: toolName, Input: input}
+	suggestions := sliceValue(firstNonNil(request["permission_suggestions"], request["suggestions"]))
+	pending := claudePending{
+		RequestID: requestID, ToolUseID: toolUseID, ToolName: toolName, Input: input,
+		Suggestions: suggestions,
+	}
 	provider.mu.Lock()
 	provider.permissions[id] = pending
 	provider.mu.Unlock()
@@ -357,15 +397,16 @@ func (provider *ClaudeProvider) handleControlRequest(message map[string]any) {
 			toolName != "ExitPlanMode",
 		CanAllowEdit: toolName == "Edit" || toolName == "Write" || toolName == "NotebookEdit" ||
 			toolName == "ExitPlanMode",
-		CanBypass: toolName == "ExitPlanMode",
-		Input:     input,
-		ToolUseID: toolUseID,
-		CreatedAt: millis(),
+		Input:       input,
+		Suggestions: suggestions,
+		ToolUseID:   toolUseID,
+		CreatedAt:   millis(),
 	}
 	provider.session.addPermission(permission)
 }
 
 func (provider *ClaudeProvider) cancelControlRequest(requestID string) {
+	provider.cancelQuestionRequest(requestID)
 	provider.mu.Lock()
 	for id, pending := range provider.permissions {
 		if pending.RequestID == requestID {
@@ -392,6 +433,13 @@ func (provider *ClaudeProvider) Approve(ctx context.Context, id, decision string
 		action = "allow-once"
 	}
 	updates := []any{}
+	if action == "allow-remember" && len(pending.Suggestions) > 0 {
+		index := int(numberInt64(payload["suggestionIndex"]))
+		if index < 0 || index >= len(pending.Suggestions) {
+			index = 0
+		}
+		updates = append(updates, pending.Suggestions[index])
+	}
 	if action == "allow-tool" {
 		provider.mu.Lock()
 		provider.allowedTools[pending.ToolName] = true
@@ -427,9 +475,12 @@ func (provider *ClaudeProvider) Approve(ctx context.Context, id, decision string
 	}
 	provider.session.finishPermission(id, map[bool]string{true: "approved", false: "denied"}[allowed], action)
 	if allowed {
-		provider.sendPermissionResponse(pending.RequestID, pending.ToolUseID, true, pending.Input, updates)
+		provider.sendPermissionResponse(pending.RequestID, pending.ToolUseID, true, pending.Input, updates, "")
 	} else {
-		provider.sendPermissionResponse(pending.RequestID, pending.ToolUseID, false, pending.Input, nil)
+		provider.sendPermissionResponse(
+			pending.RequestID, pending.ToolUseID, false, pending.Input, nil,
+			firstNonEmpty(stringValue(payload["message"]), claudeDenyMessage),
+		)
 	}
 	provider.session.setState(
 		map[string]any{
@@ -445,10 +496,14 @@ func (provider *ClaudeProvider) sendPermissionResponse(
 	allowed bool,
 	input map[string]any,
 	updates []any,
+	denyMessage string,
 ) {
+	if denyMessage == "" {
+		denyMessage = claudeDenyMessage
+	}
 	response := map[string]any{
 		"behavior":               "deny",
-		"message":                claudeDenyMessage,
+		"message":                denyMessage,
 		"interrupt":              true,
 		"toolUseID":              toolUseID,
 		"decisionClassification": "user_reject",
@@ -478,26 +533,37 @@ func (provider *ClaudeProvider) sendControl(requestID string, response map[strin
 
 func (provider *ClaudeProvider) handleMessage(message map[string]any) {
 	typeName := stringValue(message["type"])
-	if typeName == "system" && stringValue(message["subtype"]) == "local_command_output" {
+	if typeName == "system" && (stringValue(message["subtype"]) == "local_command_output" || stringValue(message["subtype"]) == "local_command") {
 		provider.mu.Lock()
 		command := provider.localCommand
 		provider.localCommand = ""
 		provider.mu.Unlock()
-		provider.appendLocalCommand(command, stringValue(message["content"]), nil)
+		if command == "" {
+			return
+		}
+		provider.appendLocalCommandMessage(command, message)
+		return
+	}
+	if typeName == "system" && strings.Contains(strings.ToLower(stringValue(message["subtype"])), "compact") {
+		provider.appendCompactionMessage(message)
 		return
 	}
 	if typeName == "system" && stringValue(message["subtype"]) == "init" {
 		provider.mu.Lock()
 		provider.claudeSessionID = stringValue(message["session_id"])
 		provider.resumeID = provider.claudeSessionID
+		announceReady := !provider.readyAnnounced
+		provider.readyAnnounced = true
 		provider.mu.Unlock()
-		provider.session.appendMessage(
-			map[string]any{
-				"kind":  "event",
-				"level": "info",
-				"text":  "Claude ready" + modelSuffix(stringValue(message["model"])),
-			},
-		)
+		if announceReady {
+			provider.session.appendMessage(
+				map[string]any{
+					"kind":  "event",
+					"level": "info",
+					"text":  "Claude ready" + modelSuffix(stringValue(message["model"])),
+				},
+			)
+		}
 		provider.session.setState(
 			map[string]any{
 				"claudeSessionId": nilIfEmpty(provider.claudeSessionID),
@@ -519,54 +585,18 @@ func (provider *ClaudeProvider) handleMessage(message map[string]any) {
 		turnID = turn.ID
 	}
 	if typeName == "assistant" {
-		content := sliceValue(mapValue(message["message"])["content"])
-		text := textFromClaudeContent(content)
-		if strings.TrimSpace(text) != "" {
-			provider.session.appendMessage(
-				map[string]any{
-					"kind":   "assistant",
-					"text":   strings.TrimSpace(text),
-					"raw":    message,
-					"turnId": nilIfEmpty(turnID),
-				},
-			)
+		provider.mu.Lock()
+		localCommand := provider.localCommand
+		provider.mu.Unlock()
+		if localCommand != "" {
+			return
 		}
-		for _, blockValue := range content {
-			block := mapValue(blockValue)
-			if stringValue(block["type"]) != "tool_use" {
-				continue
-			}
-			provider.session.appendMessage(
-				map[string]any{
-					"kind":        "tool",
-					"name":        firstNonEmpty(stringValue(block["name"]), "tool"),
-					"summary":     summarizeToolInput(mapValue(block["input"])),
-					"input":       block["input"],
-					"toolUseId":   block["id"],
-					"turnId":      nilIfEmpty(turnID),
-					"startedAtMs": millis(),
-				},
-			)
-		}
+		provider.applyAssistantMessage(message, turnID)
 		provider.session.setState(map[string]any{"status": "thinking", "canAbort": true})
 		return
 	}
 	if typeName == "user" {
-		for _, blockValue := range sliceValue(mapValue(message["message"])["content"]) {
-			block := mapValue(blockValue)
-			if stringValue(block["type"]) == "tool_result" {
-				provider.session.appendMessage(
-					map[string]any{
-						"kind":          "tool-result",
-						"toolUseId":     block["tool_use_id"],
-						"text":          strings.TrimSpace(textFromClaudeContent([]any{block})),
-						"isError":       boolValue(block["is_error"]),
-						"turnId":        nilIfEmpty(turnID),
-						"completedAtMs": millis(),
-					},
-				)
-			}
-		}
+		provider.applyToolResults(message, turnID)
 		return
 	}
 	if typeName == "result" {
@@ -581,8 +611,14 @@ func (provider *ClaudeProvider) handleMessage(message map[string]any) {
 			if output == "" {
 				output = "Claude command returned no output"
 			}
-			provider.appendLocalCommand(localCommand, output, nil)
-			provider.session.setState(map[string]any{"status": "idle", "canAbort": false})
+			provider.appendLocalCommandMessage(localCommand, map[string]any{"content": output})
+			provider.mu.Lock()
+			followupCommand := provider.localCommand != ""
+			contextPending := provider.contextTurnID != ""
+			provider.mu.Unlock()
+			if !followupCommand && !contextPending {
+				provider.session.setState(map[string]any{"status": "idle", "canAbort": false})
+			}
 			return
 		}
 		provider.mu.Lock()
@@ -602,11 +638,27 @@ func (provider *ClaudeProvider) handleMessage(message map[string]any) {
 				duration = millis() - turn.Started
 			}
 			provider.session.appendMessage(
-				map[string]any{"kind": "turn-end", "turnId": turn.ID, "turnStatus": status, "durationMs": duration},
+				map[string]any{
+					"kind": "turn-end", "turnId": turn.ID, "turnStatus": status, "durationMs": duration,
+					"apiDurationMs": message["duration_api_ms"], "costUsd": message["total_cost_usd"],
+					"usage": message["usage"], "modelUsage": message["modelUsage"],
+				},
 			)
+			provider.finishTaskPlan(turn.ID, status)
 		}
 		provider.session.markCompletionUnread()
-		provider.session.setState(map[string]any{"status": "idle", "canAbort": false})
+		if turn != nil {
+			provider.session.setState(map[string]any{"status": "thinking", "canAbort": false})
+			turnID := turn.ID
+			go func() {
+				time.Sleep(10 * time.Millisecond)
+				if !provider.requestTurnContext(turnID) {
+					provider.session.setState(map[string]any{"status": "idle", "canAbort": false})
+				}
+			}()
+		} else {
+			provider.session.setState(map[string]any{"status": "idle", "canAbort": false})
+		}
 		return
 	}
 }
@@ -654,12 +706,26 @@ func (provider *ClaudeProvider) writeLocked(value any) error {
 func (provider *ClaudeProvider) UpdateSettings(ctx context.Context, settings map[string]any) error {
 	provider.mu.Lock()
 	previousEffort := stringValue(provider.options["effort"])
+	previousMode := stringValue(provider.options["permissionMode"])
 	for key, value := range settings {
 		provider.options[key] = value
 	}
 	mode := stringValue(settings["permissionMode"])
-	if mode == "bypassPermissions" {
-		mode = "default"
+	if mode == "default" {
+		mode = "manual"
+	}
+	restartForBypass := (previousMode == "bypassPermissions") !=
+		(stringValue(settings["permissionMode"]) == "bypassPermissions")
+	if restartForBypass && provider.session.StatusValue != "idle" {
+		provider.mu.Unlock()
+		return errors.New("Claude permission mode can only enter or leave Bypass while idle")
+	}
+	if restartForBypass && provider.cmd != nil {
+		provider.stopLocked()
+		if err := provider.startLocked(ctx, false); err != nil {
+			provider.mu.Unlock()
+			return err
+		}
 	}
 	if mode != "" && provider.cmd != nil {
 		_, _ = provider.controlRequestLocked(ctx, map[string]any{"subtype": "set_permission_mode", "mode": mode})
@@ -717,11 +783,31 @@ func (provider *ClaudeProvider) Fork(ctx context.Context, id string) (string, er
 	provider.mu.Unlock()
 	return provider.claudeSessionID, err
 }
-func (provider *ClaudeProvider) Compact(context.Context) error {
-	return errors.New("Claude compact is managed automatically")
+func (provider *ClaudeProvider) Compact(ctx context.Context) error {
+	provider.session.appendMessage(map[string]any{"kind": "compaction", "compactionStatus": "running"})
+	provider.session.setState(map[string]any{"compacting": true, "canCompact": false})
+	if err := provider.RunLocalCommand(ctx, "/compact"); err != nil {
+		provider.session.setState(map[string]any{"compacting": false, "canCompact": true})
+		return err
+	}
+	return nil
 }
 func (provider *ClaudeProvider) Status(ctx context.Context) error {
-	return provider.RunLocalCommand(ctx, "/usage")
+	provider.mu.Lock()
+	if provider.statusPending {
+		provider.mu.Unlock()
+		return errors.New("Claude status is already loading")
+	}
+	provider.statusPending = true
+	provider.statusUsage = nil
+	provider.mu.Unlock()
+	if err := provider.RunLocalCommand(ctx, "/usage"); err != nil {
+		provider.mu.Lock()
+		provider.statusPending = false
+		provider.mu.Unlock()
+		return err
+	}
+	return nil
 }
 
 func (provider *ClaudeProvider) RunLocalCommand(ctx context.Context, command string) error {
@@ -751,6 +837,17 @@ func (provider *ClaudeProvider) RunLocalCommand(ctx context.Context, command str
 
 func (provider *ClaudeProvider) appendLocalCommand(command, output string, commandErr error) {
 	message := map[string]any{"title": "Claude " + strings.TrimPrefix(command, "/")}
+	if command == "/compact" {
+		message["kind"] = "compaction"
+		message["compactionStatus"] = map[bool]string{true: "failed", false: "completed"}[commandErr != nil]
+		message["text"] = output
+		if commandErr != nil {
+			message["error"] = commandErr.Error()
+		}
+		provider.session.appendMessage(message)
+		provider.session.setState(map[string]any{"compacting": false, "canCompact": true})
+		return
+	}
 	if commandErr != nil {
 		message["error"] = commandErr.Error()
 	} else if command == "/context" {
@@ -810,12 +907,14 @@ func parseClaudeUsage(output string) (map[string]any, error) {
 		"tokens": regexp.MustCompile(
 			`(?i)Usage:\s*([\d,.kmb]+) input,\s*([\d,.kmb]+) output,\s*([\d,.kmb]+) cache read,\s*([\d,.kmb]+) cache write`,
 		),
+		"sessionLimit": regexp.MustCompile(`(?im)^Current session:\s*([\d.]+)% used\s*·\s*resets\s*(.+?)\s*$`),
+		"weeklyLimit":  regexp.MustCompile(`(?im)^Current week(?: \(all models\))?:\s*([\d.]+)% used\s*·\s*resets\s*(.+?)\s*$`),
 	}
 	matches := map[string][]string{}
 	for key, pattern := range patterns {
 		matches[key] = pattern.FindStringSubmatch(text)
 	}
-	if len(matches["cost"])+len(matches["api"])+len(matches["tokens"]) == 0 {
+	if len(matches["cost"])+len(matches["api"])+len(matches["tokens"])+len(matches["sessionLimit"])+len(matches["weeklyLimit"]) == 0 {
 		return nil, errors.New("Claude CLI returned an unrecognized /usage response")
 	}
 	result := map[string]any{
@@ -829,6 +928,7 @@ func parseClaudeUsage(output string) (map[string]any, error) {
 		"cacheReadTokens":  nil,
 		"cacheWriteTokens": nil,
 		"models":           []any{},
+		"rateLimits":       []any{},
 	}
 	if len(matches["cost"]) > 1 {
 		result["totalCostUsd"] = numberString(matches["cost"][1])
@@ -849,6 +949,19 @@ func parseClaudeUsage(output string) (map[string]any, error) {
 		result["cacheReadTokens"] = parseTokenCount(matches["tokens"][3])
 		result["cacheWriteTokens"] = parseTokenCount(matches["tokens"][4])
 	}
+	limits := []any{}
+	for _, item := range []struct {
+		key, kind, group string
+	}{{"sessionLimit", "session", "session"}, {"weeklyLimit", "weekly_all", "weekly"}} {
+		match := matches[item.key]
+		if len(match) > 2 {
+			limits = append(limits, map[string]any{
+				"kind": item.kind, "group": item.group, "usedPercent": numberString(match[1]),
+				"resetsLabel": strings.TrimSpace(match[2]),
+			})
+		}
+	}
+	result["rateLimits"] = limits
 	return result, nil
 }
 func parseClaudeContext(output string) (map[string]any, error) {
@@ -869,9 +982,16 @@ func parseClaudeContext(output string) (map[string]any, error) {
 		"model":           nilIfEmpty(model),
 		"usedTokens":      used,
 		"maxTokens":       max,
+		"contextWindow":   max,
 		"usedPercent":     percent,
 		"remainingTokens": max64(0, maxNumber-usedNumber),
-		"categories":      []any{},
+		"remainingPercent": func() int64 {
+			if maxNumber <= 0 {
+				return 0
+			}
+			return max64(0, maxNumber-usedNumber) * 100 / maxNumber
+		}(),
+		"categories": []any{},
 	}, nil
 }
 func numberString(value string) float64 {
@@ -904,11 +1024,20 @@ func (provider *ClaudeProvider) stopLocked() {
 	provider.cmd = nil
 	provider.stdin = nil
 	provider.initialized = false
+	provider.readyAnnounced = false
+	provider.streams = map[string]*claudeTextStream{}
+	provider.streamAliases = map[string]string{}
+	provider.contextTurnID = ""
+	provider.statusPending = false
+	provider.statusUsage = nil
 }
 
 func (provider *ClaudeProvider) shouldAutoAllow(tool string, input map[string]any) bool {
 	provider.mu.Lock()
 	defer provider.mu.Unlock()
+	if tool == "AskUserQuestion" {
+		return false
+	}
 	if provider.allowedTools[tool] {
 		return true
 	}

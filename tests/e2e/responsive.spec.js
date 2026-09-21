@@ -1821,25 +1821,26 @@ test('Claude shows one Working bubble and keeps controls in one freely scrolling
     commitClaudeChatRender();
     const controlIds = page => Array.from(page.children).map(child => child.id
       || child.querySelector('button')?.id || child.querySelector('select')?.id || '');
-    const pages = document.querySelectorAll('.claude-control-page');
+    const groups = document.querySelectorAll('.claude-control-rail > .agent-control-group');
     const stateBar = document.getElementById('claude-state-bar');
     const indicator = document.querySelector('.claude-working-indicator');
     return {
-      first: controlIds(pages[0]),
-      second: controlIds(pages[1]),
+      first: controlIds(groups[0]),
+      second: controlIds(groups[1]),
       stateText: stateBar.textContent,
       indicatorPosition: indicator ? getComputedStyle(indicator).position : '',
-      firstPageDisplay: getComputedStyle(pages[0]).display,
-      secondPageDisplay: getComputedStyle(pages[1]).display,
+      firstPageDisplay: getComputedStyle(groups[0]).display,
+      secondPageDisplay: getComputedStyle(groups[1]).display,
       scrollSnapType: getComputedStyle(document.querySelector('.claude-control-rail')).scrollSnapType
     };
   });
 
   expect(layout.first).toEqual([
-    'claude-model-picker-btn', 'claude-usage-btn', 'claude-context-btn', 'claude-abort-btn',
-    'claude-resume-btn', 'claude-fork-btn'
+    'claude-model-picker-btn', 'claude-status-btn', 'claude-abort-btn', 'claude-resume-btn', 'claude-fork-btn'
   ]);
-  expect(layout.second).toEqual(['claude-permission-picker-btn']);
+  expect(layout.second).toEqual([
+    'claude-prompts-btn', 'claude-compact-btn', 'claude-permission-picker-btn', 'claude-skills-btn', 'claude-commands-btn'
+  ]);
   expect(layout.stateText).not.toContain('Working');
   expect(layout.indicatorPosition).toBe('sticky');
   expect(layout.firstPageDisplay).toBe('flex');
@@ -1849,11 +1850,10 @@ test('Claude shows one Working bubble and keeps controls in one freely scrolling
   await expect(page.locator('.claude-working-indicator')).toHaveCount(1);
   await expect(page.getByText('Claude is working...', { exact: true })).toHaveCount(0);
   await expect(page.locator('.claude-status')).toHaveCount(0);
-  await expect(page.locator('#claude-usage-btn')).toBeInViewport();
-  await expect(page.getByRole('button', { name: 'Context' })).toBeInViewport();
+  await expect(page.locator('#claude-status-btn')).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath('claude-primary-controls.png'), fullPage: true });
   await page.locator('.claude-control-rail').evaluate(element => { element.scrollLeft = element.scrollWidth; });
-  await expect(page.getByRole('button', { name: 'Permission' })).toBeInViewport();
+  await expect(page.getByRole('button', { name: 'Permission mode' })).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath('claude-secondary-controls.png'), fullPage: true });
 });
 
@@ -2030,7 +2030,7 @@ test('model pickers stay compact and normalize provider model data', async ({ pa
   expect(pageErrors).toEqual([]);
 });
 
-test('Claude combines model and effort and renders separate CLI usage and context cards', async ({ page }, testInfo) => {
+test('Claude combines model and effort and renders one status card', async ({ page }, testInfo) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto('/', { waitUntil: 'networkidle' });
@@ -2060,80 +2060,38 @@ test('Claude combines model and effort and renders separate CLI usage and contex
   await expect(picker).toBeVisible();
   await modelButton.click();
 
-  const usageButton = page.locator('#claude-usage-btn');
-  await usageButton.click();
-  await expect.poll(() => page.evaluate(() => window.__claudeSent)).toEqual({ type: 'claude-usage' });
-  await expect(usageButton).toBeDisabled();
-  await expect(usageButton).toHaveText('Loading');
+  const statusButton = page.locator('#claude-status-btn');
+  await statusButton.click();
+  await expect.poll(() => page.evaluate(() => window.__claudeSent)).toEqual({ type: 'claude-status' });
+  await expect(statusButton).toBeDisabled();
+  await expect(statusButton).toHaveText('Loading');
   await page.evaluate(() => applyClaudeEvent({
     type: 'message',
     message: {
-      id: 'usage-card-1',
-      kind: 'usage',
-      title: 'Claude usage',
+      id: 'status-card-1',
+      kind: 'status',
+      title: 'Claude status',
       createdAt: Date.now(),
       usage: {
-        source: 'claude-cli',
-        session: {
-          totalCostUsd: 1.25,
-          apiDuration: '1s',
-          wallDuration: '4.5s',
-          linesAdded: 8,
-          linesRemoved: 3,
-          inputTokens: 100,
-          outputTokens: 20,
-          cacheReadTokens: 30,
-          cacheWriteTokens: 0,
-          models: [{
-            model: 'deepseek-v4-pro[1m]',
-            inputTokens: 100,
-            outputTokens: 20,
-            cacheReadTokens: 30,
-            cacheWriteTokens: 0,
-            costUsd: 1.25
-          }]
-        }
+        totalCostUsd: 1.25, inputTokens: 100, outputTokens: 20,
+        cacheReadTokens: 30, cacheWriteTokens: 0
+      },
+      context: {
+        model: 'deepseek-v4-pro[1m]', usedTokens: 36100, maxTokens: 200000,
+        usedPercent: 18, remainingTokens: 163900
       }
     }
   }));
 
-  const card = page.locator('.claude-usage-card');
+  const card = page.locator('.claude-status-card');
   await expect(card).toBeVisible();
   await expect(card).toContainText('100 in · 20 out');
   await expect(card).toContainText('deepseek-v4-pro[1m]');
   await expect(card).toContainText('$1.25');
-  await expect(usageButton).toBeEnabled();
-
-  const contextButton = page.locator('#claude-context-btn');
-  await contextButton.click();
-  await expect.poll(() => page.evaluate(() => window.__claudeSent)).toEqual({ type: 'claude-context' });
-  await expect(contextButton).toBeDisabled();
-  await expect(contextButton).toHaveText('Loading');
-  await page.evaluate(() => applyClaudeEvent({
-    type: 'message',
-    message: {
-      id: 'context-card-1',
-      kind: 'context',
-      title: 'Claude context',
-      createdAt: Date.now(),
-      context: {
-        model: 'claude-sonnet-4-5-20250929',
-        usedTokens: 36100,
-        maxTokens: 200000,
-        usedPercent: 18,
-        remainingTokens: 163900,
-        categories: [
-          { label: 'System prompt', tokens: 2500, percent: '1.3%' },
-          { label: 'Messages', tokens: 33600, percent: '16.8%' }
-        ]
-      }
-    }
-  }));
-  const contextCard = page.locator('.claude-context-card');
-  await expect(contextCard).toContainText('36.1K / 200.0K');
-  await expect(contextCard).toContainText('18% used');
-  await expect(contextCard).toContainText('163.9K tokens');
-  await expect(contextButton).toBeEnabled();
+  await expect(card).toContainText('36.1K / 200.0K');
+  await expect(card).toContainText('18% used');
+  await expect(card).toContainText('163.9K tokens');
+  await expect(statusButton).toBeEnabled();
   await expect(page.locator('#claude-usage-panel')).toHaveCount(0);
   await expect(page.locator('.claude-context-size-badge')).toHaveCount(0);
   expect(pageErrors).toEqual([]);
@@ -2143,7 +2101,7 @@ test('Claude combines model and effort and renders separate CLI usage and contex
 test('Claude conversation settles tool state and keeps resume controls usable', async ({ page }, testInfo) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
-  await page.route('**/api/sessions/test-claude/claude-resume-sessions', route => route.fulfill({
+  await page.route('**/api/sessions/test-claude/claude-resume-sessions*', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({
@@ -2170,7 +2128,6 @@ test('Claude conversation settles tool state and keeps resume controls usable', 
       resumeSessionId: null
     };
     claudePendingPermissions = [];
-    claudeResumeItemsLoaded = false;
     claudeMessages = [
       ...Array.from({ length: 18 }, (_, index) => ({
         id: `history-${index}`,
@@ -2206,7 +2163,7 @@ test('Claude conversation settles tool state and keeps resume controls usable', 
   await expect(page.locator('.claude-message-time')).toHaveCount(20);
   await expect.poll(() => page.locator('#claude-chat-container').evaluate(element => element.scrollTop)).toBeCloseTo(scrollBefore, 0);
 
-  const controls = page.locator('.claude-control-page').first();
+  const controls = page.locator('.claude-control-rail').first();
   await expectInsideViewport(controls, page);
   const resumeButton = page.getByTitle('Choose a Claude session to resume');
   const forkButton = page.getByTitle('Fork a Claude session');
@@ -2238,7 +2195,7 @@ test('Claude supports edit diffs, image sends, and session forks', async ({ page
     contentType: 'application/json',
     body: JSON.stringify({ success: true, complete: true, attachment: { id: 'file-claude-1', name: 'notes.txt', size: 18, kind: 'file' } })
   }));
-  await page.route('**/api/sessions/test-claude/claude-resume-sessions', route => route.fulfill({
+  await page.route('**/api/sessions/test-claude/claude-resume-sessions*', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({ success: true, items: [{
@@ -2322,7 +2279,7 @@ test('Claude supports edit diffs, image sends, and session forks', async ({ page
 
   await page.evaluate(() => toggleClaudeForkPanel());
   await expect(page.getByText('Fork this Claude work')).toBeVisible();
-  await page.getByText('Fork this Claude work').click();
+  await page.locator('#claude-fork-panel [data-claude-history-action]').click();
   await expect.poll(() => page.evaluate(() => claudeState.claudeSessionId)).toBe('33333333-3333-4333-8333-333333333333');
   expect(pageErrors).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath('claude-p2-features.png'), fullPage: true });

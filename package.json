@@ -6,6 +6,7 @@
   "scripts": {
     "start": "go run .",
     "test:e2e": "playwright test",
+    "test:live:claude": "node scripts/live-claude-smoke.js",
     "build:linux": "node scripts/build-go.js linux amd64 glad-linux-amd64",
     "build:linux:arm64": "node scripts/build-go.js linux arm64 glad-linux-arm64",
     "build:macos:x64": "node scripts/build-go.js darwin amd64 glad-macos-x64",

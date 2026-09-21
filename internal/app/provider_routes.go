@@ -16,6 +16,7 @@ import (
 
 func (server *Server) registerProviderRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions/{id}/claude-resume-sessions", server.claudeResumeSessions)
+	mux.HandleFunc("GET /api/sessions/{id}/claude-session-preview", server.claudeSessionPreview)
 	mux.HandleFunc("PATCH /api/sessions/{id}/claude-settings", server.providerSettings)
 	mux.HandleFunc("POST /api/sessions/{id}/claude-abort", server.providerAbort)
 	mux.HandleFunc("POST /api/sessions/{id}/claude-resume", server.claudeResume)
@@ -161,7 +162,38 @@ func (server *Server) claudeResumeSessions(writer http.ResponseWriter, request *
 		notFound(writer, "Claude session not found")
 		return
 	}
-	respondJSON(writer, 200, map[string]any{"success": true, "items": listClaudeTranscripts(session.WorkingDirectory)})
+	query := request.URL.Query()
+	items, nextOffset := listClaudeTranscriptPage(
+		session.WorkingDirectory, query.Get("sort"),
+		atoiDefault(query.Get("offset"), 0), atoiDefault(query.Get("limit"), 20),
+	)
+	respondJSON(writer, 200, map[string]any{"success": true, "items": items, "nextOffset": nextOffset, "hasMore": nextOffset >= 0})
+}
+
+func (server *Server) claudeSessionPreview(writer http.ResponseWriter, request *http.Request) {
+	session := server.sessions.Get(request.PathValue("id"))
+	if session == nil || session.Kind != "claude-structured" {
+		notFound(writer, "Claude session not found")
+		return
+	}
+	id := strings.TrimSpace(request.URL.Query().Get("sessionId"))
+	if !regexp.MustCompile(`^[0-9a-f-]{36}$`).MatchString(id) {
+		respondError(writer, http.StatusBadRequest, errors.New("invalid Claude session id"))
+		return
+	}
+	messages := readClaudeTranscript(session.WorkingDirectory, id)
+	if len(messages) > 6 {
+		messages = messages[len(messages)-6:]
+	}
+	preview := make([]map[string]any, 0, len(messages))
+	for _, message := range messages {
+		text := stringValue(message["text"])
+		if len(text) > 1200 {
+			text = text[:1200] + "…"
+		}
+		preview = append(preview, map[string]any{"kind": message["kind"], "text": text})
+	}
+	respondJSON(writer, http.StatusOK, map[string]any{"success": true, "messages": preview})
 }
 
 func (server *Server) codexResume(writer http.ResponseWriter, request *http.Request) {
@@ -342,7 +374,7 @@ func claudeProjectDir(cwd string) string {
 	encoded := regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(filepath.Clean(cwd), "-")
 	return filepath.Join(home, ".claude", "projects", encoded)
 }
-func listClaudeTranscripts(cwd string) []map[string]any {
+func listClaudeTranscriptPage(cwd, sortBy string, offset, limit int) ([]map[string]any, int) {
 	directory := claudeProjectDir(cwd)
 	entries, _ := os.ReadDir(directory)
 	items := []map[string]any{}
@@ -354,39 +386,64 @@ func listClaudeTranscripts(cwd string) []map[string]any {
 		if err != nil {
 			continue
 		}
-		questions := claudeQuestions(filepath.Join(directory, entry.Name()))
+		questions, createdAt := claudeTranscriptSummary(filepath.Join(directory, entry.Name()))
 		items = append(
 			items,
 			map[string]any{
 				"id":        strings.TrimSuffix(entry.Name(), ".jsonl"),
 				"cwd":       cwd,
+				"createdAt": createdAt,
 				"updatedAt": info.ModTime().UnixMilli(),
 				"size":      info.Size(),
 				"questions": questions,
 			},
 		)
 	}
-	sort.Slice(
-		items,
-		func(i, j int) bool { return numberInt64(items[i]["updatedAt"]) > numberInt64(items[j]["updatedAt"]) },
-	)
-	if len(items) > 40 {
-		items = items[:40]
+	sort.Slice(items, func(i, j int) bool {
+		key := "updatedAt"
+		if sortBy == "created_at" {
+			key = "createdAt"
+		}
+		return numberInt64(items[i][key]) > numberInt64(items[j][key])
+	})
+	if offset < 0 {
+		offset = 0
 	}
-	return items
+	if offset > len(items) {
+		offset = len(items)
+	}
+	if limit < 1 || limit > 50 {
+		limit = 20
+	}
+	end := offset + limit
+	if end > len(items) {
+		end = len(items)
+	}
+	nextOffset := -1
+	if end < len(items) {
+		nextOffset = end
+	}
+	return items[offset:end], nextOffset
 }
-func claudeQuestions(filename string) []string {
+func claudeTranscriptSummary(filename string) ([]string, int64) {
 	file, err := os.Open(filename)
 	if err != nil {
-		return []string{}
+		return []string{}, 0
 	}
 	defer file.Close()
 	questions := []string{}
+	createdAt := int64(0)
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 16<<20)
 	for scanner.Scan() {
 		var record map[string]any
-		if json.Unmarshal(scanner.Bytes(), &record) != nil || stringValue(record["type"]) != "user" ||
+		if json.Unmarshal(scanner.Bytes(), &record) != nil {
+			continue
+		}
+		if timestamp := stringValue(record["timestamp"]); createdAt == 0 && timestamp != "" {
+			createdAt = parseTimeMillis(timestamp)
+		}
+		if stringValue(record["type"]) != "user" ||
 			boolValue(record["isSidechain"]) {
 			continue
 		}
@@ -401,7 +458,7 @@ func claudeQuestions(filename string) []string {
 	for i, j := 0, len(questions)-1; i < j; i, j = i+1, j-1 {
 		questions[i], questions[j] = questions[j], questions[i]
 	}
-	return questions
+	return questions, createdAt
 }
 func readClaudeTranscript(cwd, id string) []map[string]any {
 	filename := filepath.Join(claudeProjectDir(cwd), id+".jsonl")

@@ -24,6 +24,13 @@ type ApprovalProvider interface {
 	Approve(context.Context, string, string, map[string]any) error
 }
 
+// UserInputProvider handles structured questions raised while an agent turn is
+// still active. Questions are deliberately separate from approvals: answering
+// a product question is not a grant of filesystem or command permissions.
+type UserInputProvider interface {
+	RespondUserInput(context.Context, string, map[string]any) error
+}
+
 type SettingsProvider interface {
 	UpdateSettings(context.Context, map[string]any) error
 }
@@ -82,8 +89,8 @@ type Permission struct {
 	BlockedPath  string         `json:"blockedPath,omitempty"`
 	CanAllowTool bool           `json:"canAllowTool"`
 	CanAllowEdit bool           `json:"canAllowEdits,omitempty"`
-	CanBypass    bool           `json:"canBypass,omitempty"`
 	Input        map[string]any `json:"input"`
+	Suggestions  []any          `json:"suggestions,omitempty"`
 	ToolUseID    string         `json:"toolUseId,omitempty"`
 	CreatedAt    int64          `json:"createdAt"`
 }

@@ -415,6 +415,15 @@ func (server *Server) handleWebsocketMessage(
 			return
 		}
 		agentText := promptWithFiles(text, files)
+		if messageType == "claude-input" && len(skills) > 0 {
+			command := strings.TrimSpace(firstNonEmpty(stringValue(skills[0]["command"]), stringValue(skills[0]["name"])))
+			if command != "" {
+				if !strings.HasPrefix(command, "/") {
+					command = "/" + command
+				}
+				agentText = strings.TrimSpace(command + " " + agentText)
+			}
+		}
 		err := session.Provider.Send(
 			ctx,
 			ProviderInput{
@@ -442,6 +451,10 @@ func (server *Server) handleWebsocketMessage(
 		if provider, ok := session.Provider.(ApprovalProvider); ok {
 			_ = provider.Approve(ctx, stringValue(payload["id"]), decision, payload)
 		}
+	case "claude-user-input":
+		if provider, ok := session.Provider.(UserInputProvider); ok {
+			_ = provider.RespondUserInput(ctx, stringValue(payload["id"]), payload)
+		}
 	case "codex-permission":
 		decision := stringValue(payload["decision"])
 		if decision == "" && boolValue(payload["approved"]) {
@@ -466,6 +479,10 @@ func (server *Server) handleWebsocketMessage(
 		if provider, ok := session.Provider.(StatusProvider); ok {
 			_ = provider.Status(ctx)
 		}
+	case "claude-status":
+		if provider, ok := session.Provider.(StatusProvider); ok {
+			_ = provider.Status(ctx)
+		}
 	case "claude-usage":
 		if provider, ok := session.Provider.(*ClaudeProvider); ok {
 			_ = provider.RunLocalCommand(ctx, "/usage")
@@ -475,6 +492,10 @@ func (server *Server) handleWebsocketMessage(
 			_ = provider.RunLocalCommand(ctx, "/context")
 		}
 	case "codex-compact":
+		if provider, ok := session.Provider.(CompactProvider); ok {
+			_ = provider.Compact(ctx)
+		}
+	case "claude-compact":
 		if provider, ok := session.Provider.(CompactProvider); ok {
 			_ = provider.Compact(ctx)
 		}
