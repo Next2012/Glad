@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-09-21
+
+### Added
+
+- Show Claude `AskUserQuestion` requests as dedicated answer cards, separate from tool approvals, and return structured answers without interrupting the active turn.
+- Track Claude Todo and Task activity in durable progress cards, group forwarded subagent messages with their parent task, and keep partial assistant output in one live message.
+- Add Claude prompt history, skill selection, command browsing, context compaction, and a combined usage/context status card with subscription rate limits.
+- Browse Claude history by creation or update time with pagination and bounded conversation previews before resuming or forking.
+- Add an opt-in live Claude Haiku smoke test alongside focused backend and browser coverage for the structured workflow.
+
+### Changed
+
+- Align Claude and Codex controls into one continuous action rail and share task-plan and context presentation between providers.
+- Pass Claude's own permission suggestions through unchanged when the user selects “Allow & remember”, and expose the `dontAsk` permission mode.
+
+### Fixed
+
+- Resume large Codex conversations from one-turn summary pages so persisted tool output cannot overflow the app-server response pipe.
+
 ## [2.4.3] - 2026-09-20
 
 ### Fixed

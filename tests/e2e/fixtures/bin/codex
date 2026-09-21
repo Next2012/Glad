@@ -197,7 +197,7 @@ input.on('line', line => {
     if (threadId === 'plan-history-e2e') {
       result = historicalPlanThread(threadId);
     } else if (threadId === 'large-history-e2e') {
-      if (request.params?.excludeTurns !== true || request.params?.initialTurnsPage?.itemsView !== 'full') {
+      if (request.params?.excludeTurns !== true || request.params?.initialTurnsPage?.itemsView !== 'summary') {
         write({ id: request.id, error: { message: 'large history must use metadata-only paginated resume' } });
         return;
       }
@@ -227,8 +227,8 @@ input.on('line', line => {
         { type: 'commandExecution', aggregatedOutput: 'Hidden tool payload' }
       ] }], nextCursor: 'older-preview-not-needed' };
     } else if (request.params?.threadId === 'large-history-e2e' && request.params?.cursor === 'large-history-page-2') {
-      if (request.params?.itemsView !== 'full') {
-        write({ id: request.id, error: { message: 'history pages must include full items' } });
+      if (request.params?.itemsView !== 'summary') {
+        write({ id: request.id, error: { message: 'history pages must use bounded summaries' } });
         return;
       }
       result = { data: largeHistoryTurns().slice(50), nextCursor: null };

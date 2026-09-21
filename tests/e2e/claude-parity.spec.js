@@ -42,9 +42,8 @@ test('Claude and Codex use one continuous action rail without legacy pages', asy
   expect(new Set(claudeGeometry.map(item => item.height))).toEqual(new Set([40]));
   await expect(page.locator('#claude-usage-btn, #claude-context-btn')).toHaveCount(0);
   await page.evaluate(() => applyClaudeState({ permissionMode: 'plan' }));
-  const modePill = page.locator('#session-attention-rail .session-attention-pill.mode');
+  const modePill = page.locator('#session-attention-rail > .session-attention-pill.mode:first-child');
   await expect(modePill).toHaveText('Plan mode');
-  expect(await modePill.evaluate(element => element === element.parentElement.firstElementChild)).toBe(true);
   await expect(page.locator('#claude-state-bar')).not.toContainText('Plan mode');
 
   await page.evaluate(() => {
