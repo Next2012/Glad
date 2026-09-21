@@ -1436,7 +1436,7 @@ func TestCodexHistoryPaginationPublishesOneAtomicReset(t *testing.T) {
 		}
 		params := mapValue(request["params"])
 		if request["method"] != "thread/turns/list" || stringValue(params["cursor"]) != "older" ||
-			stringValue(params["itemsView"]) != "full" || numberInt64(params["limit"]) != 1 {
+			stringValue(params["itemsView"]) != "summary" || numberInt64(params["limit"]) != 1 {
 			t.Fatalf("unexpected history page request: %#v", request)
 		}
 		provider.handleRPC(map[string]any{

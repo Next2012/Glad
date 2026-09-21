@@ -1457,9 +1457,9 @@ func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, err
 }
 
 func codexInitialTurnsPageParams() map[string]any {
-	// Codex 目前会把一整页 JSON 作为一次非阻塞 stdout 写入。工具结果较大的会话
-	// 在默认页大小下可能触发 EAGAIN，因此按单个 turn 分页，再由 Glad 顺序合并。
-	return map[string]any{"limit": 1, "sortDirection": "desc", "itemsView": "full"}
+	// Codex 会把一页历史编码为单条 JSONL。完整工具输出可能超过 stdout 管道容量，
+	// 因此按单个 turn 读取消息摘要；会话继续使用原始 thread，不改写持久化历史。
+	return map[string]any{"limit": 1, "sortDirection": "desc", "itemsView": "summary"}
 }
 
 func (provider *CodexProvider) hydrateThread(ctx context.Context, result map[string]any) error {
