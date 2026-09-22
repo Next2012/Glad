@@ -46,6 +46,15 @@ test('Claude and Codex use one continuous action rail without legacy pages', asy
   await expect(modePill).toHaveText('Plan mode');
   await expect(page.locator('#claude-state-bar')).not.toContainText('Plan mode');
 
+  await page.locator('#claude-permission-picker-btn').click();
+  const permissionPicker = page.locator('#claude-picker-panel');
+  await expect(permissionPicker.getByRole('button', { name: 'Auto' })).toBeVisible();
+  await permissionPicker.getByRole('button', { name: 'Auto' }).click();
+  await expect.poll(() => page.evaluate(() => window.__claudeSent.find(item =>
+    item.type === 'claude-settings' && item.settings?.permissionMode === 'auto')))
+    .toMatchObject({ type: 'claude-settings', settings: { permissionMode: 'auto' } });
+  await expect(modePill).toHaveText('Auto');
+
   await page.evaluate(() => {
     activeToolKey = 'codex';
     setClaudeModeEnabled(false);
@@ -147,6 +156,24 @@ test('Claude action panels expose prompts, skills and commands', async ({ page }
 
   await page.locator('#claude-commands-btn').click();
   await expect(page.locator('#claude-command-panel')).toContainText('/review');
+});
+
+test('Claude resolves the Default model label from the live model catalog', async ({ page }) => {
+  await openClaudeHarness(page);
+  await page.evaluate(() => applyClaudeState({
+    model: 'default',
+    models: [{
+      value: 'default',
+      displayName: 'Default (recommended)',
+      resolvedModel: 'claude-sonnet-5'
+    }]
+  }));
+
+  await page.locator('#claude-model-picker-btn').click();
+  const modelPicker = page.locator('#claude-picker-panel');
+  await expect(modelPicker).toContainText('Default (Sonnet 5)');
+  await expect(modelPicker).toContainText('claude-sonnet-5');
+  await expect(page.locator('#claude-model-picker-btn')).toHaveAttribute('title', /claude-sonnet-5/);
 });
 
 test('Claude history supports sorting, pagination and preview before switching', async ({ page }) => {

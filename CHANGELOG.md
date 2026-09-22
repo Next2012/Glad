@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.2] - 2026-09-22
+
+### Added
+
+- Expose Claude's native Auto permission mode in the session controls so its safety classifier can reduce routine approval prompts without using Bypass.
+
+### Fixed
+
+- Show the concrete model behind Claude's Default selection from the live model catalog, and keep that session catalog from being overwritten when the picker opens.
+
 ## [2.5.1] - 2026-09-22
 
 ### Changed
