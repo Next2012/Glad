@@ -100,17 +100,34 @@ test('Claude renders structured questions, tasks, subagents and status cards', a
 
   await page.evaluate(() => applyClaudeEvent({ type: 'message', message: {
     id: 'status-1', kind: 'status', title: 'Claude status', usage: { totalCostUsd: 0.01, inputTokens: 100, outputTokens: 20,
-      rateLimits: [{ kind: 'session', usedPercent: 3, resetsAt: '2026-09-21T05:20:00Z' }] },
+      rateLimits: [
+        { kind: 'session', usedPercent: 3, resetsAt: '2026-09-21T05:20:00Z' },
+        { kind: 'weekly_all', usedPercent: 7, resetsAt: '2026-09-23T07:00:00Z' }
+      ] },
     context: { model: 'haiku', usedTokens: 1200, maxTokens: 200000, usedPercent: 1, remainingTokens: 198800 }
   } }));
   await expect(page.locator('.claude-status-card')).toContainText('haiku');
   await expect(page.locator('.claude-status-card')).toContainText('198.8K tokens');
   await expect(page.locator('.claude-status-card')).toContainText('97% left');
+	await expect(page.locator('.claude-status-card')).toContainText('Current week');
+	await expect(page.locator('.claude-status-card')).toContainText('93% left');
 
   await page.getByRole('button', { name: 'Jump to pending Claude approval' }).click();
   await page.locator('[data-claude-permission-id="permission-1"]').getByRole('button', { name: 'Allow & remember' }).click();
   await expect.poll(() => page.evaluate(() => window.__claudeSent.find(item => item.type === 'claude-permission')))
     .toMatchObject({ type: 'claude-permission', id: 'permission-1', action: 'allow-remember', approved: true });
+
+  await page.evaluate(() => applyClaudeEvent({
+    type: 'permission-updated',
+    request: { id: 'permission-1', status: 'approved', toolUseId: 'bash-1', toolName: 'Bash' },
+    state: { status: 'thinking', pendingPermissionCount: 0, canAbort: true }
+  }));
+  await expect(page.getByRole('button', { name: 'Jump to pending Claude approval' })).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => ({
+    status: claudeState.status,
+    count: claudeState.pendingPermissionCount,
+    permissions: claudePendingPermissions.length
+  }))).toEqual({ status: 'thinking', count: 0, permissions: 0 });
 });
 
 test('Claude action panels expose prompts, skills and commands', async ({ page }) => {
@@ -133,6 +150,7 @@ test('Claude action panels expose prompts, skills and commands', async ({ page }
 });
 
 test('Claude history supports sorting, pagination and preview before switching', async ({ page }) => {
+	let resumeBody = null;
   await page.route('**/api/sessions/claude-parity/claude-resume-sessions*', async route => {
     const url = new URL(route.request().url());
     const offset = Number(url.searchParams.get('offset') || 0);
@@ -148,6 +166,12 @@ test('Claude history supports sorting, pagination and preview before switching',
     status: 200, contentType: 'application/json',
     body: JSON.stringify({ success: true, messages: [{ kind: 'user', text: 'Preview request' }, { kind: 'assistant', text: 'Preview response' }] })
   }));
+	await page.route('**/api/sessions/claude-parity/claude-resume', async route => {
+		resumeBody = route.request().postDataJSON();
+		await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+			success: true, claudeSessionId: resumeBody.resumeSessionId
+		}) });
+	});
   await openClaudeHarness(page);
   await page.locator('#claude-resume-btn').click();
   const panel = page.locator('#claude-resume-panel');
@@ -159,4 +183,9 @@ test('Claude history supports sorting, pagination and preview before switching',
   await expect(panel.getByText('Older session')).toBeVisible();
   await panel.getByLabel('Claude history sort').selectOption('created_at');
   await expect(panel.getByText('Recent session')).toBeVisible();
+	await panel.getByRole('button', { name: 'Resume', exact: true }).first().click();
+	await expect.poll(() => resumeBody).toEqual({ resumeSessionId: '11111111-1111-4111-8111-111111111111' });
+	await expect(panel).not.toHaveClass(/active/);
+	await expect.poll(() => page.evaluate(() => claudeState.claudeSessionId))
+		.toBe('11111111-1111-4111-8111-111111111111');
 });

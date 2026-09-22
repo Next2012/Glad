@@ -761,29 +761,34 @@ test('usage dashboard selects week or month and renders model summaries with dai
     const scope = url.searchParams.get('scope') || 'weekly';
     const availablePeriods = scope === 'weekly' ? ['2026-08-24', '2026-08-17'] : ['2026-08', '2026-07'];
     const selectedPeriod = url.searchParams.get('period') || availablePeriods[0];
-    const models = [
-      { modelName: 'gpt-5.6-sol', uncachedInputTokens: 123456, cachedInputTokens: 9876543, outputTokens: 45678, totalTokens: 10045677, estimatedCostUSD: 8.7654 },
-      { modelName: 'deepseek-v4-pro', uncachedInputTokens: 4000, cachedInputTokens: 0, outputTokens: 200, totalTokens: 4200, estimatedCostUSD: null }
-    ];
+	const source = url.searchParams.get('source') || 'codex';
+	const models = source === 'claude' ? [
+	  { modelName: 'claude-opus-5', uncachedInputTokens: 1234, cachedInputTokens: 98765, outputTokens: 456, totalTokens: 100455, estimatedCostUSD: 2.3456 }
+	] : [
+	  { modelName: 'gpt-6-astra', uncachedInputTokens: 123456, cachedInputTokens: 9876543, outputTokens: 45678, totalTokens: 10045677, estimatedCostUSD: 8.7654 },
+	  { modelName: 'deepseek-v4-pro', uncachedInputTokens: 4000, cachedInputTokens: 0, outputTokens: 200, totalTokens: 4200, estimatedCostUSD: null }
+	];
+	const estimatedCostUSD = models.reduce((sum, model) => sum + Number(model.estimatedCostUSD || 0), 0);
+	const totalTokens = models.reduce((sum, model) => sum + model.totalTokens, 0);
     return route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
-        source: { id: 'codex', label: 'Codex', badge: 'CX' },
+		 source: { id: source, label: source === 'claude' ? 'Claude' : 'Codex', badge: source === 'claude' ? 'CL' : 'CX' },
         scope,
         availablePeriods,
         selectedPeriod,
         summary: {
           models,
-          totals: { uncachedInputTokens: 127456, cachedInputTokens: 9876543, outputTokens: 45878, totalTokens: 10049877, estimatedCostUSD: 8.7654 }
-        },
-        days: [
-          { period: '2026-08-25', models, totals: { totalTokens: 10049877, estimatedCostUSD: 8.7654 } },
-          { period: '2026-08-26', models: [models[0]], totals: { totalTokens: 10045677, estimatedCostUSD: 8.7654 } }
-        ],
+		  totals: { uncachedInputTokens: 127456, cachedInputTokens: 9876543, outputTokens: 45878, totalTokens, estimatedCostUSD }
+		},
+		days: [
+		  { period: '2026-08-25', models, totals: { totalTokens, estimatedCostUSD } },
+		  { period: '2026-08-26', models: [models[0]], totals: { totalTokens: models[0].totalTokens, estimatedCostUSD: models[0].estimatedCostUSD } }
+		],
         generatedAt: '2026-08-26T10:00:00.000Z',
         timezone: 'Asia/Shanghai',
-        engine: { name: 'ccusage', version: '20.0.20', pricingMode: 'embedded' },
-        cost: { basis: 'ccusage estimate for Codex GPT models', note: 'Estimate only.' }
+		engine: { name: 'ccusage', version: '20.0.24', pricingMode: 'embedded' },
+		cost: { basis: `ccusage estimate for ${source}`, note: 'Estimate only.' }
       })
     });
   });
@@ -799,8 +804,8 @@ test('usage dashboard selects week or month and renders model summaries with dai
   await expect(page.locator('#usage-scope-weekly')).toHaveClass(/active/);
   await expect(page.locator('#usage-period-select')).toHaveValue('2026-08-24');
   await expect(page.locator('#usage-summary')).toContainText('All-model tokens');
-  await expect(page.locator('#usage-summary')).toContainText('All GPT cost');
-  await expect(page.locator('#usage-model-summary')).toContainText('gpt-5.6-sol');
+	await expect(page.locator('#usage-summary')).toContainText('Estimated cost');
+	await expect(page.locator('#usage-model-summary')).toContainText('gpt-6-astra');
   await expect(page.locator('#usage-model-summary')).toContainText('deepseek-v4-pro');
   await expect(page.locator('#usage-model-summary')).toContainText('All models');
   await expect(page.locator('#usage-model-summary tbody tr').filter({ hasText: 'deepseek-v4-pro' })).toContainText('—');
@@ -809,7 +814,7 @@ test('usage dashboard selects week or month and renders model summaries with dai
   await expect(page.locator('#usage-cost-chart .usage-chart-row')).toHaveCount(2);
   await expect(page.locator('#usage-cost-legend')).not.toContainText('deepseek-v4-pro');
   await expect(page.locator('#usage-daily-table')).toContainText('2026-08-26');
-  await expect(page.locator('#usage-engine-note')).toContainText('ccusage 20.0.20');
+	await expect(page.locator('#usage-engine-note')).toContainText('ccusage 20.0.24');
   await expect(page.locator('#usage-engine-note')).toContainText('embedded pricing');
   await expectInsideViewport(page.locator('.usage-summary-card').first(), page);
 
@@ -818,6 +823,14 @@ test('usage dashboard selects week or month and renders model summaries with dai
   await page.getByRole('button', { name: 'Month', exact: true }).click();
   await expect(page.locator('#usage-scope-monthly')).toHaveClass(/active/);
   await expect(page.locator('#usage-period-select')).toHaveValue('2026-08');
+
+	await page.evaluate(() => showLobby());
+	await page.getByTitle('Usage dashboard').click();
+	await page.getByRole('button', { name: /Claude/ }).click();
+	await expect(page.locator('#usage-source-title')).toHaveText('Claude Usage');
+	await expect(page.locator('#usage-summary')).toContainText('Estimated cost');
+	await expect(page.locator('#usage-model-summary')).toContainText('claude-opus-5');
+	await expect(page.locator('#usage-model-summary')).toContainText('$2.35');
 
   expect(pageErrors).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath('usage-dashboard.png'), fullPage: true });

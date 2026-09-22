@@ -131,6 +131,36 @@ func TestClaudeStatusUsesStructuredContextData(t *testing.T) {
 	}
 }
 
+func TestClaudeStatusMergesRateLimitWindowsAndReusesCard(t *testing.T) {
+	provider, session := claudeFeatureTestProvider()
+	provider.statusPending = true
+	provider.statusUsage = map[string]any{"rateLimits": []any{
+		map[string]any{"kind": "session", "group": "session", "usedPercent": float64(8), "resetsAt": "2026-09-22T05:00:00Z"},
+	}}
+	provider.finishStatus(map[string]any{"model": "haiku"}, nil)
+
+	provider.statusPending = true
+	provider.statusUsage = map[string]any{"rateLimits": []any{
+		map[string]any{"kind": "weekly_all", "group": "weekly", "usedPercent": float64(7), "resetsAt": "2026-09-23T07:00:00Z"},
+	}}
+	provider.finishStatus(map[string]any{"model": "haiku"}, nil)
+
+	statusMessages := []map[string]any{}
+	for _, message := range session.Messages {
+		if stringValue(message["kind"]) == "status" {
+			statusMessages = append(statusMessages, message)
+		}
+	}
+	if len(statusMessages) != 1 {
+		t.Fatalf("status refresh appended duplicate cards: %#v", session.Messages)
+	}
+	limits := sliceValue(mapValue(statusMessages[0]["usage"])["rateLimits"])
+	if len(limits) != 2 || stringValue(mapValue(limits[0])["kind"]) != "session" ||
+		stringValue(mapValue(limits[1])["kind"]) != "weekly_all" {
+		t.Fatalf("rate-limit windows were not merged in display order: %#v", limits)
+	}
+}
+
 func TestClaudeUsageParsesSubscriptionReport(t *testing.T) {
 	usage, err := claudeUsageFromCommand(map[string]any{"usageReport": map[string]any{
 		"session": map[string]any{
@@ -226,9 +256,10 @@ func TestClaudeReadyEventIsEmittedOncePerRuntime(t *testing.T) {
 }
 
 func TestClaudePermissionRememberEchoesProviderSuggestion(t *testing.T) {
-	provider, _ := claudeFeatureTestProvider()
+	provider, session := claudeFeatureTestProvider()
 	output := &bytes.Buffer{}
 	provider.stdin = nopWriteCloser{Buffer: output}
+	provider.turns = []claudeTurn{{ID: "turn-1", Started: millis()}}
 	provider.permissions["permission-1"] = claudePending{
 		RequestID: "permission-rpc", ToolUseID: "tool-1", ToolName: "Bash",
 		Input:       map[string]any{"command": "go test ./..."},
@@ -245,5 +276,9 @@ func TestClaudePermissionRememberEchoesProviderSuggestion(t *testing.T) {
 	wire := mapValue(mapValue(response["response"])["response"])
 	if len(sliceValue(wire["updatedPermissions"])) != 1 {
 		t.Fatalf("provider suggestion was not echoed: %#v", response)
+	}
+	if session.StatusValue != "thinking" || stringValue(session.State["status"]) != "thinking" ||
+		numberInt64(session.State["pendingPermissionCount"]) != 0 {
+		t.Fatalf("resolved approval left stale session state: status=%s state=%#v", session.StatusValue, session.State)
 	}
 }

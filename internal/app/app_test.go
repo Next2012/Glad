@@ -950,7 +950,7 @@ func TestCodexPublishesActiveSubagentThreadIDsByStartTime(t *testing.T) {
 	}
 }
 
-func TestUsageNormalizationOnlyPricesCodexGPTModels(t *testing.T) {
+func TestUsageNormalizationPreservesProviderCostEstimates(t *testing.T) {
 	agent := map[string]any{"modelBreakdowns": []any{
 		map[string]any{
 			"modelName":    "gpt-test",
@@ -965,13 +965,12 @@ func TestUsageNormalizationOnlyPricesCodexGPTModels(t *testing.T) {
 			"cost":         float64(2.5),
 		},
 	}}
-	models := normalizeUsageModels("codex", agent)
-	if models[0].Cost == nil && models[1].Cost == nil {
-		t.Fatal("Codex GPT cost was not preserved")
-	}
-	for _, model := range models {
-		if model.ModelName == "claude-test" && model.Cost != nil {
-			t.Fatalf("non-GPT cost leaked: %#v", model)
+	for _, source := range []string{"codex", "claude"} {
+		models := normalizeUsageModels(source, agent)
+		for _, model := range models {
+			if numberFloat(model.Cost) <= 0 {
+				t.Fatalf("%s provider estimate was discarded: %#v", source, model)
+			}
 		}
 	}
 }
@@ -1091,8 +1090,33 @@ func TestPermissionEventsCarryAuthoritativeSessionState(t *testing.T) {
 	}
 	updatedEvent := <-subscription.Events()
 	updatedState := mapValue(updatedEvent.Payload["state"])
-	if stringValue(updatedEvent.Payload["type"]) != "permission-updated" || numberInt64(updatedState["pendingPermissionCount"]) != 0 {
+	if stringValue(updatedEvent.Payload["type"]) != "permission-updated" || numberInt64(updatedState["pendingPermissionCount"]) != 0 ||
+		stringValue(updatedState["status"]) != "running" {
 		t.Fatalf("permission update omitted authoritative count: %#v", updatedEvent.Payload)
+	}
+}
+
+func TestClaudeConversationReplacementClearsOldRuntimePresentation(t *testing.T) {
+	session := newSession(
+		"claude-replace", "Claude", "claude-structured",
+		ToolInfo{Key: "claude-code", DisplayName: "Claude"}, t.TempDir(),
+	)
+	session.Messages = []map[string]any{{"id": "old", "kind": "assistant", "text": "old"}}
+	session.Permissions["old-approval"] = Permission{ID: "old-approval", Status: "pending"}
+	session.CompletedPermissions = []Permission{{ID: "completed", Status: "approved"}}
+	session.StatusValue = "waiting_approval"
+	session.State["status"] = "waiting_approval"
+	session.State["pendingPermissionCount"] = 1
+
+	replacement := []map[string]any{{"id": "new", "kind": "user", "text": "new"}}
+	if !session.replaceClaudeConversation(replacement) {
+		t.Fatal("conversation replacement failed")
+	}
+	if len(session.Messages) != 1 || session.Messages[0]["id"] != "new" ||
+		len(session.Permissions) != 0 || len(session.CompletedPermissions) != 0 ||
+		session.StatusValue != "idle" || stringValue(session.State["status"]) != "idle" {
+		t.Fatalf("old conversation state leaked after replacement: messages=%#v permissions=%#v completed=%#v state=%#v",
+			session.Messages, session.Permissions, session.CompletedPermissions, session.State)
 	}
 }
 

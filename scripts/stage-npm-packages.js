@@ -4,8 +4,13 @@ const path = require('path');
 const version = process.argv[2];
 const artifactRoot = path.resolve(process.argv[3] || 'dist');
 const outputRoot = path.resolve(process.argv[4] || 'dist/npm');
+const rootManifest = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'));
+const ccusageVersion = rootManifest.devDependencies && rootManifest.devDependencies.ccusage;
 if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version || '')) {
   throw new Error('Usage: node scripts/stage-npm-packages.js <version> [artifact-directory]');
+}
+if (!/^\d+\.\d+\.\d+$/.test(ccusageVersion || '')) {
+  throw new Error('package.json must pin an exact ccusage version');
 }
 
 const packages = {
@@ -22,6 +27,11 @@ function updateManifest(filename) {
   if (manifest.optionalDependencies) {
     for (const name of Object.keys(manifest.optionalDependencies)) {
       manifest.optionalDependencies[name] = version;
+    }
+  }
+  if (manifest.dependencies) {
+    for (const name of Object.keys(manifest.dependencies)) {
+      if (name.startsWith('@ccusage/')) manifest.dependencies[name] = ccusageVersion;
     }
   }
   fs.writeFileSync(filename, `${JSON.stringify(manifest, null, 2)}\n`);

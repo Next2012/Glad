@@ -198,7 +198,9 @@ func (session *Session) snapshotLocked() map[string]any {
 		messages[index] = publicMessage(message, session.Kind)
 	}
 	permissions := make([]Permission, 0, len(session.CompletedPermissions)+len(session.Permissions))
-	permissions = append(permissions, session.CompletedPermissions...)
+	if session.Kind != "claude-structured" {
+		permissions = append(permissions, session.CompletedPermissions...)
+	}
 	for _, item := range session.Permissions {
 		permissions = append(permissions, item)
 	}
@@ -251,6 +253,9 @@ func (session *Session) subscribeWithSnapshot(capacity int) (*sessioncore.Subscr
 func publicMessage(message map[string]any, kind string) map[string]any {
 	copy := cloneMap(message)
 	delete(copy, "agentText")
+	if kind == "claude-structured" {
+		delete(copy, "raw")
+	}
 	hasDetail := false
 	if kind == "codex-structured" {
 		if copy["kind"] == "tool" {
@@ -337,6 +342,30 @@ func (session *Session) replaceMessages(messages []map[string]any) bool {
 	return true
 }
 
+func (session *Session) replaceClaudeConversation(messages []map[string]any) bool {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.closed {
+		return false
+	}
+	public := make([]map[string]any, len(messages))
+	for index, message := range messages {
+		public[index] = publicMessage(message, session.Kind)
+	}
+	session.Messages = messages
+	session.Permissions = map[string]Permission{}
+	session.CompletedPermissions = []Permission{}
+	session.State["pendingPermissionCount"] = 0
+	session.State["pendingQuestionCount"] = 0
+	if session.StatusValue == "waiting_approval" || session.StatusValue == "waiting_input" {
+		session.StatusValue = "idle"
+		session.State["status"] = "idle"
+	}
+	session.publishLocked(map[string]any{"type": "history-reset", "messages": public})
+	session.publishLocked(map[string]any{"type": "state", "state": cloneMap(session.State)})
+	return true
+}
+
 func (session *Session) patchMessage(id string, patch map[string]any) {
 	session.mu.Lock()
 	if session.closed {
@@ -414,6 +443,14 @@ func (session *Session) finishPermission(id, status, decision string) (Permissio
 			session.CompletedPermissions = session.CompletedPermissions[len(session.CompletedPermissions)-50:]
 		}
 		session.State["pendingPermissionCount"] = len(session.Permissions)
+		if len(session.Permissions) == 0 && session.StatusValue == "waiting_approval" {
+			nextStatus := "running"
+			if session.Kind == "claude-structured" {
+				nextStatus = "thinking"
+			}
+			session.StatusValue = nextStatus
+			session.State["status"] = nextStatus
+		}
 	}
 	if ok {
 		state := cloneMap(session.State)

@@ -1,9 +1,7 @@
 package app
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -110,23 +108,34 @@ func (server *Server) claudeResume(writer http.ResponseWriter, request *http.Req
 		respondError(writer, 400, errors.New("Missing resumeSessionId"))
 		return
 	}
-	provider, ok := session.Provider.(ResumeProvider)
-	if !ok {
-		respondError(writer, http.StatusConflict, errors.New("Provider resume is not supported"))
-		return
-	}
-	if err := provider.Resume(request.Context(), id); err != nil {
+	if err := server.resumeClaudeConversation(request.Context(), session, id); err != nil {
 		respondError(writer, 400, err)
 		return
 	}
-	messages := readClaudeTranscript(session.WorkingDirectory, id)
-	if len(messages) > 0 {
-		session.mu.Lock()
-		session.Messages = messages
-		session.publishLocked(map[string]any{"type": "history-reset", "messages": messages})
-		session.mu.Unlock()
+	respondJSON(writer, 200, map[string]any{"success": true, "claudeSessionId": id})
+}
+
+func (server *Server) resumeClaudeConversation(ctx context.Context, session *Session, id string) error {
+	id = strings.TrimSpace(id)
+	if !regexp.MustCompile(`^[0-9a-f-]{36}$`).MatchString(id) {
+		return errors.New("invalid Claude session id")
 	}
-	respondJSON(writer, 200, map[string]any{"success": true})
+	messages, err := readClaudeTranscriptFile(session.WorkingDirectory, id)
+	if err != nil {
+		return errors.New("Claude conversation history is unavailable")
+	}
+	provider, ok := session.Provider.(ResumeProvider)
+	if !ok {
+		return errors.New("Provider resume is not supported")
+	}
+	if err := provider.Resume(ctx, id); err != nil {
+		return err
+	}
+	if !session.replaceClaudeConversation(messages) {
+		return errors.New("Claude session is closed")
+	}
+	session.appendMessage(map[string]any{"kind": "event", "level": "info", "text": "Resumed Claude conversation"})
+	return nil
 }
 func (server *Server) claudeFork(writer http.ResponseWriter, request *http.Request) {
 	session := server.sessions.Get(request.PathValue("id"))
@@ -137,6 +146,15 @@ func (server *Server) claudeFork(writer http.ResponseWriter, request *http.Reque
 	var input map[string]any
 	_ = decodeJSON(request, &input)
 	source := firstNonEmpty(stringValue(input["claudeSessionId"]), stringValue(session.State["claudeSessionId"]))
+	if !regexp.MustCompile(`^[0-9a-f-]{36}$`).MatchString(source) {
+		respondError(writer, http.StatusBadRequest, errors.New("invalid Claude session id"))
+		return
+	}
+	messages, historyErr := readClaudeTranscriptFile(session.WorkingDirectory, source)
+	if historyErr != nil {
+		respondError(writer, http.StatusBadRequest, errors.New("Claude conversation history is unavailable"))
+		return
+	}
 	provider, ok := session.Provider.(ForkProvider)
 	if !ok {
 		respondError(writer, http.StatusConflict, errors.New("Provider fork is not supported"))
@@ -145,6 +163,10 @@ func (server *Server) claudeFork(writer http.ResponseWriter, request *http.Reque
 	id, err := provider.Fork(request.Context(), source)
 	if err != nil {
 		respondError(writer, 400, err)
+		return
+	}
+	if !session.replaceClaudeConversation(messages) {
+		respondError(writer, http.StatusConflict, errors.New("Claude session is closed"))
 		return
 	}
 	session.appendMessage(
@@ -181,17 +203,25 @@ func (server *Server) claudeSessionPreview(writer http.ResponseWriter, request *
 		respondError(writer, http.StatusBadRequest, errors.New("invalid Claude session id"))
 		return
 	}
-	messages := readClaudeTranscript(session.WorkingDirectory, id)
-	if len(messages) > 6 {
-		messages = messages[len(messages)-6:]
+	messages, err := readClaudeTranscriptFile(session.WorkingDirectory, id)
+	if err != nil {
+		respondError(writer, http.StatusNotFound, errors.New("Claude conversation history is unavailable"))
+		return
 	}
-	preview := make([]map[string]any, 0, len(messages))
+	preview := make([]map[string]any, 0, 6)
 	for _, message := range messages {
-		text := stringValue(message["text"])
-		if len(text) > 1200 {
-			text = text[:1200] + "…"
+		kind := stringValue(message["kind"])
+		if kind != "user" && kind != "assistant" {
+			continue
 		}
-		preview = append(preview, map[string]any{"kind": message["kind"], "text": text})
+		text := stringValue(message["text"])
+		if text == "" {
+			continue
+		}
+		preview = append(preview, map[string]any{"kind": kind, "text": codexPreviewText(text, 1200)})
+		if len(preview) > 6 {
+			preview = preview[len(preview)-6:]
+		}
 	}
 	respondJSON(writer, http.StatusOK, map[string]any{"success": true, "messages": preview})
 }
@@ -424,86 +454,6 @@ func listClaudeTranscriptPage(cwd, sortBy string, offset, limit int) ([]map[stri
 		nextOffset = end
 	}
 	return items[offset:end], nextOffset
-}
-func claudeTranscriptSummary(filename string) ([]string, int64) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return []string{}, 0
-	}
-	defer file.Close()
-	questions := []string{}
-	createdAt := int64(0)
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 64*1024), 16<<20)
-	for scanner.Scan() {
-		var record map[string]any
-		if json.Unmarshal(scanner.Bytes(), &record) != nil {
-			continue
-		}
-		if timestamp := stringValue(record["timestamp"]); createdAt == 0 && timestamp != "" {
-			createdAt = parseTimeMillis(timestamp)
-		}
-		if stringValue(record["type"]) != "user" ||
-			boolValue(record["isSidechain"]) {
-			continue
-		}
-		text := claudeRecordText(record)
-		if text != "" && !strings.HasPrefix(text, "<command-name>/") {
-			questions = append(questions, text)
-		}
-	}
-	if len(questions) > 2 {
-		questions = questions[len(questions)-2:]
-	}
-	for i, j := 0, len(questions)-1; i < j; i, j = i+1, j-1 {
-		questions[i], questions[j] = questions[j], questions[i]
-	}
-	return questions, createdAt
-}
-func readClaudeTranscript(cwd, id string) []map[string]any {
-	filename := filepath.Join(claudeProjectDir(cwd), id+".jsonl")
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil
-	}
-	defer file.Close()
-	messages := []map[string]any{}
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 64*1024), 32<<20)
-	for scanner.Scan() {
-		var record map[string]any
-		if json.Unmarshal(scanner.Bytes(), &record) != nil || boolValue(record["isSidechain"]) {
-			continue
-		}
-		text := claudeRecordText(record)
-		if text == "" {
-			continue
-		}
-		kind := stringValue(record["type"])
-		if kind != "user" && kind != "assistant" {
-			continue
-		}
-		messages = append(
-			messages,
-			map[string]any{
-				"id":        newUUID(),
-				"kind":      kind,
-				"text":      text,
-				"createdAt": parseTimeMillis(stringValue(record["timestamp"])),
-			},
-		)
-	}
-	if len(messages) > 1000 {
-		messages = messages[len(messages)-1000:]
-	}
-	return messages
-}
-func claudeRecordText(record map[string]any) string {
-	content := mapValue(record["message"])["content"]
-	if text, ok := content.(string); ok {
-		return strings.TrimSpace(text)
-	}
-	return strings.TrimSpace(textFromClaudeContent(sliceValue(content)))
 }
 func parseTimeMillis(value string) int64 {
 	parsed, err := time.Parse(time.RFC3339Nano, value)

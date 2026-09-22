@@ -472,9 +472,12 @@ func (server *Server) handleWebsocketMessage(
 			_ = provider.Interrupt(ctx)
 		}
 	case "claude-resume":
-		if provider, ok := session.Provider.(ResumeProvider); ok {
-			_ = provider.Resume(ctx, stringValue(payload["resumeSessionId"]))
+		err := server.resumeClaudeConversation(ctx, session, stringValue(payload["resumeSessionId"]))
+		result := map[string]any{"type": "claude-resume-result", "success": err == nil}
+		if err != nil {
+			result["error"] = err.Error()
 		}
+		send(result)
 	case "codex-status":
 		if provider, ok := session.Provider.(StatusProvider); ok {
 			_ = provider.Status(ctx)

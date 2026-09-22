@@ -10,6 +10,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-09-22
+
+### Changed
+
+- Upgrade the bundled `ccusage` native packages to 20.0.24, including GPT-6 Astra pricing, and keep every platform package synchronized with the pinned root version during npm staging.
+- Show provider-supplied estimated costs for both Codex and Claude usage, with generic pricing labels and an explicit estimate disclaimer.
+
+### Fixed
+
+- Restore Claude conversations as structured turns, tools, and results without exposing internal command, metadata, or large tool-result records as user messages.
+- Resume and fork Claude conversations through an acknowledged history-loading path that clears stale approvals and conversation-scoped state.
+- Return Claude from `waiting_approval` after the final approval resolves, keep approvals beside their tools, and bound expanded tool output on small screens.
+- Merge Claude five-hour and weekly subscription windows across partial `/usage` responses while updating one durable status card instead of appending stale cards.
+
 ## [2.5.0] - 2026-09-21
 
 ### Added

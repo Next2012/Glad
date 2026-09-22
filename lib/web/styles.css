@@ -463,7 +463,7 @@
         .claude-tool-body { padding: 0 10px 10px 10px; }
         .claude-tool-section { margin-top: 8px; }
         .claude-tool-section-title { color: var(--text-dim); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 5px; }
-        .claude-tool-code { margin: 0; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.32); border-radius: 7px; padding: 9px 10px; color: #d1d5db; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.42; overflow-x: auto; }
+        .claude-tool-code { margin: 0; max-height: 320px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.32); border-radius: 7px; padding: 9px 10px; color: #d1d5db; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.42; overflow: auto; }
         .claude-edit-body { border-top: 1px solid rgba(255,255,255,.08); }
         .claude-edit-file > summary { display: flex; align-items: center; gap: 8px; padding: 8px 10px; color: #d1d5db; font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; }
         .claude-edit-file .path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

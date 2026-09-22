@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -27,7 +26,7 @@ type UsageService struct {
 	loadErr  error
 }
 
-func NewUsageService() *UsageService { return &UsageService{version: "20.0.20"} }
+func NewUsageService() *UsageService { return &UsageService{version: "20.0.24"} }
 
 var usageSources = map[string]map[string]any{
 	"codex":  {"id": "codex", "label": "Codex", "badge": "CX"},
@@ -206,8 +205,7 @@ func normalizeUsageModels(source string, agent map[string]any) []usageModel {
 		cached := numberInt64(row["cacheReadTokens"])
 		output := numberInt64(row["outputTokens"])
 		var cost any
-		if source == "codex" && regexp.MustCompile(`(?i)^gpt(?:-|$)`).MatchString(stringValue(row["modelName"])) &&
-			numberFloat(row["cost"]) > 0 {
+		if numberFloat(row["cost"]) > 0 {
 			cost = numberFloat(row["cost"])
 		}
 		models = append(
@@ -321,10 +319,10 @@ func (service *UsageService) dashboard(
 	}
 	timezone := systemTimezone()
 	var cost any
-	if source == "codex" {
+	if mapValue(summary["totals"])["estimatedCostUSD"] != nil {
 		cost = map[string]any{
-			"basis": "ccusage estimate for Codex GPT models",
-			"note":  "Estimated from ccusage model pricing; it is not an actual provider bill.",
+			"basis": "ccusage model-price estimate",
+			"note":  "Estimated from ccusage model pricing; it is not an actual provider bill or subscription charge.",
 		}
 	}
 	return map[string]any{

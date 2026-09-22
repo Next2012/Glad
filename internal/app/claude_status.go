@@ -1,6 +1,7 @@
 package app
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -155,17 +156,71 @@ func claudeStructuredUsage(report map[string]any) map[string]any {
 func (provider *ClaudeProvider) finishStatus(contextValue map[string]any, statusErr error) {
 	provider.mu.Lock()
 	usage := provider.statusUsage
+	if usage != nil {
+		usage = cloneMap(usage)
+		provider.mergeStatusLimitsLocked(usage)
+	}
+	messageID := provider.statusMessageID
 	provider.statusPending = false
 	provider.statusUsage = nil
 	provider.mu.Unlock()
 	message := map[string]any{
-		"kind": "status", "title": "Claude status", "usage": usage, "context": contextValue,
+		"kind": "status", "title": "Claude status", "usage": usage, "context": contextValue, "error": nil,
 	}
 	if statusErr != nil {
 		message["error"] = statusErr.Error()
 	}
-	provider.session.appendMessage(message)
+	if messageID != "" && provider.sessionHasMessage(messageID) {
+		provider.session.patchMessage(messageID, message)
+	} else if created := provider.session.appendMessage(message); created != nil {
+		provider.mu.Lock()
+		provider.statusMessageID = stringValue(created["id"])
+		provider.mu.Unlock()
+	}
 	provider.session.setState(map[string]any{"status": "idle", "canAbort": false})
+}
+
+func (provider *ClaudeProvider) mergeStatusLimitsLocked(usage map[string]any) {
+	if provider.statusLimits == nil {
+		provider.statusLimits = map[string]map[string]any{}
+	}
+	for _, raw := range sliceValue(usage["rateLimits"]) {
+		limit := mapValue(raw)
+		key := firstNonEmpty(stringValue(limit["kind"]), stringValue(limit["group"]))
+		if key != "" {
+			provider.statusLimits[key] = cloneMap(limit)
+		}
+	}
+	ordered := []any{}
+	used := map[string]bool{}
+	for _, key := range []string{"session", "weekly_all", "weekly"} {
+		if limit := provider.statusLimits[key]; limit != nil {
+			ordered = append(ordered, cloneMap(limit))
+			used[key] = true
+		}
+	}
+	extra := []string{}
+	for key := range provider.statusLimits {
+		if !used[key] {
+			extra = append(extra, key)
+		}
+	}
+	sort.Strings(extra)
+	for _, key := range extra {
+		ordered = append(ordered, cloneMap(provider.statusLimits[key]))
+	}
+	usage["rateLimits"] = ordered
+}
+
+func (provider *ClaudeProvider) sessionHasMessage(id string) bool {
+	provider.session.mu.RLock()
+	defer provider.session.mu.RUnlock()
+	for _, message := range provider.session.Messages {
+		if stringValue(message["id"]) == id {
+			return true
+		}
+	}
+	return false
 }
 
 func claudeStructuredContext(value map[string]any) map[string]any {

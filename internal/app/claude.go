@@ -54,6 +54,8 @@ type ClaudeProvider struct {
 	localCommand    string
 	statusPending   bool
 	statusUsage     map[string]any
+	statusMessageID string
+	statusLimits    map[string]map[string]any
 	contextTurnID   string
 }
 
@@ -72,6 +74,7 @@ func NewClaudeProvider(session *Session, options map[string]any) *ClaudeProvider
 		taskPlans:     map[string]*claudeTaskPlan{},
 		expectedStops: map[*exec.Cmd]struct{}{},
 		allowedTools:  map[string]bool{},
+		statusLimits:  map[string]map[string]any{},
 		resumeID:      stringValue(options["resume"]),
 	}
 }
@@ -423,6 +426,8 @@ func (provider *ClaudeProvider) Approve(ctx context.Context, id, decision string
 	if ok {
 		delete(provider.permissions, id)
 	}
+	pendingCount := len(provider.permissions)
+	hasActiveTurn := len(provider.turns) > 0
 	provider.mu.Unlock()
 	if !ok {
 		return errors.New("permission request not found")
@@ -482,10 +487,18 @@ func (provider *ClaudeProvider) Approve(ctx context.Context, id, decision string
 			firstNonEmpty(stringValue(payload["message"]), claudeDenyMessage),
 		)
 	}
+	nextStatus := "waiting_approval"
+	if pendingCount == 0 {
+		nextStatus = "idle"
+		if hasActiveTurn {
+			nextStatus = "thinking"
+		}
+	}
 	provider.session.setState(
 		map[string]any{
 			"permissionMode":         optionDefault(provider.options, "permissionMode", "default"),
-			"pendingPermissionCount": len(provider.permissions),
+			"pendingPermissionCount": pendingCount,
+			"status":                 nextStatus,
 		},
 	)
 	return nil
@@ -764,21 +777,26 @@ func (provider *ClaudeProvider) Interrupt(ctx context.Context) error {
 }
 func (provider *ClaudeProvider) Resume(ctx context.Context, id string) error {
 	provider.mu.Lock()
-	provider.resumeID = strings.TrimSpace(id)
+	if len(provider.turns) > 0 || len(provider.permissions) > 0 || len(provider.questions) > 0 || provider.localCommand != "" {
+		provider.mu.Unlock()
+		return errors.New("Claude conversation can only be resumed while idle")
+	}
 	provider.stopLocked()
+	provider.resetConversationLocked()
+	provider.resumeID = strings.TrimSpace(id)
 	err := provider.startLocked(ctx, false)
 	provider.mu.Unlock()
-	if err == nil {
-		provider.session.appendMessage(
-			map[string]any{"kind": "event", "level": "info", "text": "Resume target selected: " + id},
-		)
-	}
 	return err
 }
 func (provider *ClaudeProvider) Fork(ctx context.Context, id string) (string, error) {
 	provider.mu.Lock()
-	provider.resumeID = strings.TrimSpace(id)
+	if len(provider.turns) > 0 || len(provider.permissions) > 0 || len(provider.questions) > 0 || provider.localCommand != "" {
+		provider.mu.Unlock()
+		return "", errors.New("Claude conversation can only be forked while idle")
+	}
 	provider.stopLocked()
+	provider.resetConversationLocked()
+	provider.resumeID = strings.TrimSpace(id)
 	err := provider.startLocked(ctx, true)
 	provider.mu.Unlock()
 	return provider.claudeSessionID, err
@@ -1030,6 +1048,17 @@ func (provider *ClaudeProvider) stopLocked() {
 	provider.contextTurnID = ""
 	provider.statusPending = false
 	provider.statusUsage = nil
+}
+
+func (provider *ClaudeProvider) resetConversationLocked() {
+	provider.permissions = map[string]claudePending{}
+	provider.questions = map[string]claudePendingQuestion{}
+	provider.taskPlans = map[string]*claudeTaskPlan{}
+	provider.turns = nil
+	provider.allowedTools = map[string]bool{}
+	provider.localCommand = ""
+	provider.claudeSessionID = ""
+	provider.statusMessageID = ""
 }
 
 func (provider *ClaudeProvider) shouldAutoAllow(tool string, input map[string]any) bool {
