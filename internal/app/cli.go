@@ -27,6 +27,8 @@ func Run(args []string, version string, assets fs.FS) error {
 			return runTools(args[1:])
 		case "config":
 			return runConfig(args[1:])
+		case "sessions":
+			return runSessions(args[1:])
 		case "web":
 			args = args[1:]
 		}

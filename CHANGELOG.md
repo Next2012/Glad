@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.3] - 2026-09-24
+
+### Added
+
+- Let callers create named Codex sessions with hidden developer instructions and an automatic opening turn. Reapply the instructions when resuming a thread.
+- Provide a focused, interactive session view for embedding in BotLink Agent Workbench.
+- Add HTTP metadata and input endpoints, and `glad sessions` commands for backend discovery and session management.
+
 ## [2.5.2] - 2026-09-22
 
 ### Added

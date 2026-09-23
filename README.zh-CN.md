@@ -131,7 +131,16 @@ glad /path/to/project
 glad . --port 8080
 glad tools list
 glad tools detect
+glad sessions tools --url http://127.0.0.1:3000
+glad sessions create --url http://127.0.0.1:3000 --tool codex --name "智能体开发"
+glad sessions list --url http://127.0.0.1:3000
+glad sessions delete --url http://127.0.0.1:3000 <会话ID>
 ```
+
+需要会话级开发指令时，可在创建命令中使用 `--instructions-file /path/to/instructions.txt`；
+`--initial-message` 会自动启动第一轮对话。开发指令传给 Codex 的
+`developerInstructions`，不作为用户消息显示。嵌入单个会话可打开
+`/?embed=1&embedSession=<会话ID>`，该页面保留聊天和审批操作。
 
 ## 支持的工具
 

@@ -240,13 +240,15 @@ func (provider *CodexProvider) Send(ctx context.Context, input ProviderInput) er
 		}
 		provider.needsThreadResume = false
 	} else if provider.needsThreadResume {
+		params := map[string]any{
+			"threadId": provider.threadID, "cwd": provider.session.WorkingDirectory, "excludeTurns": true,
+			"config": codexPlanConfig(),
+		}
+		provider.applyDeveloperInstructions(params)
 		_, err := provider.requestLocked(
 			ctx,
 			"thread/resume",
-			map[string]any{
-				"threadId": provider.threadID, "cwd": provider.session.WorkingDirectory, "excludeTurns": true,
-				"config": codexPlanConfig(),
-			},
+			params,
 		)
 		if err != nil {
 			provider.mu.Unlock()
@@ -1332,14 +1334,16 @@ func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
 	provider.mu.Unlock()
 	provider.updatePublicState("running")
 
+	params := map[string]any{
+		"threadId": id, "cwd": provider.session.WorkingDirectory,
+		"excludeTurns": true, "initialTurnsPage": codexInitialTurnsPageParams(),
+		"config": codexPlanConfig(),
+	}
+	provider.applyDeveloperInstructions(params)
 	result, err := provider.rpc(
 		resumeCtx,
 		"thread/resume",
-		map[string]any{
-			"threadId": id, "cwd": provider.session.WorkingDirectory,
-			"excludeTurns": true, "initialTurnsPage": codexInitialTurnsPageParams(),
-			"config": codexPlanConfig(),
-		},
+		params,
 	)
 	if err == nil {
 		provider.mu.Lock()
@@ -1800,6 +1804,7 @@ func (provider *CodexProvider) applyConfig(config map[string]any) {
 }
 func (provider *CodexProvider) applyThreadOptions(params map[string]any) {
 	params["config"] = codexPlanConfig()
+	provider.applyDeveloperInstructions(params)
 	if value := stringValue(provider.options["model"]); value != "" {
 		params["model"] = value
 	}
@@ -1809,6 +1814,35 @@ func (provider *CodexProvider) applyThreadOptions(params map[string]any) {
 	if value := stringValue(provider.options["sandboxMode"]); value != "" && value != "default" {
 		params["sandbox"] = value
 	}
+}
+
+func (provider *CodexProvider) applyDeveloperInstructions(params map[string]any) {
+	if instructions := stringValue(provider.options["developerInstructions"]); instructions != "" {
+		params["developerInstructions"] = instructions
+	}
+}
+
+func (provider *CodexProvider) UpdateInstructions(ctx context.Context, instructions string) error {
+	provider.mu.Lock()
+	if provider.closed || provider.turnID != "" || provider.resumeInFlight || provider.aborting {
+		provider.mu.Unlock()
+		return errors.New("Codex session is busy")
+	}
+	previous := provider.options["developerInstructions"]
+	provider.options["developerInstructions"] = instructions
+	threadID := provider.threadID
+	provider.mu.Unlock()
+	if threadID == "" {
+		return nil
+	}
+	// 已启动的 thread 需要显式恢复，新的开发指令才会应用到后续轮次。
+	if err := provider.Resume(ctx, threadID); err != nil {
+		provider.mu.Lock()
+		provider.options["developerInstructions"] = previous
+		provider.mu.Unlock()
+		return err
+	}
+	return nil
 }
 func (provider *CodexProvider) applyTurnOptions(params map[string]any) {
 	if value := stringValue(provider.options["model"]); value != "" {

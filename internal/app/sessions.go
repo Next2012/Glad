@@ -35,6 +35,11 @@ type SettingsProvider interface {
 	UpdateSettings(context.Context, map[string]any) error
 }
 
+// SessionInstructionsProvider 接收工作台等调用方的会话级指令。
+type SessionInstructionsProvider interface {
+	UpdateInstructions(context.Context, string) error
+}
+
 type CodexGlobalSettingsProvider interface {
 	WriteGlobalDefaults(context.Context) (map[string]any, error)
 }
@@ -530,6 +535,12 @@ func (manager *SessionManager) Get(id string) *Session {
 }
 
 func (manager *SessionManager) Create(ctx context.Context, request CreateSessionRequest) (*Session, error) {
+	if request.Instructions != "" && request.ToolKey != "codex" {
+		return nil, fmt.Errorf("session instructions are only supported by Codex")
+	}
+	if len(request.Instructions) > 64<<10 || len(request.InitialMessage) > 16<<10 {
+		return nil, fmt.Errorf("session instructions or initial message is too long")
+	}
 	tool, ok := toolByKey(request.ToolKey)
 	if !ok || !tool.Installed {
 		return nil, fmt.Errorf("%s is not installed", request.ToolKey)
@@ -579,6 +590,9 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 	session.events = manager.events
 	if request.ToolKey == "codex" {
 		options := manager.codexOptions(request.CodexOptions)
+		if request.Instructions != "" {
+			options["developerInstructions"] = request.Instructions
+		}
 		provider := NewCodexProvider(session, options)
 		provider.defaultsStore = manager.config
 		session.Provider = provider
@@ -593,6 +607,16 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 	manager.mu.Lock()
 	manager.sessions[id] = session
 	manager.mu.Unlock()
+	if strings.TrimSpace(request.InitialMessage) != "" {
+		// 首轮由服务端发起，页面打开后可以直接看到助理的开场回复。
+		if err := session.Provider.Send(ctx, ProviderInput{
+			ClientMessageID: newUUID(), Text: request.InitialMessage,
+			AgentText: request.InitialMessage,
+		}); err != nil {
+			manager.Delete(context.Background(), id)
+			return nil, err
+		}
+	}
 	return session, nil
 }
 
@@ -661,6 +685,8 @@ type CreateSessionRequest struct {
 	Name             string         `json:"name"`
 	ClaudeOptions    map[string]any `json:"claudeOptions"`
 	CodexOptions     map[string]any `json:"codexOptions"`
+	Instructions     string         `json:"instructions"`
+	InitialMessage   string         `json:"initialMessage"`
 }
 
 func cloneMap(source map[string]any) map[string]any {

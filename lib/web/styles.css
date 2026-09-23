@@ -666,6 +666,13 @@ html[data-theme="dark"] { color-scheme: dark; }
 .action-label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 #app-shell { display: flex; width: 100%; height: 100%; min-height: 0; overflow: hidden; background: var(--bg); }
+/* 工作台内只展示当前对话，保持原有聊天与审批控件。 */
+html.glad-embed #lobby-view,
+html.glad-embed #sidebar-resizer,
+html.glad-embed #back-btn,
+html.glad-embed #tile-workspace { display: none !important; }
+html.glad-embed #detail-pane { display: flex; width: 100%; }
+html.glad-embed #terminal-view.active { width: 100%; }
 /* WebKit samples the top midpoint and rejects narrow fixed/sticky containers.
    Split-view headers cannot cover the full viewport, so installed iOS apps
    provide a real, opaque element outside the panes. Its 12px height covers the

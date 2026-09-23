@@ -111,6 +111,10 @@ func (server *Server) registerRoutes(mux *http.ServeMux) {
 		respondJSON(writer, http.StatusOK, server.sessions.List())
 	})
 	mux.HandleFunc("POST /api/sessions", server.createSession)
+	mux.HandleFunc("GET /api/sessions/{id}", server.getSession)
+	mux.HandleFunc("GET /api/sessions/{id}/metadata", server.sessionMetadata)
+	mux.HandleFunc("POST /api/sessions/{id}/instructions", server.updateSessionInstructions)
+	mux.HandleFunc("POST /api/sessions/{id}/input", server.sendSessionInput)
 	mux.HandleFunc("PATCH /api/sessions/{id}", server.renameSession)
 	mux.HandleFunc("DELETE /api/sessions/{id}", server.deleteSession)
 	mux.HandleFunc("GET /api/sessions/{id}/history", server.sessionHistory)
@@ -149,6 +153,85 @@ func (server *Server) createSession(writer http.ResponseWriter, request *http.Re
 		return
 	}
 	respondJSON(writer, http.StatusOK, map[string]any{"id": session.ID})
+}
+
+func (server *Server) getSession(writer http.ResponseWriter, request *http.Request) {
+	session := server.sessions.Get(request.PathValue("id"))
+	if session == nil {
+		notFound(writer, "Session not found")
+		return
+	}
+	respondJSON(writer, http.StatusOK, session.snapshot())
+}
+
+func (server *Server) sessionMetadata(writer http.ResponseWriter, request *http.Request) {
+	session := server.sessions.Get(request.PathValue("id"))
+	if session == nil {
+		notFound(writer, "Session not found")
+		return
+	}
+	item := session.listItem()
+	session.mu.RLock()
+	item["threadId"] = session.State["threadId"]
+	session.mu.RUnlock()
+	respondJSON(writer, http.StatusOK, item)
+}
+
+func (server *Server) updateSessionInstructions(writer http.ResponseWriter, request *http.Request) {
+	session := server.sessions.Get(request.PathValue("id"))
+	if session == nil {
+		notFound(writer, "Session not found")
+		return
+	}
+	var input struct {
+		Instructions string `json:"instructions"`
+	}
+	if err := decodeJSON(request, &input); err != nil {
+		respondError(writer, http.StatusBadRequest, err)
+		return
+	}
+	if len(input.Instructions) > 64<<10 {
+		respondError(writer, http.StatusBadRequest, errors.New("session instructions are too long"))
+		return
+	}
+	provider, ok := session.Provider.(SessionInstructionsProvider)
+	if !ok {
+		respondError(writer, http.StatusConflict, errors.New("session instructions are not supported"))
+		return
+	}
+	if err := provider.UpdateInstructions(request.Context(), input.Instructions); err != nil {
+		respondError(writer, http.StatusConflict, err)
+		return
+	}
+	respondJSON(writer, http.StatusOK, map[string]any{"success": true})
+}
+
+func (server *Server) sendSessionInput(writer http.ResponseWriter, request *http.Request) {
+	session := server.sessions.Get(request.PathValue("id"))
+	if session == nil {
+		notFound(writer, "Session not found")
+		return
+	}
+	var input struct {
+		Text string `json:"text"`
+	}
+	if err := decodeJSON(request, &input); err != nil {
+		respondError(writer, http.StatusBadRequest, err)
+		return
+	}
+	if strings.TrimSpace(input.Text) == "" || len(input.Text) > 16<<10 {
+		respondError(writer, http.StatusBadRequest, errors.New("invalid message text"))
+		return
+	}
+	session.commandMu.Lock()
+	defer session.commandMu.Unlock()
+	if err := session.Provider.Send(request.Context(), ProviderInput{
+		ClientMessageID: newUUID(), Text: input.Text, AgentText: input.Text,
+	}); err != nil {
+		respondError(writer, http.StatusConflict, err)
+		return
+	}
+	respondJSON(writer, http.StatusAccepted, map[string]any{"success": true})
 }
 
 func (server *Server) renameSession(writer http.ResponseWriter, request *http.Request) {
