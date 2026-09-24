@@ -10,6 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.4] - 2026-09-24
+
+### Added
+
+- Start Codex turns from hidden developer instructions without adding a visible user message, including when a conversation is attached to Agent Workbench.
+- Keep structured chat WebSockets connected through idle proxies and reconnect after an unexpected close.
+
+### Fixed
+
+- Hide the lobby collapse control in the single-session embedded view.
+- Show a waiting message while an automatic Codex reply is starting.
+
 ## [2.5.3] - 2026-09-24
 
 ### Added
