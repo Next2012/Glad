@@ -141,6 +141,10 @@ glad sessions delete --url http://127.0.0.1:3000 <会话ID>
 `--initial-message` 会自动启动第一轮对话。开发指令传给 Codex 的
 `developerInstructions`，不作为用户消息显示。嵌入单个会话可打开
 `/?embed=1&embedSession=<会话ID>`，该页面保留聊天和审批操作。
+调用 `POST /api/sessions` 创建 Codex 会话时可传 `"autoStart": true`，
+启动一轮无用户消息的自动回复；它与 `initialMessage` 不能同时使用。
+已有 Codex 会话可调用 `POST /api/sessions/<会话ID>/input` 并传
+`{"autoStart": true}` 发起同样的自动回复。
 
 ## 支持的工具
 

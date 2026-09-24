@@ -670,7 +670,8 @@ html[data-theme="dark"] { color-scheme: dark; }
 html.glad-embed #lobby-view,
 html.glad-embed #sidebar-resizer,
 html.glad-embed #back-btn,
-html.glad-embed #tile-workspace { display: none !important; }
+html.glad-embed #tile-workspace,
+html.glad-embed #lobby-collapse-button { display: none !important; }
 html.glad-embed #detail-pane { display: flex; width: 100%; }
 html.glad-embed #terminal-view.active { width: 100%; }
 /* WebKit samples the top midpoint and rejects narrow fixed/sticky containers.

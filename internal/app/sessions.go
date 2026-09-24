@@ -538,6 +538,9 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 	if request.Instructions != "" && request.ToolKey != "codex" {
 		return nil, fmt.Errorf("session instructions are only supported by Codex")
 	}
+	if request.AutoStart && (request.ToolKey != "codex" || strings.TrimSpace(request.InitialMessage) != "") {
+		return nil, fmt.Errorf("autoStart requires Codex and no initialMessage")
+	}
 	if len(request.Instructions) > 64<<10 || len(request.InitialMessage) > 16<<10 {
 		return nil, fmt.Errorf("session instructions or initial message is too long")
 	}
@@ -607,7 +610,13 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 	manager.mu.Lock()
 	manager.sessions[id] = session
 	manager.mu.Unlock()
-	if strings.TrimSpace(request.InitialMessage) != "" {
+	if request.AutoStart {
+		// 空输入会启动首轮 Codex 回复，聊天记录中不产生一条用户消息。
+		if err := session.Provider.Send(ctx, ProviderInput{}); err != nil {
+			manager.Delete(context.Background(), id)
+			return nil, err
+		}
+	} else if strings.TrimSpace(request.InitialMessage) != "" {
 		// 首轮由服务端发起，页面打开后可以直接看到助理的开场回复。
 		if err := session.Provider.Send(ctx, ProviderInput{
 			ClientMessageID: newUUID(), Text: request.InitialMessage,
@@ -687,6 +696,7 @@ type CreateSessionRequest struct {
 	CodexOptions     map[string]any `json:"codexOptions"`
 	Instructions     string         `json:"instructions"`
 	InitialMessage   string         `json:"initialMessage"`
+	AutoStart        bool           `json:"autoStart"`
 }
 
 func cloneMap(source map[string]any) map[string]any {

@@ -276,12 +276,14 @@ func (provider *CodexProvider) Send(ctx context.Context, input ProviderInput) er
 			map[string]any{"id": file.ID, "name": file.Name, "size": file.Size, "kind": "file"},
 		)
 	}
-	provider.session.appendMessage(
-		map[string]any{
-			"kind": "user", "text": input.Text, "agentText": input.AgentText,
-			"attachments": attachments, "skills": input.Skills, "clientMessageId": input.ClientMessageID,
-		},
-	)
+	if len(items) > 0 {
+		provider.session.appendMessage(
+			map[string]any{
+				"kind": "user", "text": input.Text, "agentText": input.AgentText,
+				"attachments": attachments, "skills": input.Skills, "clientMessageId": input.ClientMessageID,
+			},
+		)
+	}
 	params := map[string]any{
 		"threadId": provider.threadID,
 		"input":    items,

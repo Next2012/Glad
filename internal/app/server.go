@@ -213,21 +213,29 @@ func (server *Server) sendSessionInput(writer http.ResponseWriter, request *http
 		return
 	}
 	var input struct {
-		Text string `json:"text"`
+		Text      string `json:"text"`
+		AutoStart bool   `json:"autoStart"`
 	}
 	if err := decodeJSON(request, &input); err != nil {
 		respondError(writer, http.StatusBadRequest, err)
 		return
 	}
-	if strings.TrimSpace(input.Text) == "" || len(input.Text) > 16<<10 {
+	if input.AutoStart {
+		if strings.TrimSpace(input.Text) != "" || session.Tool.Key != "codex" {
+			respondError(writer, http.StatusBadRequest, errors.New("autoStart requires Codex and no text"))
+			return
+		}
+	} else if strings.TrimSpace(input.Text) == "" || len(input.Text) > 16<<10 {
 		respondError(writer, http.StatusBadRequest, errors.New("invalid message text"))
 		return
 	}
 	session.commandMu.Lock()
 	defer session.commandMu.Unlock()
-	if err := session.Provider.Send(request.Context(), ProviderInput{
-		ClientMessageID: newUUID(), Text: input.Text, AgentText: input.Text,
-	}); err != nil {
+	message := ProviderInput{ClientMessageID: newUUID(), Text: input.Text, AgentText: input.Text}
+	if input.AutoStart {
+		message = ProviderInput{}
+	}
+	if err := session.Provider.Send(request.Context(), message); err != nil {
 		respondError(writer, http.StatusConflict, err)
 		return
 	}

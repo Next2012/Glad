@@ -428,6 +428,22 @@ type stubProvider struct {
 	inputs  []ProviderInput
 }
 
+func TestAutoStartInputUsesEmptyCodexTurn(t *testing.T) {
+	manager := NewSessionManager(t.TempDir())
+	session := newSession("auto", "Codex", "codex-structured", ToolInfo{Key: "codex"}, t.TempDir())
+	provider := &stubProvider{}
+	session.Provider = provider
+	manager.sessions[session.ID] = session
+	server := &Server{sessions: manager}
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions/auto/input", strings.NewReader(`{"autoStart":true}`))
+	request.SetPathValue("id", session.ID)
+	response := httptest.NewRecorder()
+	server.sendSessionInput(response, request)
+	if response.Code != http.StatusAccepted || len(provider.inputs) != 1 || provider.inputs[0].Text != "" || provider.inputs[0].AgentText != "" {
+		t.Fatalf("empty turn was not sent: status=%d inputs=%#v", response.Code, provider.inputs)
+	}
+}
+
 func (provider *stubProvider) Start(context.Context) error { return nil }
 func (provider *stubProvider) Send(_ context.Context, input ProviderInput) error {
 	provider.inputs = append(provider.inputs, input)
