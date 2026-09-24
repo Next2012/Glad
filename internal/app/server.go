@@ -403,9 +403,20 @@ func (server *Server) websocket(writer http.ResponseWriter, request *http.Reques
 	outbound := make(chan map[string]any, 64)
 	go func() {
 		defer cancel()
+		keepalive := time.NewTicker(25 * time.Second)
+		defer keepalive.Stop()
 		for {
 			var message map[string]any
 			select {
+			case <-keepalive.C:
+				// 代理会关闭空闲连接；定期 Ping 保持聊天与发送入口可用。
+				pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
+				err := connection.Ping(pingCtx)
+				pingCancel()
+				if err != nil {
+					return
+				}
+				continue
 			case event := <-subscription.Events():
 				typeName := "claude-event"
 				if event.Kind == "codex-structured" {
