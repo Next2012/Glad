@@ -14,6 +14,21 @@ async function openCodexSession(page) {
   return { id, sent };
 }
 
+test('Codex composer reconnects after its WebSocket closes', async ({ page }) => {
+  const { id } = await openCodexSession(page);
+  await page.evaluate(() => {
+    window.__closedSocket = currentSocket;
+    currentSocket.close();
+  });
+  await page.waitForFunction(() => currentSocket !== window.__closedSocket
+    && currentSocket?.readyState === WebSocket.OPEN);
+  await expect(page.locator('#send-btn')).toBeEnabled();
+  await page.locator('#cmd-input').fill('Reply after reconnect');
+  await page.locator('#send-btn').click();
+  await expect(page.locator('.codex-message-block.user')).toContainText('Reply after reconnect');
+  await page.request.delete(`/api/sessions/${id}`);
+});
+
 test('structured send is acknowledged, idempotent, and preserves rejected drafts', async ({ page }) => {
   const first = await openCodexSession(page);
   await page.locator('#attachment-file-input').setInputFiles({
