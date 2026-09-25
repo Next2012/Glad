@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Attach up to five images to Codex async question replies, including replies sent after a turn completes.
+- Answer Codex questions from a bottom panel on phones, with scrollable questions and persistent attachment and submit controls.
+
+### Fixed
+
+- Close superseded async questions only after a new turn starts successfully, preserving questions received during startup.
+- Restore question controls after reconnecting, preserve drafts and focus during updates, show upload failures, and prevent deleting images while an answer is being submitted.
+- Keep composers and answer panels inside the keyboard's visible viewport in ordinary browsers and installed iOS apps, without interrupting jumps to pending approvals.
+
 ## [2.5.4] - 2026-09-24
 
 ### Added

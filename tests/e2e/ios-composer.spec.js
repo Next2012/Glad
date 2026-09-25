@@ -1,28 +1,11 @@
 const { test, expect } = require('@playwright/test');
+const { mockVisualViewport } = require('./helpers/visual-viewport');
 
 test.beforeEach(async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === 'MacBook Pro 16', 'Installed iOS app regression');
   if (testInfo.project.name === 'iPad Air 7') await page.setViewportSize({ width: 1180, height: 820 });
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, 'platform', { configurable: true, value: 'MacIntel' });
-    Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 5 });
-    Object.defineProperty(navigator, 'standalone', { configurable: true, value: true });
-    localStorage.setItem('glad-theme', 'light');
-
-    // Desktop WebKit cannot open an iPad keyboard. Model its independently
-    // resized/panned visual viewport while leaving the layout viewport intact.
-    const nativeViewport = window.visualViewport;
-    const viewport = new EventTarget();
-    const state = {};
-    for (const key of ['height', 'offsetTop', 'scale']) {
-      Object.defineProperty(viewport, key, { get: () => state[key] ?? nativeViewport[key] });
-    }
-    Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
-    window.setTestVisualViewport = (next, event = 'resize') => {
-      Object.assign(state, next);
-      viewport.dispatchEvent(new Event(event));
-    };
-  });
+  await mockVisualViewport(page, { iosStandalone: true });
+  await page.addInitScript(() => localStorage.setItem('glad-theme', 'light'));
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.evaluate(() => {
     activeToolKey = 'codex';

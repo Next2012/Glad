@@ -136,7 +136,7 @@ func (provider *CodexProvider) resolveUserInput(params map[string]any) {
 	provider.refreshPublicState()
 }
 
-func (provider *CodexProvider) AnswerUserInput(ctx context.Context, id, clientID string, answers map[string]string) error {
+func (provider *CodexProvider) AnswerUserInput(ctx context.Context, id, clientID string, answers map[string]string, images []Attachment) error {
 	provider.mu.Lock()
 	if provider.closed || provider.aborting || provider.resumeInFlight {
 		provider.mu.Unlock()
@@ -163,6 +163,10 @@ func (provider *CodexProvider) AnswerUserInput(ctx context.Context, id, clientID
 		provider.mu.Unlock()
 		return errors.New("Answer every question before submitting")
 	}
+	if !pending.Async && len(images) > 0 {
+		provider.mu.Unlock()
+		return errors.New("Images can only be attached to an async question")
+	}
 	wireAnswers := map[string]any{}
 	text, displayText := []string{}, []string{}
 	for _, question := range pending.Questions {
@@ -181,6 +185,12 @@ func (provider *CodexProvider) AnswerUserInput(ctx context.Context, id, clientID
 		displayText = append(displayText, prefix+answer)
 	}
 	body, displayBody := strings.Join(text, "\n\n"), strings.Join(displayText, "\n\n")
+	attachments := make([]map[string]any, 0, len(images))
+	input := []any{map[string]any{"type": "text", "text": body}}
+	for _, image := range images {
+		input = append(input, map[string]any{"type": "localImage", "path": image.Path})
+		attachments = append(attachments, map[string]any{"id": image.ID, "name": image.Name})
+	}
 	var err error
 	if !pending.Async {
 		err = provider.writeLocked(map[string]any{"id": pending.RPCID, "result": map[string]any{"answers": wireAnswers}})
@@ -192,16 +202,16 @@ func (provider *CodexProvider) AnswerUserInput(ctx context.Context, id, clientID
 		if turnID != "" {
 			provider.session.appendMessage(map[string]any{
 				"kind": "user", "text": displayBody, "agentText": body, "clientMessageId": clientID,
-				"threadId": pending.ThreadID, "turnId": turnID,
+				"threadId": pending.ThreadID, "turnId": turnID, "attachments": attachments,
 			})
 			_, err = provider.requestLocked(ctx, "turn/steer", map[string]any{
 				"threadId": pending.ThreadID, "expectedTurnId": turnID,
-				"input": []any{map[string]any{"type": "text", "text": body}},
+				"input": input,
 			})
 		} else if pending.ThreadID == provider.threadID {
 			// A completed async turn can receive the reply as the next user turn.
 			provider.mu.Unlock()
-			err = provider.Send(ctx, ProviderInput{ClientMessageID: clientID, Text: displayBody, AgentText: body})
+			err = provider.Send(ctx, ProviderInput{ClientMessageID: clientID, Text: displayBody, AgentText: body, Images: images})
 			provider.mu.Lock()
 		} else {
 			err = errors.New("The subagent is no longer running")
@@ -225,7 +235,7 @@ func (provider *CodexProvider) AnswerUserInput(ctx context.Context, id, clientID
 	}
 	provider.session.mu.RUnlock()
 	if !recorded {
-		provider.session.appendMessage(map[string]any{"kind": "user", "text": displayBody, "clientMessageId": clientID})
+		provider.session.appendMessage(map[string]any{"kind": "user", "text": displayBody, "clientMessageId": clientID, "attachments": attachments})
 	}
 	provider.mu.Unlock()
 	provider.refreshPublicState()
@@ -241,6 +251,7 @@ func (server *Server) codexUserInput(writer http.ResponseWriter, request *http.R
 		ID              string            `json:"id"`
 		ClientMessageID string            `json:"clientMessageId"`
 		Answers         map[string]string `json:"answers"`
+		AttachmentIDs   []string          `json:"attachmentIds"`
 	}
 	if err := decodeJSON(request, &input); err != nil {
 		respondError(writer, 400, err)
@@ -248,9 +259,21 @@ func (server *Server) codexUserInput(writer http.ResponseWriter, request *http.R
 	}
 	provider.session.commandMu.Lock()
 	defer provider.session.commandMu.Unlock()
+	imageIDs := uniqueStrings(input.AttachmentIDs)
+	images := server.attachments.Resolve(provider.session, imageIDs)
+	if len(images) != len(imageIDs) {
+		respondError(writer, http.StatusBadRequest, errors.New("One or more images are no longer available. Reattach them and try again."))
+		return
+	}
+	for _, image := range images {
+		if image.MediaType == "" {
+			respondError(writer, http.StatusBadRequest, errors.New("Only images can be attached to an answer"))
+			return
+		}
+	}
 	ctx, cancel := context.WithTimeout(request.Context(), 60*time.Second)
 	defer cancel()
-	if err := provider.AnswerUserInput(ctx, input.ID, input.ClientMessageID, input.Answers); err != nil {
+	if err := provider.AnswerUserInput(ctx, input.ID, input.ClientMessageID, input.Answers, images); err != nil {
 		respondError(writer, http.StatusConflict, err)
 		return
 	}

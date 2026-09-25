@@ -291,6 +291,14 @@ func (provider *CodexProvider) Send(ctx context.Context, input ProviderInput) er
 		"summary":  "auto",
 	}
 	provider.applyTurnOptions(params)
+	// Notifications can arrive while turn/start releases provider.mu. Only
+	// supersede async questions that already existed before this request.
+	supersededInputs := []string{}
+	for id, pending := range provider.userInputs {
+		if pending.Async && pending.ThreadID == provider.threadID {
+			supersededInputs = append(supersededInputs, id)
+		}
+	}
 	started, err := provider.requestLocked(ctx, "turn/start", params)
 	if err != nil {
 		provider.mu.Unlock()
@@ -303,6 +311,12 @@ func (provider *CodexProvider) Send(ctx context.Context, input ProviderInput) er
 	provider.session.clearUnreadCompletion()
 	provider.turnID = firstNonEmpty(stringValue(mapValue(started["turn"])["id"]), stringValue(started["turnId"]))
 	provider.turnStarted = millis()
+	for _, id := range supersededInputs {
+		if _, pending := provider.userInputs[id]; pending {
+			delete(provider.userInputs, id)
+			provider.session.patchMessage(id, map[string]any{"questionStatus": "cancelled"})
+		}
+	}
 	provider.updatePublicStateLocked("running")
 	provider.mu.Unlock()
 	return nil
