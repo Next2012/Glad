@@ -64,7 +64,7 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
 
   const quotedReply = page.locator('.room-entry.session').first();
   await expect(quotedReply.locator(':scope > .room-quote-button')).toHaveCount(0);
-  await expect(quotedReply.locator('.room-entry-author .room-quote-button')).toHaveText('+');
+  await expect(quotedReply.locator('.room-entry-author .room-quote-button .room-quote-icon-plus')).toBeVisible();
   await expect(quotedReply.getByRole('button', { name: 'Add to references' })).toBeVisible();
   await quotedReply.getByRole('button', { name: 'Add to references' }).click();
   await expect(page.locator('.room-context-chip.quote')).toBeVisible();
@@ -74,6 +74,16 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
   await page.waitForTimeout(650);
   await quotedReply.dispatchEvent('pointerup', { pointerType: 'touch', clientX: 20, clientY: 20 });
   await expect(page.locator('.room-context-chip.quote')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Preview 1/ })).toBeVisible();
+  await page.getByRole('button', { name: /Preview 1/ }).click();
+  await expect(page.locator('#room-quotes-overlay')).toBeVisible();
+  await expect(page.locator('#room-quotes-title')).toHaveText('Selected messages');
+  await expect(page.locator('.room-selection-preview-item')).toContainText('root completed after child');
+  await expect(page.locator('.room-selection-preview-item .room-entry-reference')).toHaveCount(0);
+  await page.locator('#room-quotes-overlay .icon-btn').click();
+  const firstUserMessage = page.locator('.room-entry.user').first();
+  await expect(firstUserMessage.locator(':scope > .room-quote-button')).toBeVisible();
+  await expect(firstUserMessage.locator('.room-entry-author .room-quote-button')).toHaveCount(0);
   await page.locator('#room-mention-button').click();
   await page.locator('.room-mention-option').click();
   await page.locator('.room-mention-picker-title button').click();
