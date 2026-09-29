@@ -15,8 +15,9 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.locator('#lobby-tab-rooms').click();
   await page.locator(`.room-list-card[data-room-id="${room.id}"] .btn-join`).click();
-  await expect(page.locator('#room-title')).toHaveText('Architecture room');
+  await expect(page.locator('#room-title')).toHaveText('Architecture room (1)');
   await expect(page.locator('#lobby-view')).toBeHidden();
+  const groupHeaderHeight = await page.locator('.room-header').evaluate(element => element.getBoundingClientRect().height);
   const titleCenterOffset = await page.locator('#room-title').evaluate(element => {
     const box = element.getBoundingClientRect();
     return Math.abs((box.left + box.width / 2) - innerWidth / 2);
@@ -98,9 +99,11 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
   const miniLayout = await page.evaluate(() => {
     const chat = document.getElementById('codex-chat-container').getBoundingClientRect();
     const controls = document.getElementById('terminal-controls').getBoundingClientRect();
-    return { chatTop: chat.top, controlsTop: controls.top };
+    const nav = document.getElementById('nav-bar').getBoundingClientRect();
+    return { chatTop: chat.top, controlsTop: controls.top, navHeight: nav.height };
   });
   expect(miniLayout.controlsTop).toBeGreaterThan(miniLayout.chatTop);
+  expect(Math.abs(miniLayout.navHeight - groupHeaderHeight)).toBeLessThan(1);
   const assistantCount = await page.locator('.codex-message.assistant').count();
   await page.locator('#cmd-input').fill('__GLAD_E2E_SUBAGENT_LIFECYCLE__ direct mini message');
   await page.locator('#send-btn').click();

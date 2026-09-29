@@ -1174,11 +1174,10 @@ html[data-theme="light"] .claude-md a { color: #006acb; }
 
 #room-view { position:relative; height:100%; min-height:0; display:none; flex-direction:column; background:var(--bg); }
 #room-view.active { display:flex; }
-.room-header { position:relative; z-index:70; flex:0 0 auto; min-height:58px; display:grid; grid-template-columns:minmax(72px,1fr) minmax(0,auto) minmax(72px,1fr); align-items:center; gap:10px; padding:8px 12px; padding-top:max(8px,env(safe-area-inset-top)); border-bottom:1px solid var(--line); background:color-mix(in srgb,var(--surface-raised) 92%,transparent); }
+.room-header { position:relative; z-index:70; flex:0 0 auto; display:grid; grid-template-columns:minmax(72px,1fr) minmax(0,auto) minmax(72px,1fr); align-items:center; gap:10px; padding:8px 14px; padding-top:max(8px,env(safe-area-inset-top)); border-bottom:1px solid var(--line); background:color-mix(in srgb,var(--surface-raised) 92%,transparent); box-sizing:border-box; }
 .room-back-button { grid-column:1; display:flex; justify-self:start; width:38px; height:38px; align-items:center; justify-content:center; border:0; border-radius:12px; color:var(--primary); background:var(--surface-soft); padding:0; cursor:pointer; }
 .room-heading { grid-column:2; min-width:0; display:flex; align-items:center; flex-direction:column; text-align:center; }
 .room-heading #room-title { max-width:min(46vw,520px); overflow:hidden; padding:0; border:0; background:none; color:var(--text); text-align:center; text-overflow:ellipsis; white-space:nowrap; font:inherit; font-size:16px; font-weight:700; cursor:pointer; }
-.room-heading span { color:var(--text-dim); font-size:11px; }
 .room-header-actions { grid-column:3; justify-self:end; display:flex; align-items:center; gap:6px; }
 .room-header-actions .small-btn { min-width:38px; height:34px; display:inline-flex; align-items:center; justify-content:center; }
 .room-header-actions .small-btn.active { border-color:var(--primary); background:color-mix(in srgb,var(--primary) 16%,var(--surface)); color:var(--primary); }
@@ -1339,7 +1338,6 @@ body.room-session-open #back-btn { visibility:visible; pointer-events:auto; }
 
 @media (max-width: 760px) {
     .room-back-button { display:flex; }
-    .room-header { min-height:54px; }
     .room-header-actions .small-btn:not(.primary) { padding:0 8px; }
     .room-header-actions { gap:4px; }
     .room-header-actions .small-btn { min-width:32px; height:32px; padding:0 7px; }
