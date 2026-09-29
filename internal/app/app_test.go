@@ -1334,6 +1334,7 @@ func TestCodexForkIsSingleFlightAcrossProviderOperations(t *testing.T) {
 		"fork-single-flight", "Codex", "codex-structured",
 		ToolInfo{Key: "codex", DisplayName: "Codex"}, t.TempDir(),
 	)
+	session.appendMessage(map[string]any{"kind": "assistant", "text": "history before fork"})
 	provider := NewCodexProvider(session, nil)
 	provider.cmd = exec.Command("codex")
 	writes := make(chan []byte, 4)
@@ -1390,8 +1391,11 @@ func TestCodexForkIsSingleFlightAcrossProviderOperations(t *testing.T) {
 	provider.mu.Lock()
 	threadID, inFlight, forking := provider.threadID, provider.resumeInFlight, provider.forking
 	provider.mu.Unlock()
-	if threadID != "thread-forked" || inFlight || forking || session.StatusValue != "idle" {
-		t.Fatalf("fork lifecycle did not settle: thread=%q inFlight=%v forking=%v status=%s", threadID, inFlight, forking, session.StatusValue)
+	session.mu.RLock()
+	preserved := len(session.Messages) == 1 && stringValue(session.Messages[0]["text"]) == "history before fork"
+	session.mu.RUnlock()
+	if threadID != "thread-forked" || inFlight || forking || session.StatusValue != "idle" || !preserved {
+		t.Fatalf("fork lifecycle did not settle: thread=%q inFlight=%v forking=%v status=%s preserved=%v", threadID, inFlight, forking, session.StatusValue, preserved)
 	}
 }
 
@@ -1510,14 +1514,19 @@ func TestCodexHistoryPaginationPublishesOneAtomicReset(t *testing.T) {
 	}
 	session.mu.RLock()
 	texts := []string{}
+	timestamps := []int64{}
 	for _, message := range session.Messages {
 		if stringValue(message["kind"]) == "assistant" {
 			texts = append(texts, stringValue(message["text"]))
+			timestamps = append(timestamps, numberInt64(message["createdAt"]))
 		}
 	}
 	session.mu.RUnlock()
 	if strings.Join(texts, ",") != "one,two,three" {
 		t.Fatalf("history pages were not restored oldest-first: %#v", texts)
+	}
+	if len(timestamps) != 3 || timestamps[0] != 101000 || timestamps[1] != 101000 || timestamps[2] != 101000 {
+		t.Fatalf("history assistant timestamps were not preserved: %#v", timestamps)
 	}
 }
 

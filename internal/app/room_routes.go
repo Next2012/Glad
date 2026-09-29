@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,12 +16,51 @@ func (server *Server) registerRoomRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/rooms/{id}", server.getRoom)
 	mux.HandleFunc("PATCH /api/rooms/{id}", server.renameRoom)
 	mux.HandleFunc("DELETE /api/rooms/{id}", server.deleteRoom)
+	mux.HandleFunc("DELETE /api/rooms/{id}/draft", server.deleteRoomDraft)
 	mux.HandleFunc("POST /api/rooms/{id}/members", server.addRoomMember)
 	mux.HandleFunc("DELETE /api/rooms/{id}/members/{memberId}", server.removeRoomMember)
 	mux.HandleFunc("POST /api/rooms/{id}/messages", server.postRoomMessage)
+	mux.HandleFunc("GET /api/rooms/{id}/entries/{entryId}/context", server.roomEntryContext)
+	mux.HandleFunc("GET /api/rooms/{id}/entries/{entryId}/turns/{turnId}/details", server.roomEntryTurnDetails)
 	mux.HandleFunc("GET /api/rooms/{id}/operation-status", server.roomOperationStatus)
 	mux.HandleFunc("POST /api/rooms/{id}/resume", server.resumeRoom)
 	mux.HandleFunc("POST /api/rooms/{id}/fork", server.forkRoom)
+}
+
+func (server *Server) deleteRoomDraft(writer http.ResponseWriter, request *http.Request) {
+	if err := server.rooms.DeleteDraft(request.PathValue("id")); err != nil {
+		server.writeRoomError(writer, err)
+		return
+	}
+	respondJSON(writer, http.StatusOK, map[string]any{"success": true})
+}
+
+func (server *Server) roomEntryContext(writer http.ResponseWriter, request *http.Request) {
+	before, _ := strconv.Atoi(request.URL.Query().Get("before"))
+	after, _ := strconv.Atoi(request.URL.Query().Get("after"))
+	if before <= 0 {
+		before = 3
+	}
+	if after <= 0 {
+		after = 3
+	}
+	context, err := server.rooms.EntryContext(request.PathValue("id"), request.PathValue("entryId"), before, after)
+	if err != nil {
+		server.writeRoomError(writer, err)
+		return
+	}
+	respondJSON(writer, http.StatusOK, context)
+}
+
+func (server *Server) roomEntryTurnDetails(writer http.ResponseWriter, request *http.Request) {
+	details, err := server.rooms.EntryTurnDetails(
+		request.PathValue("id"), request.PathValue("entryId"), request.PathValue("turnId"),
+	)
+	if err != nil {
+		server.writeRoomError(writer, err)
+		return
+	}
+	respondJSON(writer, http.StatusOK, details)
 }
 
 func (server *Server) renameRoom(writer http.ResponseWriter, request *http.Request) {

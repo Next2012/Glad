@@ -29,6 +29,7 @@ type RoomRecord struct {
 	UpdatedAt                     int64              `json:"updatedAt"`
 	NextSequence                  int64              `json:"nextSequence"`
 	ServerChanNotificationEnabled bool               `json:"serverChanNotificationEnabled,omitempty"`
+	Draft                         bool               `json:"draft,omitempty"`
 	Members                       []RoomMemberRecord `json:"members"`
 	Entries                       []RoomEntryRecord  `json:"entries"`
 }
@@ -57,12 +58,17 @@ type RoomEntryRecord struct {
 	SourceSessionID      string   `json:"sourceSessionId,omitempty"`
 	NativeConversationID string   `json:"nativeConversationId,omitempty"`
 	NativeTurnID         string   `json:"nativeTurnId,omitempty"`
+	OriginRoomID         string   `json:"originRoomId,omitempty"`
 	ClientMessageID      string   `json:"clientMessageId,omitempty"`
 	MentionedMemberIDs   []string `json:"mentionedMemberIds,omitempty"`
 	QuotedEntryIDs       []string `json:"quotedEntryIds,omitempty"`
 	Status               string   `json:"status"`
 	Error                string   `json:"error,omitempty"`
 	CreatedAt            int64    `json:"createdAt"`
+	// Historical is set only on the dynamic room read model. Projected native
+	// history is never saved to a room document.
+	Historical   bool   `json:"historical,omitempty"`
+	ResolvedText string `json:"-"`
 }
 
 type RoomStore interface {
@@ -270,10 +276,39 @@ func migrateRoom(room RoomRecord) (RoomRecord, error) {
 }
 
 func isRoomTransportText(text string) bool {
+	_, _, ok := roomTransportEnvelope(text)
+	return ok
+}
+
+func roomTransportVisibleText(text string) (string, bool) {
+	visible, _, ok := roomTransportEnvelope(text)
+	return visible, ok
+}
+
+func roomTransportEnvelope(text string) (string, string, bool) {
 	trimmed := strings.TrimSpace(text)
-	return strings.HasPrefix(trimmed, "You are being addressed as a member of a Glad group chat.") &&
-		strings.Contains(trimmed, "<glad_group_message>\n") &&
-		strings.HasSuffix(trimmed, "</glad_group_message>")
+	if !strings.HasPrefix(trimmed, "You are being addressed as a member of a Glad group chat.") {
+		return "", "", false
+	}
+	const open, close = "<glad_group_message>", "</glad_group_message>"
+	start := strings.Index(trimmed, open)
+	if start < 0 {
+		return "", "", false
+	}
+	start += len(open)
+	end := strings.Index(trimmed[start:], close)
+	if end < 0 {
+		return "", "", false
+	}
+	origin := ""
+	const originOpen, originClose = "<glad_group_origin>", "</glad_group_origin>"
+	if originStart := strings.Index(trimmed, originOpen); originStart >= 0 {
+		originStart += len(originOpen)
+		if originEnd := strings.Index(trimmed[originStart:], originClose); originEnd >= 0 {
+			origin = strings.TrimSpace(trimmed[originStart : originStart+originEnd])
+		}
+	}
+	return strings.TrimSpace(trimmed[start : start+end]), origin, true
 }
 
 // Old provider histories can lose Glad's room-* client ID after resume and

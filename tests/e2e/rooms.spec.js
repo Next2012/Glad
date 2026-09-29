@@ -191,6 +191,110 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
   await page.request.delete(`/api/sessions/${session.id}`);
 });
 
+test('group dynamically projects pre-join history and opens neighboring turns with details', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'MacBook Pro 16', 'Native history projection runs once');
+  const session = await (await page.request.post('/api/sessions', {
+    data: { toolKey: 'codex', name: 'History source' }
+  })).json();
+  for (const text of [
+    '__GLAD_E2E_SUBAGENT_LIFECYCLE__ first before group',
+    '__GLAD_E2E_SUBAGENT_LIFECYCLE__ second before group'
+  ]) {
+    const sent = await page.request.post(`/api/sessions/${session.id}/input`, { data: { text } });
+    expect(sent.ok()).toBe(true);
+    await expect.poll(async () => {
+      const snapshot = await (await page.request.get(`/api/sessions/${session.id}`)).json();
+      return snapshot.status;
+    }, { timeout: 15000 }).toBe('idle');
+  }
+  const room = await (await page.request.post('/api/rooms', { data: { name: 'Projected history' } })).json();
+  const member = await (await page.request.post(`/api/rooms/${room.id}/members`, {
+    data: { sessionId: session.id }
+  })).json();
+  let projected;
+  await expect.poll(async () => {
+    projected = await (await page.request.get(`/api/rooms/${room.id}`)).json();
+    return projected.entries.length;
+  }).toBe(4);
+  expect(projected.entries.every(entry => entry.historical)).toBe(true);
+  expect(projected.entries[0].mentionedMemberIds).toEqual([member.memberId]);
+
+  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.locator('#lobby-tab-rooms').click();
+  await page.locator(`.room-list-card[data-room-id="${room.id}"] .btn-join`).click();
+  await expect(page.locator('.room-entry.user').first()).toContainText('@History source');
+  await page.locator('.room-entry.session').first().getByRole('button', { name: 'Context' }).click();
+  await expect(page.locator('#room-context-overlay')).toBeVisible();
+  await expect(page.locator('.room-context-turn')).toHaveCount(2);
+  await expect(page.locator('.room-context-turn.anchor')).toContainText('first before group');
+  await expect(page.locator('.room-context-turn').last()).toContainText('second before group');
+  await page.locator('.room-context-turn.anchor .room-turn-details-button').click();
+  await expect(page.locator('.room-context-turn.anchor .room-turn-details')).toContainText('Assistant message');
+
+  await page.request.delete(`/api/rooms/${room.id}`);
+  await page.request.delete(`/api/sessions/${session.id}`);
+});
+
+test('abandoned empty group drafts are deleted and duplicate creation is suppressed', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'MacBook Pro 16', 'Draft lifecycle runs once');
+  const before = await (await page.request.get('/api/rooms')).json();
+  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.evaluate(() => Promise.all([createRoomFromLobby(), createRoomFromLobby()]));
+  await expect(page.locator('#room-title')).toHaveText('New group (0)');
+  const draftId = await page.evaluate(() => activeRoomId);
+  const draft = await (await page.request.get(`/api/rooms/${draftId}`)).json();
+  expect(draft.draft).toBe(true);
+  expect(await (await page.request.get('/api/rooms')).json()).toHaveLength(before.length + 1);
+  await page.locator('.room-back-button').click();
+  await expect.poll(async () => (await page.request.get(`/api/rooms/${draftId}`)).status()).toBe(404);
+  const after = await (await page.request.get('/api/rooms')).json();
+  expect(after).toHaveLength(before.length);
+});
+
+test('a new group imports the complete history of an existing member session', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'MacBook Pro 16', 'Complete session history runs once');
+  const session = await (await page.request.post('/api/sessions', {
+    data: { toolKey: 'codex', name: 'Shared history' }
+  })).json();
+  const originRoom = await (await page.request.post('/api/rooms', { data: { name: 'Origin group' } })).json();
+  const originMember = await (await page.request.post(`/api/rooms/${originRoom.id}/members`, {
+    data: { sessionId: session.id }
+  })).json();
+  const groupSend = await page.request.post(`/api/rooms/${originRoom.id}/messages`, { data: {
+    text: '__GLAD_E2E_SUBAGENT_LIFECYCLE__ origin-only message',
+    mentionedMemberIds: [originMember.memberId], quotedEntryIds: []
+  }});
+  expect(groupSend.ok()).toBe(true);
+  await expect.poll(async () => {
+    const room = await (await page.request.get(`/api/rooms/${originRoom.id}`)).json();
+    return room.entries.at(-1)?.text || '';
+  }, { timeout: 15000 }).toContain('root completed after child');
+
+  const newRoom = await (await page.request.post('/api/rooms', { data: { name: 'Separate group' } })).json();
+  await page.request.post(`/api/rooms/${newRoom.id}/members`, { data: { sessionId: session.id } });
+  let separate = await (await page.request.get(`/api/rooms/${newRoom.id}`)).json();
+  expect(separate.entries).toHaveLength(2);
+  expect(separate.entries[0].text).toContain('origin-only message');
+  expect(separate.entries[1].text).toContain('root completed after child');
+
+  const direct = await page.request.post(`/api/sessions/${session.id}/input`, {
+    data: { text: '__GLAD_E2E_SUBAGENT_LIFECYCLE__ direct shared history' }
+  });
+  expect(direct.ok()).toBe(true);
+  await expect.poll(async () => {
+    separate = await (await page.request.get(`/api/rooms/${newRoom.id}`)).json();
+    return separate.entries.length;
+  }, { timeout: 15000 }).toBe(4);
+  expect(separate.entries[2].text).toContain('direct shared history');
+  expect(separate.entries[3].text).toContain('root completed after child');
+  const origin = await (await page.request.get(`/api/rooms/${originRoom.id}`)).json();
+  expect(origin.entries).toHaveLength(4);
+
+  await page.request.delete(`/api/rooms/${newRoom.id}`);
+  await page.request.delete(`/api/rooms/${originRoom.id}`);
+  await page.request.delete(`/api/sessions/${session.id}`);
+});
+
 test('landscape tablet gives the room the full canvas and keeps mini-session composer at the bottom', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'iPad Air 7', 'Landscape room layout runs once');
   await page.setViewportSize({ width: 1024, height: 700 });

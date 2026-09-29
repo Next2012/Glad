@@ -1401,6 +1401,12 @@ func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
 func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, error) {
 	forkCtx, cancelFork := context.WithTimeout(ctx, codexHistoryOperationTimeout)
 	defer cancelFork()
+	provider.session.mu.RLock()
+	previousMessages := make([]map[string]any, len(provider.session.Messages))
+	for index, message := range provider.session.Messages {
+		previousMessages[index] = cloneMap(message)
+	}
+	provider.session.mu.RUnlock()
 	provider.mu.Lock()
 	id = firstNonEmpty(strings.TrimSpace(id), provider.threadID)
 	if id == "" {
@@ -1444,6 +1450,17 @@ func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, err
 		provider.needsThreadResume = false
 		provider.mu.Unlock()
 		err = provider.hydrateThread(forkCtx, result)
+		if err == nil && len(previousMessages) > 0 {
+			provider.session.mu.RLock()
+			emptyFork := len(provider.session.Messages) == 0
+			provider.session.mu.RUnlock()
+			// A fork semantically includes its source history. Some provider
+			// versions omit copied turns from the immediate fork response; keep
+			// the already hydrated source transcript until future events extend it.
+			if emptyFork {
+				provider.session.replaceMessages(previousMessages)
+			}
+		}
 	}
 	if err != nil && forkCtx.Err() != nil {
 		provider.mu.Lock()
@@ -1598,6 +1615,11 @@ func buildCodexHistoryMessages(ctx context.Context, threadID string, turns []any
 			item := cloneMap(mapValue(itemValue))
 			item["threadId"] = threadID
 			item["turnId"] = turnID
+			if stringValue(item["type"]) == "agentMessage" {
+				item["createdAt"] = completed
+			} else {
+				item["createdAt"] = started
+			}
 			if message := codexHistoryItem(item); message != nil {
 				messages = append(messages, codexHistoryMessage(message))
 			}
@@ -1645,7 +1667,7 @@ func codexHistoryItem(raw map[string]any) map[string]any {
 	}
 	message := map[string]any{
 		"kind": kind, "providerId": raw["id"], "threadId": raw["threadId"], "turnId": raw["turnId"],
-		"streaming": false,
+		"streaming": false, "createdAt": raw["createdAt"],
 	}
 	switch kind {
 	case "user":

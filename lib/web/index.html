@@ -640,6 +640,13 @@
         </section>
     </div>
 
+    <div id="room-context-overlay" class="room-modal-overlay" onclick="closeRoomEntryContext(event)">
+        <section class="room-context-modal" role="dialog" aria-modal="true" aria-labelledby="room-context-title" onclick="event.stopPropagation()">
+            <header><div><h2 id="room-context-title">Conversation context</h2><p id="room-context-subtitle"></p></div><button class="icon-btn" type="button" onclick="closeRoomEntryContext()">×</button></header>
+            <div id="room-context-conversation" class="room-context-conversation"></div>
+        </section>
+    </div>
+
     <script defer src="vendor/xterm.js"></script>
     <script defer src="vendor/xterm-addon-fit.js"></script>
     <script src="theme.js"></script>

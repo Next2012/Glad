@@ -3,6 +3,8 @@ package app
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -118,8 +120,10 @@ func (manager *RoomManager) Start(ctx context.Context) {
 					))
 				}
 				message := mapValue(event.Payload["message"])
+				// Messages authored in a member session are projected from the
+				// provider conversation when a room is read. They are not copied
+				// into room persistence.
 				if stringValue(event.Payload["type"]) == "message" && stringValue(message["kind"]) == "user" {
-					manager.captureDirectSessionMessage(event.SessionID, message)
 					continue
 				}
 				if stringValue(event.Payload["type"]) != "message" || stringValue(message["kind"]) != "turn-end" {
@@ -162,65 +166,6 @@ func (manager *RoomManager) syncSessionConversation(sessionID, conversationID st
 			if !changed {
 				return errors.New("session is not an active member")
 			}
-			return nil
-		})
-	}
-}
-
-// Messages authored inside the full mini-session still belong to every room
-// where that live session is an active member. Room-dispatched messages use a
-// reserved client ID prefix and already have their own timeline entries.
-func (manager *RoomManager) captureDirectSessionMessage(sessionID string, message map[string]any) {
-	clientID := stringValue(message["clientMessageId"])
-	if strings.HasPrefix(clientID, "room-") {
-		return
-	}
-	text := strings.TrimSpace(stringValue(message["text"]))
-	if isRoomTransportText(text) {
-		return
-	}
-	if text == "" && len(sliceValue(message["attachments"])) > 0 {
-		text = "Sent attachments"
-	}
-	if text == "" {
-		return
-	}
-	rooms, err := manager.store.List()
-	if err != nil {
-		return
-	}
-	for _, snapshot := range rooms {
-		roomID := snapshot.ID
-		_ = manager.mutate(roomID, func(room *RoomRecord) error {
-			var member *RoomMemberRecord
-			for index := range room.Members {
-				candidate := &room.Members[index]
-				if candidate.LeftAt == 0 && candidate.RuntimeSessionID == sessionID {
-					member = candidate
-					break
-				}
-			}
-			if member == nil {
-				return errors.New("session is not an active member")
-			}
-			for _, entry := range room.Entries {
-				if entry.ClientMessageID != "" && entry.ClientMessageID == clientID {
-					return errors.New("session message is already indexed")
-				}
-			}
-			now := millis()
-			room.Entries = append(room.Entries, RoomEntryRecord{
-				ID: newUUID(), Sequence: room.NextSequence, Type: "user", UserText: text,
-				MentionedMemberIDs: []string{member.ID}, Status: "completed", CreatedAt: now,
-			})
-			room.NextSequence++
-			room.Entries = append(room.Entries, RoomEntryRecord{
-				ID: newUUID(), Sequence: room.NextSequence, Type: "session", MemberID: member.ID,
-				SourceSessionID: sessionID, NativeConversationID: member.NativeConversationID,
-				NativeTurnID: stringValue(message["turnId"]), ClientMessageID: clientID,
-				Status: "running", CreatedAt: now,
-			})
-			room.NextSequence++
 			return nil
 		})
 	}
@@ -344,6 +289,8 @@ func (manager *RoomManager) List() ([]map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
 	result := make([]map[string]any, 0, len(rooms))
 	for _, room := range rooms {
 		activeMembers := 0
@@ -352,10 +299,12 @@ func (manager *RoomManager) List() ([]map[string]any, error) {
 				activeMembers++
 			}
 		}
+		messageCount := len(manager.projectRoomEntriesLocked(room))
 		result = append(result, map[string]any{
 			"id": room.ID, "name": room.Name, "createdAt": room.CreatedAt,
 			"updatedAt": room.UpdatedAt, "memberCount": activeMembers,
-			"messageCount": len(room.Entries), "serverChanNotificationEnabled": room.ServerChanNotificationEnabled,
+			"messageCount": messageCount, "draft": room.Draft,
+			"serverChanNotificationEnabled": room.ServerChanNotificationEnabled,
 		})
 	}
 	return result, nil
@@ -373,7 +322,7 @@ func (manager *RoomManager) Create(name string) (RoomRecord, error) {
 	room := RoomRecord{
 		SchemaVersion: currentRoomSchemaVersion, ID: newUUID(), Name: name,
 		CreatedAt: now, UpdatedAt: now, NextSequence: 1,
-		Members: []RoomMemberRecord{}, Entries: []RoomEntryRecord{},
+		Members: []RoomMemberRecord{}, Entries: []RoomEntryRecord{}, Draft: true,
 	}
 	if err := manager.store.Save(room); err != nil {
 		return RoomRecord{}, err
@@ -387,6 +336,24 @@ func (manager *RoomManager) Delete(id string) error {
 	return manager.store.Delete(id)
 }
 
+func (manager *RoomManager) DeleteDraft(id string) error {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	room, err := manager.store.Get(id)
+	if err != nil {
+		return err
+	}
+	if !room.Draft || len(room.Entries) != 0 {
+		return errors.New("room is not an empty draft")
+	}
+	for _, member := range room.Members {
+		if member.LeftAt == 0 {
+			return errors.New("room is not an empty draft")
+		}
+	}
+	return manager.store.Delete(id)
+}
+
 func (manager *RoomManager) Rename(id, name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > maxRoomNameBytes {
@@ -394,6 +361,7 @@ func (manager *RoomManager) Rename(id, name string) error {
 	}
 	return manager.mutate(id, func(room *RoomRecord) error {
 		room.Name = name
+		room.Draft = false
 		return nil
 	})
 }
@@ -513,7 +481,6 @@ func (manager *RoomManager) BindRuntimeSession(roomID, memberID, sessionID, conv
 }
 
 func (manager *RoomManager) GetPublic(id string) (map[string]any, error) {
-	manager.reconcileLiveMessages(id)
 	manager.mu.Lock()
 	room, err := manager.store.Get(id)
 	if err != nil {
@@ -549,118 +516,411 @@ func (manager *RoomManager) GetPublic(id string) (map[string]any, error) {
 			"pendingPermissionCount": pendingPermissions, "pendingQuestionCount": pendingQuestions,
 		})
 	}
-	entries := make([]map[string]any, 0, len(room.Entries))
-	for _, entry := range room.Entries {
+	projected := manager.projectRoomEntriesLocked(room)
+	entries := make([]map[string]any, 0, len(projected))
+	for _, entry := range projected {
 		entries = append(entries, manager.publicEntryLocked(room, memberByID, entry))
 	}
 	manager.mu.Unlock()
 	return map[string]any{
 		"schemaVersion": room.SchemaVersion, "id": room.ID, "name": room.Name,
-		"createdAt": room.CreatedAt, "updatedAt": room.UpdatedAt,
+		"createdAt": room.CreatedAt, "updatedAt": room.UpdatedAt, "draft": room.Draft,
 		"serverChanNotificationEnabled": room.ServerChanNotificationEnabled,
 		"members":                       members, "entries": entries,
 	}, nil
 }
 
-type roomDirectCandidate struct {
-	member         RoomMemberRecord
-	text           string
-	clientID       string
-	turnID         string
-	conversationID string
-	createdAt      int64
-	status         string
+type roomProjectedTurn struct {
+	turnID, conversationID, originRoomID, clientID, userText, assistantText, status string
+	userAt, assistantAt                                                             int64
 }
 
-// Reconcile covers subscriber overflow, server-side direct sends, and messages
-// produced while no room browser was open. Only turns created after the member
-// joined are eligible, and room-dispatched turns are excluded by client ID.
-func (manager *RoomManager) reconcileLiveMessages(roomID string) {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	room, err := manager.store.Get(roomID)
-	if err != nil {
-		return
-	}
-	seen := map[string]bool{}
-	for _, entry := range room.Entries {
-		if entry.ClientMessageID != "" {
-			seen[entry.ClientMessageID] = true
+type roomContextTurn struct {
+	TurnID, UserText, AssistantText, Status string
+	CreatedAt                               int64
+	HasDetails                              bool
+}
+
+type roomSourceMessage struct {
+	Message        map[string]any
+	TurnID         string
+	ConversationID string
+}
+
+func roomHistoryEntryID(memberID, turnID, kind string) string {
+	// Provider-side forks may change the conversation ID while preserving turn
+	// IDs. Member + turn + role keeps room references stable across that switch.
+	digest := sha256.Sum256([]byte(memberID + "\x00" + turnID + "\x00" + kind))
+	return "history-" + hex.EncodeToString(digest[:16])
+}
+
+func newRoomClientID(roomID string) string {
+	return "room:" + roomID + ":" + newUUID()
+}
+
+func roomClientOrigin(clientID string) (string, bool) {
+	if strings.HasPrefix(clientID, "room:") {
+		value := strings.TrimPrefix(clientID, "room:")
+		if separator := strings.IndexByte(value, ':'); separator > 0 {
+			return value[:separator], true
 		}
 	}
-	candidates := []roomDirectCandidate{}
+	if strings.HasPrefix(clientID, "room-") {
+		return "", true
+	}
+	return "", false
+}
+
+// projectRoomEntriesLocked builds the room read model from durable room-owned
+// entries plus every active member's provider-native conversation. Historical
+// text remains provider-owned and is never written back to the room store.
+func (manager *RoomManager) projectRoomEntriesLocked(room RoomRecord) []RoomEntryRecord {
+	entries := append([]RoomEntryRecord(nil), room.Entries...)
+	seenTurns := map[string]bool{}
+	seenClients := map[string]bool{}
+	for _, entry := range room.Entries {
+		if entry.MemberID != "" && entry.NativeTurnID != "" {
+			seenTurns[entry.MemberID+"\x00"+entry.NativeTurnID] = true
+		}
+		if entry.ClientMessageID != "" {
+			seenClients[entry.MemberID+"\x00"+entry.ClientMessageID] = true
+		}
+	}
 	for _, member := range room.Members {
 		if member.LeftAt != 0 {
 			continue
 		}
-		session := manager.sessions.Get(member.RuntimeSessionID)
-		if session == nil {
+		sourceMessages, conversationID, available := manager.roomMemberSourceMessages(member)
+		if !available {
 			continue
 		}
-		session.mu.RLock()
-		conversationID := sessionNativeConversationID(session)
-		turnStatus := map[string]string{}
-		for _, message := range session.Messages {
-			if stringValue(message["kind"]) == "turn-end" {
-				turnStatus[stringValue(message["turnId"])] = firstNonEmpty(
-					stringValue(message["status"]), stringValue(message["turnStatus"]), "completed",
-				)
+		turns := map[string]*roomProjectedTurn{}
+		order := []string{}
+		for _, source := range sourceMessages {
+			message := source.Message
+			kind := stringValue(message["kind"])
+			if kind != "user" && kind != "assistant" && kind != "turn-end" {
+				continue
+			}
+			turnID := source.TurnID
+			if turnID == "" {
+				continue
+			}
+			turn := turns[turnID]
+			if turn == nil {
+				turn = &roomProjectedTurn{turnID: turnID, conversationID: source.ConversationID, status: "completed"}
+				turns[turnID] = turn
+				order = append(order, turnID)
+			}
+			switch kind {
+			case "user":
+				text := strings.TrimSpace(stringValue(message["text"]))
+				clientID := stringValue(message["clientMessageId"])
+				if origin, roomClient := roomClientOrigin(clientID); roomClient && origin != "" {
+					turn.originRoomID = origin
+				}
+				if visible, origin, ok := roomTransportEnvelope(text); ok {
+					text = visible
+					if origin != "" {
+						turn.originRoomID = origin
+					}
+				}
+				if text != "" {
+					turn.userText, turn.clientID = text, clientID
+					turn.userAt = numberInt64(message["createdAt"])
+				}
+			case "assistant":
+				if text := strings.TrimSpace(stringValue(message["text"])); text != "" {
+					turn.assistantText = text
+					turn.assistantAt = numberInt64(firstNonNil(message["completedAtMs"], message["updatedAt"], message["createdAt"]))
+				}
+			case "turn-end":
+				turn.status = firstNonEmpty(stringValue(message["status"]), stringValue(message["turnStatus"]), "completed")
 			}
 		}
-		for _, message := range session.Messages {
-			if stringValue(message["kind"]) != "user" || numberInt64(message["createdAt"]) < member.JoinedAt {
+		for index := range entries {
+			entry := &entries[index]
+			if entry.Type != "session" || entry.MemberID != member.ID || entry.NativeTurnID == "" {
 				continue
 			}
-			clientID := stringValue(message["clientMessageId"])
-			if strings.HasPrefix(clientID, "room-") {
+			if turn := turns[entry.NativeTurnID]; turn != nil && turn.assistantText != "" {
+				entry.ResolvedText = turn.assistantText
+				entry.Status = firstNonEmpty(turn.status, entry.Status)
+			}
+		}
+		for _, turnID := range order {
+			turn := turns[turnID]
+			if turn.userText == "" || seenTurns[member.ID+"\x00"+turnID] ||
+				(turn.clientID != "" && seenClients[member.ID+"\x00"+turn.clientID]) {
 				continue
 			}
-			if clientID == "" {
-				clientID = "direct-" + stringValue(message["id"])
+			createdAt := turn.userAt
+			if createdAt <= 0 {
+				createdAt = turn.assistantAt
 			}
-			if seen[clientID] {
-				continue
-			}
-			text := strings.TrimSpace(stringValue(message["text"]))
-			if isRoomTransportText(text) {
-				continue
-			}
-			if text == "" && len(sliceValue(message["attachments"])) > 0 {
-				text = "Sent attachments"
-			}
-			if text == "" {
-				continue
-			}
-			turnID := stringValue(message["turnId"])
-			status := firstNonEmpty(turnStatus[turnID], "running")
-			candidates = append(candidates, roomDirectCandidate{
-				member: member, text: text, clientID: clientID, turnID: turnID,
-				conversationID: conversationID, createdAt: numberInt64(message["createdAt"]), status: status,
+			entries = append(entries, RoomEntryRecord{
+				ID: roomHistoryEntryID(member.ID, turnID, "user"), Type: "user",
+				UserText: turn.userText, MemberID: member.ID, MentionedMemberIDs: []string{member.ID},
+				SourceSessionID: member.RuntimeSessionID, NativeConversationID: firstNonEmpty(turn.conversationID, conversationID),
+				NativeTurnID: turnID, OriginRoomID: turn.originRoomID, ClientMessageID: turn.clientID,
+				Status: "completed", CreatedAt: createdAt,
+				Historical: true,
 			})
-			seen[clientID] = true
+			if turn.assistantText != "" {
+				assistantAt := turn.assistantAt
+				if assistantAt <= 0 {
+					assistantAt = createdAt
+				}
+				entries = append(entries, RoomEntryRecord{
+					ID: roomHistoryEntryID(member.ID, turnID, "assistant"), Type: "session",
+					MemberID: member.ID, SourceSessionID: member.RuntimeSessionID,
+					NativeConversationID: firstNonEmpty(turn.conversationID, conversationID), NativeTurnID: turnID,
+					OriginRoomID: turn.originRoomID, Status: turn.status, CreatedAt: assistantAt,
+					Historical: true, ResolvedText: turn.assistantText,
+				})
+			}
 		}
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].CreatedAt != entries[j].CreatedAt {
+			return entries[i].CreatedAt < entries[j].CreatedAt
+		}
+		if entries[i].Type != entries[j].Type {
+			return entries[i].Type == "user"
+		}
+		return entries[i].Sequence < entries[j].Sequence
+	})
+	for index := range entries {
+		entries[index].Sequence = int64(index + 1)
+	}
+	return entries
+}
+
+func (manager *RoomManager) EntryContext(roomID, entryID string, before, after int) (map[string]any, error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	room, err := manager.store.Get(roomID)
+	if err != nil {
+		return nil, err
+	}
+	entry, member, source, err := manager.roomSourceLocked(room, entryID)
+	if err != nil {
+		return nil, err
+	}
+	turns := roomConversationTurns(source)
+	anchor := -1
+	for index, turn := range turns {
+		if turn.TurnID == entry.NativeTurnID {
+			anchor = index
+			break
+		}
+	}
+	if anchor < 0 {
+		return nil, errors.New("source turn is unavailable")
+	}
+	before = max(0, min(before, 50))
+	after = max(0, min(after, 50))
+	start, end := max(0, anchor-before), min(len(turns), anchor+after+1)
+	items := make([]map[string]any, 0, end-start)
+	for index := start; index < end; index++ {
+		turn := turns[index]
+		items = append(items, map[string]any{
+			"turnId": turn.TurnID, "userText": turn.UserText, "assistantText": turn.AssistantText,
+			"createdAt": turn.CreatedAt, "status": turn.Status, "hasDetails": turn.HasDetails,
+			"anchor": index == anchor,
+		})
+	}
+	return map[string]any{
+		"entryId": entry.ID, "memberId": member.ID, "memberName": member.DisplayName,
+		"conversationId": entry.NativeConversationID, "anchorTurnId": entry.NativeTurnID,
+		"turns": items, "hasBefore": start > 0, "hasAfter": end < len(turns),
+		"before": anchor - start, "after": end - anchor - 1, "totalTurns": len(turns),
+	}, nil
+}
+
+func (manager *RoomManager) EntryTurnDetails(roomID, entryID, turnID string) (map[string]any, error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	room, err := manager.store.Get(roomID)
+	if err != nil {
+		return nil, err
+	}
+	_, member, source, err := manager.roomSourceLocked(room, entryID)
+	if err != nil {
+		return nil, err
+	}
+	messages := []map[string]any{}
+	for _, item := range source {
+		if item.TurnID != turnID {
+			continue
+		}
+		copy := cloneMap(item.Message)
+		copy["turnId"] = turnID
+		delete(copy, "agentText")
+		delete(copy, "raw")
+		messages = append(messages, copy)
+	}
+	if len(messages) == 0 {
+		return nil, errors.New("source turn details are unavailable")
+	}
+	return map[string]any{"turnId": turnID, "memberId": member.ID, "memberName": member.DisplayName, "messages": messages}, nil
+}
+
+func (manager *RoomManager) roomSourceLocked(room RoomRecord, entryID string) (RoomEntryRecord, RoomMemberRecord, []roomSourceMessage, error) {
+	var entry RoomEntryRecord
+	found := false
+	for _, candidate := range manager.projectRoomEntriesLocked(room) {
+		if candidate.ID == entryID {
+			entry, found = candidate, true
+			break
+		}
+	}
+	if !found || entry.MemberID == "" || entry.NativeTurnID == "" {
+		return RoomEntryRecord{}, RoomMemberRecord{}, nil, errors.New("room entry has no source conversation")
+	}
+	var member RoomMemberRecord
+	for _, candidate := range room.Members {
+		if candidate.ID == entry.MemberID {
+			member = candidate
+			break
+		}
+	}
+	if member.ID == "" {
+		return RoomEntryRecord{}, RoomMemberRecord{}, nil, errors.New("source member is unavailable")
+	}
+	source, _, available := manager.roomMemberSourceMessages(member)
+	if !available {
+		return RoomEntryRecord{}, RoomMemberRecord{}, nil, errors.New("source session is unavailable")
+	}
+	return entry, member, source, nil
+}
+
+func roomConversationTurns(sourceMessages []roomSourceMessage) []roomContextTurn {
+	turns := map[string]*roomContextTurn{}
+	order := []string{}
+	for _, source := range sourceMessages {
+		message := source.Message
+		turnID := source.TurnID
+		if turnID == "" {
+			continue
+		}
+		turn := turns[turnID]
+		if turn == nil {
+			turn = &roomContextTurn{TurnID: turnID, Status: "completed"}
+			turns[turnID] = turn
+			order = append(order, turnID)
+		}
+		createdAt := numberInt64(firstNonNil(message["createdAt"], message["startedAtMs"], message["completedAtMs"]))
+		if turn.CreatedAt == 0 || createdAt > 0 && createdAt < turn.CreatedAt {
+			turn.CreatedAt = createdAt
+		}
+		switch stringValue(message["kind"]) {
+		case "user":
+			text := strings.TrimSpace(stringValue(message["text"]))
+			if visible, ok := roomTransportVisibleText(text); ok {
+				text = visible
+			}
+			if text != "" {
+				turn.UserText = text
+			}
+		case "assistant":
+			if text := strings.TrimSpace(stringValue(message["text"])); text != "" {
+				turn.AssistantText = text
+			}
+		case "turn-start":
+		case "turn-end":
+			turn.Status = firstNonEmpty(stringValue(message["status"]), stringValue(message["turnStatus"]), "completed")
+		default:
+			turn.HasDetails = true
+		}
+	}
+	result := make([]roomContextTurn, 0, len(order))
+	for _, turnID := range order {
+		turn := *turns[turnID]
+		if turn.UserText != "" || turn.AssistantText != "" {
+			result = append(result, turn)
+		}
+	}
+	sort.SliceStable(result, func(i, j int) bool { return result[i].CreatedAt < result[j].CreatedAt })
+	return result
+}
+
+func (manager *RoomManager) roomMemberSourceMessages(member RoomMemberRecord) ([]roomSourceMessage, string, bool) {
+	if session := manager.sessions.Get(member.RuntimeSessionID); session != nil {
+		session.mu.RLock()
+		conversationID := firstNonEmpty(sessionNativeConversationID(session), member.NativeConversationID)
+		messages := roomSourceMessages(session.Messages, conversationID)
 		session.mu.RUnlock()
+		return messages, conversationID, true
 	}
-	if len(candidates) == 0 {
-		return
+	if member.NativeConversationID == "" {
+		return nil, "", false
 	}
-	sort.Slice(candidates, func(i, j int) bool { return candidates[i].createdAt < candidates[j].createdAt })
-	for _, candidate := range candidates {
-		room.Entries = append(room.Entries, RoomEntryRecord{
-			ID: newUUID(), Sequence: room.NextSequence, Type: "user", UserText: candidate.text,
-			MentionedMemberIDs: []string{candidate.member.ID}, Status: "completed", CreatedAt: candidate.createdAt,
+	var messages []map[string]any
+	var err error
+	switch member.ToolKey {
+	case "claude-code":
+		messages, err = readClaudeTranscriptFile(member.WorkingDirectory, member.NativeConversationID)
+	case "codex":
+		messages, err = readCodexTranscriptFile(member.NativeConversationID)
+	default:
+		err = errors.New("provider history is unavailable")
+	}
+	if err != nil {
+		return nil, member.NativeConversationID, false
+	}
+	return roomSourceMessages(messages, member.NativeConversationID), member.NativeConversationID, true
+}
+
+// Live providers publish the visible user message before Codex assigns its
+// turn ID. Pair that orphan message with the following root turn-start so the
+// dynamic room projection has one stable source turn after completion.
+func roomSourceMessages(messages []map[string]any, conversationID string) []roomSourceMessage {
+	rootThreads := map[string]bool{}
+	if conversationID != "" {
+		rootThreads[conversationID] = true
+	}
+	for _, message := range messages {
+		kind := stringValue(message["kind"])
+		if kind == "turn-end" && boolValue(message["isRootTurn"]) {
+			if threadID := stringValue(message["threadId"]); threadID != "" {
+				rootThreads[threadID] = true
+			}
+		}
+	}
+	result := []roomSourceMessage{}
+	pendingUser := -1
+	for _, message := range messages {
+		if stringValue(message["parentToolUseId"]) != "" {
+			continue
+		}
+		threadID := stringValue(message["threadId"])
+		if threadID != "" && len(rootThreads) > 0 && !rootThreads[threadID] {
+			continue
+		}
+		kind := stringValue(message["kind"])
+		turnID := stringValue(message["turnId"])
+		if kind == "turn-start" && turnID != "" && pendingUser >= 0 {
+			result[pendingUser].TurnID = turnID
+			result[pendingUser].ConversationID = firstNonEmpty(threadID, conversationID)
+			pendingUser = -1
+		}
+		if turnID == "" {
+			turnID = firstNonEmpty(stringValue(message["providerId"]), stringValue(message["id"]))
+		}
+		if turnID == "" {
+			continue
+		}
+		result = append(result, roomSourceMessage{
+			Message: message, TurnID: turnID, ConversationID: firstNonEmpty(threadID, conversationID),
 		})
-		room.NextSequence++
-		room.Entries = append(room.Entries, RoomEntryRecord{
-			ID: newUUID(), Sequence: room.NextSequence, Type: "session", MemberID: candidate.member.ID,
-			SourceSessionID: candidate.member.RuntimeSessionID, NativeConversationID: candidate.conversationID,
-			NativeTurnID: candidate.turnID, ClientMessageID: candidate.clientID,
-			Status: candidate.status, CreatedAt: candidate.createdAt,
-		})
-		room.NextSequence++
+		if kind == "user" && stringValue(message["turnId"]) == "" {
+			pendingUser = len(result) - 1
+		} else if kind == "user" {
+			pendingUser = -1
+		}
 	}
-	room.UpdatedAt = millis()
-	_ = manager.store.Save(room)
+	return result
 }
 
 func (manager *RoomManager) AddSession(roomID, sessionID string) (RoomMemberRecord, error) {
@@ -701,6 +961,7 @@ func (manager *RoomManager) AddSession(roomID, sessionID string) (RoomMemberReco
 	}
 	session.mu.RUnlock()
 	room.Members = append(room.Members, member)
+	room.Draft = false
 	room.UpdatedAt = millis()
 	if err := manager.store.Save(room); err != nil {
 		return RoomMemberRecord{}, err
@@ -755,7 +1016,8 @@ func (manager *RoomManager) PostMessage(ctx context.Context, roomID string, inpu
 		}
 		targets = append(targets, member)
 	}
-	references, missing := manager.referenceTextLocked(room, input.QuotedEntryIDs)
+	projected := manager.projectRoomEntriesLocked(room)
+	references, missing := manager.referenceTextLocked(room, projected, input.QuotedEntryIDs)
 	now := millis()
 	userEntry := RoomEntryRecord{
 		ID: newUUID(), Sequence: room.NextSequence, Type: "user", UserText: input.Text,
@@ -770,20 +1032,22 @@ func (manager *RoomManager) PostMessage(ctx context.Context, roomID string, inpu
 			ID: newUUID(), Sequence: room.NextSequence, Type: "session", MemberID: member.ID,
 			SourceSessionID:      member.RuntimeSessionID,
 			NativeConversationID: member.NativeConversationID,
-			ClientMessageID:      "room-" + newUUID(), Status: "pending", CreatedAt: now,
+			ClientMessageID:      newRoomClientID(roomID), OriginRoomID: roomID,
+			Status: "pending", CreatedAt: now,
 		}
 		room.NextSequence++
 		replyIDs[member.ID] = entry.ID
 		room.Entries = append(room.Entries, entry)
 	}
 	room.UpdatedAt = now
+	room.Draft = false
 	if err := manager.store.Save(room); err != nil {
 		manager.mu.Unlock()
 		return nil, err
 	}
 	manager.mu.Unlock()
 
-	agentText := buildRoomAgentText(input.Text, references, missing)
+	agentText := buildRoomAgentTextForRoom(roomID, input.Text, references, missing)
 	var wait sync.WaitGroup
 	for _, target := range targets {
 		target := target
@@ -909,10 +1173,20 @@ func (manager *RoomManager) publicEntryLocked(
 		"id": entry.ID, "sequence": entry.Sequence, "type": entry.Type,
 		"memberId": nilIfEmpty(entry.MemberID), "mentionedMemberIds": entry.MentionedMemberIDs,
 		"quotedEntryIds": entry.QuotedEntryIDs, "status": entry.Status,
-		"createdAt": entry.CreatedAt,
+		"createdAt":            entry.CreatedAt,
+		"historical":           entry.Historical,
+		"hasContext":           entry.NativeTurnID != "" && entry.MemberID != "",
+		"sourceTurnId":         nilIfEmpty(entry.NativeTurnID),
+		"sourceConversationId": nilIfEmpty(entry.NativeConversationID),
+		"originRoomId":         nilIfEmpty(entry.OriginRoomID),
 	}
 	if entry.Type == "user" {
 		result["text"] = entry.UserText
+		return result
+	}
+	if entry.ResolvedText != "" {
+		result["text"] = entry.ResolvedText
+		result["turnId"] = nilIfEmpty(entry.NativeTurnID)
 		return result
 	}
 	member := members[entry.MemberID]
@@ -937,10 +1211,10 @@ func (manager *RoomManager) publicEntryLocked(
 	return result
 }
 
-func (manager *RoomManager) referenceTextLocked(room RoomRecord, ids []string) ([]string, []string) {
+func (manager *RoomManager) referenceTextLocked(room RoomRecord, projected []RoomEntryRecord, ids []string) ([]string, []string) {
 	entries := map[string]RoomEntryRecord{}
 	members := map[string]RoomMemberRecord{}
-	for _, entry := range room.Entries {
+	for _, entry := range projected {
 		entries[entry.ID] = entry
 	}
 	for _, member := range room.Members {
@@ -958,7 +1232,9 @@ func (manager *RoomManager) referenceTextLocked(room RoomRecord, ids []string) (
 		if entry.Type == "session" {
 			member := members[entry.MemberID]
 			label = member.DisplayName
-			if view, available := manager.resolver.Resolve(member, entry); available {
+			if entry.ResolvedText != "" {
+				text = entry.ResolvedText
+			} else if view, available := manager.resolver.Resolve(member, entry); available {
 				text = view.Text
 			} else {
 				text = ""
@@ -980,8 +1256,15 @@ func (manager *RoomManager) referenceTextLocked(room RoomRecord, ids []string) (
 }
 
 func buildRoomAgentText(text string, references, missing []string) string {
+	return buildRoomAgentTextForRoom("", text, references, missing)
+}
+
+func buildRoomAgentTextForRoom(roomID, text string, references, missing []string) string {
 	parts := []string{
 		"You are being addressed as a member of a Glad group chat. Only the explicitly quoted messages below are shared context; do not assume you can see the rest of the room.",
+	}
+	if roomID != "" {
+		parts = append(parts, "<glad_group_origin>\n"+roomID+"\n</glad_group_origin>")
 	}
 	if len(references) > 0 || len(missing) > 0 {
 		parts = append(parts, "<glad_group_references>")

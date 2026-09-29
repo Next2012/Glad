@@ -1,7 +1,8 @@
 # Glad group-chat architecture
 
 Group chat is a lightweight, durable index over independent provider sessions.
-It is not another copy of Codex or Claude history.
+Its timeline is a dynamic read model over provider-native history, not another
+copy of Codex or Claude history.
 
 ## Ownership boundaries
 
@@ -42,6 +43,13 @@ Version 2 persists:
 - native conversation and turn locators;
 - user-authored room text, mentions, and quoted entry IDs;
 - dispatch status and a small error string.
+- the origin room ID for every group-dispatched provider turn;
+- whether a newly-created empty room is still a disposable draft.
+
+It persists stable source IDs when a room message quotes provider history, but
+not the quoted text. History-only timeline entries use deterministic IDs derived
+from member, native turn, and role, so they can be selected without being copied
+into the room document.
 
 It does not persist assistant response text, tool data, reasoning, or
 attachments.
@@ -56,16 +64,32 @@ member identities, and provider-native locators.
 1. Persist the user entry and one pending entry for each mentioned member.
 2. Resolve quoted entries from current session/native history.
 3. Build private `AgentText` containing only the explicit references and the
-   new group message. Public `Text` remains the user's new message.
+   new group message. The transport envelope carries `originRoomId`; public
+   `Text` remains the user's new message.
 4. Dispatch to all mentioned sessions concurrently.
 5. Bind each pending entry to its provider conversation/turn.
 6. On root turn completion, persist status and the stable native locator.
-7. On room reads, resolve the final top-level assistant message in memory.
+7. On room reads, project every active member's full native conversation,
+   including turns created before the member joined, then merge it by timestamp
+   with room-owned entries.
 
-Turns started from the full mini-session are indexed too. The event subscriber
-adds the direct user turn and a reply source entry to every room where that
-session is currently an active member. A read-time reconciliation pass covers
-subscriber overflow without importing turns created before the member joined.
+Turns started from the full mini-session are visible through the same dynamic
+projection. They are never copied into room persistence. Room-dispatched turns
+are matched by client/turn ID and suppressed from the native projection because
+their room-owned user entry and reply locator already represent them.
+
+A session may belong to several rooms, but remains an ordinary independent
+session. Its complete native history is projected into every room that adds it,
+including turns previously initiated through another room. New transports
+encode the origin room ID in both the client message ID and private envelope;
+that provenance is used for attribution and de-duplication, never as a history
+access boundary. Legacy transports without an origin remain readable by
+extracting their visible group message.
+
+Conversation context is loaded by stable turn locator. The initial context view
+contains neighboring user/assistant turns; reasoning, tools, and subagent data
+remain server-side until the browser asks for that turn's details. Merely viewing
+neighbors does not add them to a reference sent to another member.
 
 Unavailable references are not silently removed. The target receives an
 explicit `Message unavailable` placeholder.
@@ -88,6 +112,8 @@ explicit `Message unavailable` placeholder.
   stay stable while each provider conversation is resumed or forked and the
   live session switches to it. Provider-side forks cannot be rolled back
   transactionally, so per-member failures are reported and left unchanged.
+- A newly created empty room is a draft. Adding a member, renaming it, or
+  sending a message makes it durable; leaving an untouched draft deletes it.
 
 ## Attachments
 
