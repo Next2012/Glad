@@ -11,7 +11,7 @@ import (
 	"sync"
 )
 
-const currentRoomSchemaVersion = 1
+const currentRoomSchemaVersion = 2
 
 var (
 	errRoomNotFound     = errors.New("room not found")
@@ -158,12 +158,16 @@ func (store *FileRoomStore) Save(room RoomRecord) error {
 	if err != nil {
 		return err
 	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return store.writeLocked(path, room)
+}
+
+func (store *FileRoomStore) writeLocked(path string, room RoomRecord) error {
 	data, err := json.MarshalIndent(room, "", "  ")
 	if err != nil {
 		return err
 	}
-	store.mu.Lock()
-	defer store.mu.Unlock()
 	temporary := path + ".tmp"
 	if err := os.WriteFile(temporary, data, 0o600); err != nil {
 		return err
@@ -207,14 +211,27 @@ func (store *FileRoomStore) readLocked(path string) (RoomRecord, error) {
 	if err := json.Unmarshal(data, &room); err != nil {
 		return RoomRecord{}, err
 	}
-	return migrateRoom(room)
+	originalVersion, originalEntries := room.SchemaVersion, len(room.Entries)
+	room, err = migrateRoom(room)
+	if err != nil {
+		return RoomRecord{}, err
+	}
+	if room.SchemaVersion != originalVersion || len(room.Entries) != originalEntries {
+		if err := store.writeLocked(path, room); err != nil {
+			return RoomRecord{}, err
+		}
+	}
+	return room, nil
 }
 
-// Migrations are intentionally centralized even though v1 is the first
-// schema. Future versions append one deterministic step per version here.
+// Migrations are centralized and persisted atomically on first read.
 func migrateRoom(room RoomRecord) (RoomRecord, error) {
 	if room.SchemaVersion == 0 {
 		room.SchemaVersion = 1
+	}
+	if room.SchemaVersion == 1 {
+		room.Entries = stripRoomTransportArtifacts(room.Entries)
+		room.SchemaVersion = 2
 	}
 	if room.SchemaVersion != currentRoomSchemaVersion {
 		return RoomRecord{}, fmt.Errorf("unsupported room schema version %d", room.SchemaVersion)
@@ -247,5 +264,55 @@ func migrateRoom(room RoomRecord) (RoomRecord, error) {
 	if room.Entries == nil {
 		room.Entries = []RoomEntryRecord{}
 	}
+	// Also repair v2 files written while the provider-history bug was active.
+	room.Entries = stripRoomTransportArtifacts(room.Entries)
 	return room, nil
+}
+
+func isRoomTransportText(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	return strings.HasPrefix(trimmed, "You are being addressed as a member of a Glad group chat.") &&
+		strings.Contains(trimmed, "<glad_group_message>\n") &&
+		strings.HasSuffix(trimmed, "</glad_group_message>")
+}
+
+// Old provider histories can lose Glad's room-* client ID after resume and
+// expose the injected agent payload as an ordinary user message. Those entries
+// were never authored by the user and always have a synthetic direct reply.
+func stripRoomTransportArtifacts(entries []RoomEntryRecord) []RoomEntryRecord {
+	if len(entries) == 0 {
+		return entries
+	}
+	cleaned := make([]RoomEntryRecord, 0, len(entries))
+	removed := map[string]bool{}
+	for index := 0; index < len(entries); index++ {
+		entry := entries[index]
+		if entry.Type != "user" || !isRoomTransportText(entry.UserText) {
+			cleaned = append(cleaned, entry)
+			continue
+		}
+		removed[entry.ID] = true
+		if index+1 < len(entries) {
+			reply := entries[index+1]
+			if reply.Type == "session" && strings.HasPrefix(reply.ClientMessageID, "direct-") &&
+				reply.CreatedAt == entry.CreatedAt && len(entry.MentionedMemberIDs) == 1 &&
+				reply.MemberID == entry.MentionedMemberIDs[0] {
+				removed[reply.ID] = true
+				index++
+			}
+		}
+	}
+	if len(removed) == 0 {
+		return cleaned
+	}
+	for index := range cleaned {
+		quotes := cleaned[index].QuotedEntryIDs[:0]
+		for _, id := range cleaned[index].QuotedEntryIDs {
+			if !removed[id] {
+				quotes = append(quotes, id)
+			}
+		}
+		cleaned[index].QuotedEntryIDs = quotes
+	}
+	return cleaned
 }

@@ -32,7 +32,7 @@ func TestRoomStorePersistsVersionedRoomsIndependently(t *testing.T) {
 		t.Fatalf("loaded room = %#v, err=%v", loaded, err)
 	}
 	data, err := os.ReadFile(filepath.Join(directory, room.ID+".json"))
-	if err != nil || !strings.Contains(string(data), `"schemaVersion": 1`) {
+	if err != nil || !strings.Contains(string(data), `"schemaVersion": 2`) {
 		t.Fatalf("versioned room file is invalid: %v %s", err, data)
 	}
 }
@@ -118,7 +118,7 @@ func TestRoomDispatchInjectsQuotesWithoutPersistingAssistantText(t *testing.T) {
 		t.Fatal("assistant text leaked into room persistence")
 	}
 	var saved RoomRecord
-	if err := json.Unmarshal(raw, &saved); err != nil || saved.SchemaVersion != 1 {
+	if err := json.Unmarshal(raw, &saved); err != nil || saved.SchemaVersion != currentRoomSchemaVersion {
 		t.Fatalf("persisted room is invalid: %v", err)
 	}
 }
@@ -158,6 +158,60 @@ func TestRoomCapturesMessagesSentInsideMemberSession(t *testing.T) {
 	record, _ = store.Get(room.ID)
 	if len(record.Entries) != 2 {
 		t.Fatalf("duplicate direct message created more entries: %#v", record.Entries)
+	}
+}
+
+func TestRoomIgnoresAndRepairsInternalTransportMessages(t *testing.T) {
+	directory := t.TempDir()
+	store, err := OpenRoomStoreAt(filepath.Join(directory, "rooms"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := buildRoomAgentText("visible question", nil, nil)
+	room := RoomRecord{
+		SchemaVersion: 1, ID: newUUID(), Name: "Repair",
+		CreatedAt: 1, UpdatedAt: 1, NextSequence: 6,
+		Members: []RoomMemberRecord{{ID: "member", RuntimeSessionID: "session", DisplayName: "Agent"}},
+		Entries: []RoomEntryRecord{
+			{ID: "real", Sequence: 1, Type: "user", UserText: "visible question", Status: "completed", CreatedAt: 10},
+			{ID: "real-reply", Sequence: 2, Type: "session", MemberID: "member", ClientMessageID: "room-original", Status: "completed", CreatedAt: 10},
+			{ID: "artifact", Sequence: 3, Type: "user", UserText: transport, MentionedMemberIDs: []string{"member"}, Status: "completed", CreatedAt: 11},
+			{ID: "artifact-reply", Sequence: 4, Type: "session", MemberID: "member", ClientMessageID: "direct-imported", Status: "completed", CreatedAt: 11},
+			{ID: "later", Sequence: 5, Type: "user", UserText: "later", QuotedEntryIDs: []string{"artifact", "real-reply"}, Status: "completed", CreatedAt: 12},
+		},
+	}
+	raw, err := json.MarshalIndent(room, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "rooms", room.ID+".json")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Get(room.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Entries) != 3 || loaded.Entries[0].ID != "real" || loaded.Entries[1].ID != "real-reply" || loaded.Entries[2].ID != "later" {
+		t.Fatalf("transport artifacts were not repaired: %#v", loaded.Entries)
+	}
+	if len(loaded.Entries[2].QuotedEntryIDs) != 1 || loaded.Entries[2].QuotedEntryIDs[0] != "real-reply" {
+		t.Fatalf("references to repaired artifacts remain: %#v", loaded.Entries[2].QuotedEntryIDs)
+	}
+	persisted, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(persisted), `"schemaVersion": 2`) || strings.Contains(string(persisted), "You are being addressed as a member of a Glad group chat.") {
+		t.Fatalf("repair was not persisted atomically: err=%v data=%s", err, persisted)
+	}
+
+	sessions := NewSessionManager(directory)
+	session := newSession("session", "Agent", "codex-structured", ToolInfo{Key: "codex", DisplayName: "Codex"}, directory)
+	session.Provider = &stubProvider{}
+	sessions.sessions[session.ID] = session
+	manager := NewRoomManager(store, sessions, NewAttachmentStore())
+	manager.captureDirectSessionMessage(session.ID, map[string]any{"kind": "user", "text": transport, "clientMessageId": "lost-room-id"})
+	loaded, _ = store.Get(room.ID)
+	if len(loaded.Entries) != 3 {
+		t.Fatalf("transport message was captured again: %#v", loaded.Entries)
 	}
 }
 

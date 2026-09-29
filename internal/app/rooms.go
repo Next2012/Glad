@@ -176,6 +176,9 @@ func (manager *RoomManager) captureDirectSessionMessage(sessionID string, messag
 		return
 	}
 	text := strings.TrimSpace(stringValue(message["text"]))
+	if isRoomTransportText(text) {
+		return
+	}
 	if text == "" && len(sliceValue(message["attachments"])) > 0 {
 		text = "Sent attachments"
 	}
@@ -619,6 +622,9 @@ func (manager *RoomManager) reconcileLiveMessages(roomID string) {
 				continue
 			}
 			text := strings.TrimSpace(stringValue(message["text"]))
+			if isRoomTransportText(text) {
+				continue
+			}
 			if text == "" && len(sliceValue(message["attachments"])) > 0 {
 				text = "Sent attachments"
 			}

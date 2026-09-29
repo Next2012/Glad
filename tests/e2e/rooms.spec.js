@@ -82,8 +82,16 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
   await expect(page.locator('.room-selection-preview-item .room-entry-reference')).toHaveCount(0);
   await page.locator('#room-quotes-overlay .icon-btn').click();
   const firstUserMessage = page.locator('.room-entry.user').first();
-  await expect(firstUserMessage.locator(':scope > .room-quote-button')).toBeVisible();
-  await expect(firstUserMessage.locator('.room-entry-author .room-quote-button')).toHaveCount(0);
+  await expect(firstUserMessage.locator(':scope > .room-quote-button')).toHaveCount(0);
+  await expect(firstUserMessage.locator('.room-entry-author .room-quote-button')).toBeVisible();
+  const userLayout = await firstUserMessage.evaluate(entry => {
+    const column = entry.querySelector('.room-entry-column').getBoundingClientRect();
+    const quote = entry.querySelector('.room-quote-button').getBoundingClientRect();
+    const author = entry.querySelector('.room-entry-author').getBoundingClientRect();
+    return { columnRatio: column.width / entry.getBoundingClientRect().width, quoteOnHeader: quote.top >= author.top && quote.bottom <= author.bottom + 1 };
+  });
+  expect(userLayout.columnRatio).toBeGreaterThan(.98);
+  expect(userLayout.quoteOnHeader).toBe(true);
   await page.locator('#room-mention-button').click();
   await page.locator('.room-mention-option').click();
   await page.locator('.room-mention-picker-title button').click();
