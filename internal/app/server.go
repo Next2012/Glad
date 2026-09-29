@@ -31,6 +31,7 @@ type Server struct {
 	notifications *NotificationService
 	usage         *UsageService
 	skillhub      *SkillHubService
+	rooms         *RoomManager
 	assets        fs.FS
 }
 
@@ -41,13 +42,19 @@ func NewServer(baseDir string, port int, assets fs.FS) (*Server, error) {
 	}
 	sessions := NewSessionManager(baseDir)
 	sessions.config = config
+	roomStore, err := OpenRoomStore()
+	if err != nil {
+		return nil, err
+	}
+	attachments := NewAttachmentStore()
 	server := &Server{
 		baseDir: baseDir, port: port, sessions: sessions, config: config,
-		attachments: NewAttachmentStore(), schedules: NewScheduleStore(config),
+		attachments: attachments, schedules: NewScheduleStore(config),
 		usage:  NewUsageService(),
 		assets: assets,
 	}
-	server.notifications = NewNotificationService(config, server.sessions)
+	server.rooms = NewRoomManager(roomStore, sessions, attachments)
+	server.notifications = NewNotificationService(config, server.sessions, server.rooms)
 	server.skillhub = NewSkillHubService(config, server.sessions)
 	return server, nil
 }
@@ -66,6 +73,7 @@ func (server *Server) Run(ctx context.Context) error {
 		return err
 	}
 	server.notifications.Start(runCtx)
+	server.rooms.Start(runCtx)
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)
@@ -138,6 +146,7 @@ func (server *Server) registerRoutes(mux *http.ServeMux) {
 	server.registerNotificationRoutes(mux)
 	server.registerUsageRoutes(mux)
 	server.registerSkillHubRoutes(mux)
+	server.registerRoomRoutes(mux)
 	server.registerStaticRoutes(mux)
 }
 

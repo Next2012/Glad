@@ -25,6 +25,7 @@ type NotificationService struct {
 	seen         map[string]*notificationHistory
 	deliveries   chan notificationDelivery
 	sessions     *SessionManager
+	rooms        *RoomManager
 	subscription *sessioncore.Subscription
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup
@@ -44,13 +45,14 @@ type notificationDelivery struct {
 	description string
 }
 
-func NewNotificationService(config *ConfigStore, sessions *SessionManager) *NotificationService {
+func NewNotificationService(config *ConfigStore, sessions *SessionManager, rooms *RoomManager) *NotificationService {
 	service := &NotificationService{
 		config:     config,
 		client:     &http.Client{Timeout: 10 * time.Second},
 		seen:       map[string]*notificationHistory{},
 		deliveries: make(chan notificationDelivery, 64),
 		sessions:   sessions,
+		rooms:      rooms,
 	}
 	return service
 }
@@ -79,6 +81,7 @@ func (service *NotificationService) consumeEvents(ctx context.Context) {
 			}
 			if current := service.sessions.Get(event.SessionID); current != nil {
 				service.HandleEvent(current, event.Payload)
+				service.HandleRoomEvent(current, event.Payload)
 			}
 		case <-service.subscription.Done():
 			return
@@ -177,67 +180,56 @@ func (service *NotificationService) Send(settings ServerChanSettings, title, des
 	}
 	return nil
 }
-func (service *NotificationService) HandleEvent(session *Session, event map[string]any) {
-	session.mu.RLock()
-	enabled := session.ServerChanNotificationEnabled
-	session.mu.RUnlock()
-	if !enabled {
-		return
-	}
-	kind := ""
-	eventType := stringValue(event["type"])
-	if eventType == "permission-request" {
-		kind = "待审批"
-	}
-	if eventType == "runtime-disconnected" {
-		kind = "连接中断"
-	}
-	if eventType == "question-request" {
-		kind = "待回复"
-	}
-	message := mapValue(event["message"])
-	if eventType == "message" && stringValue(message["kind"]) == "turn-end" {
+
+type classifiedNotification struct {
+	kind, eventType, id string
+	message             map[string]any
+}
+
+func classifyNotification(session *Session, event map[string]any) (classifiedNotification, bool) {
+	result := classifiedNotification{eventType: stringValue(event["type"]), message: mapValue(event["message"])}
+	switch result.eventType {
+	case "permission-request":
+		result.kind = "待审批"
+	case "runtime-disconnected":
+		result.kind = "连接中断"
+	case "question-request":
+		result.kind = "待回复"
+	case "message":
+		if stringValue(result.message["kind"]) != "turn-end" {
+			return classifiedNotification{}, false
+		}
 		// 主任务可能仍在运行，不能把子任务或旧轮次的结束当成整轮完成。
-		if session.Kind == "codex-structured" && !boolValue(message["isRootTurn"]) {
-			return
+		if session.Kind == "codex-structured" && !boolValue(result.message["isRootTurn"]) {
+			return classifiedNotification{}, false
 		}
-		switch firstNonEmpty(stringValue(message["turnStatus"]), stringValue(message["status"])) {
+		switch firstNonEmpty(stringValue(result.message["turnStatus"]), stringValue(result.message["status"])) {
 		case "completed":
-			kind = "已完成"
+			result.kind = "已完成"
 		case "failed":
-			kind = "执行失败"
+			result.kind = "执行失败"
 		default:
-			return
+			return classifiedNotification{}, false
 		}
+	default:
+		return classifiedNotification{}, false
 	}
-	if kind == "" {
-		return
-	}
-	id := notificationEventID(event, message)
-	if id == "" {
-		return
-	}
-	settings := service.settings()
-	if settings.SendKey == "" {
-		return
-	}
-	title, description := formatNotification(kind, session, numberInt64(message["durationMs"]), settings.ClientType)
-	if eventType == "question-request" {
-		description += "\n\n模型有新问题，请打开 Glad 会话回复。"
-	}
-	key := eventType + ":" + id
+	result.id = notificationEventID(event, result.message)
+	return result, result.id != ""
+}
+
+func (service *NotificationService) enqueue(scope, key string, delivery notificationDelivery) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	seen := service.seen[session.ID]
+	seen := service.seen[scope]
 	if seen != nil && seen.keys[key] {
 		return
 	}
 	select {
-	case service.deliveries <- notificationDelivery{settings: settings, title: title, description: description}:
-		// 队列满或尚未配置时不记作已发送，后续重投才有机会成功。
+	case service.deliveries <- delivery:
 		if seen == nil {
 			seen = &notificationHistory{keys: map[string]bool{}}
-			service.seen[session.ID] = seen
+			service.seen[scope] = seen
 		}
 		seen.keys[key] = true
 		seen.order = append(seen.order, key)
@@ -246,7 +238,50 @@ func (service *NotificationService) HandleEvent(session *Session, event map[stri
 			seen.order = seen.order[1:]
 		}
 	default:
-		logDebug("[serverchan] notification queue is full; dropping %s", key)
+		logDebug("[serverchan] notification queue is full; dropping %s", scope+":"+key)
+	}
+}
+
+func (service *NotificationService) HandleEvent(session *Session, event map[string]any) {
+	session.mu.RLock()
+	enabled := session.ServerChanNotificationEnabled
+	session.mu.RUnlock()
+	classified, ok := classifyNotification(session, event)
+	if !enabled || !ok {
+		return
+	}
+	settings := service.settings()
+	if settings.SendKey == "" {
+		return
+	}
+	title, description := formatNotification(classified.kind, session, numberInt64(classified.message["durationMs"]), settings.ClientType)
+	if classified.eventType == "question-request" {
+		description += "\n\n模型有新问题，请打开 Glad 会话回复。"
+	}
+	service.enqueue(session.ID, classified.eventType+":"+classified.id, notificationDelivery{settings: settings, title: title, description: description})
+}
+
+func (service *NotificationService) HandleRoomEvent(session *Session, event map[string]any) {
+	classified, ok := classifyNotification(session, event)
+	if service.rooms == nil || !ok {
+		return
+	}
+	// Disk-backed room membership is consulted only for notification-worthy
+	// events, never for token/message delta traffic.
+	targets := service.rooms.NotificationTargets(session.ID)
+	if len(targets) == 0 {
+		return
+	}
+	settings := service.settings()
+	if settings.SendKey == "" {
+		return
+	}
+	for _, target := range targets {
+		title, description := formatRoomNotification(classified.kind, target, session, numberInt64(classified.message["durationMs"]), settings.ClientType)
+		if classified.eventType == "question-request" {
+			description += "\n\n模型有新问题，请打开 Glad 群聊回复。"
+		}
+		service.enqueue("room:"+target.RoomID, classified.eventType+":"+classified.id, notificationDelivery{settings: settings, title: title, description: description})
 	}
 }
 
@@ -304,6 +339,34 @@ func formatNotification(kind string, session *Session, duration int64, client st
 	}
 	return title, strings.Join(rows, "\n\n")
 }
+
+func formatRoomNotification(kind string, target RoomNotificationTarget, session *Session, duration int64, client string) (string, string) {
+	session.mu.RLock()
+	tool := session.Tool.DisplayName
+	directory := session.WorkingDirectory
+	sessionName := session.Name
+	session.mu.RUnlock()
+	title := kind + "｜" + truncate(target.RoomName, 20)
+	rows := []string{
+		"群聊：" + target.RoomName,
+		"成员：" + target.MemberName,
+		"类型：" + tool,
+		"会话：" + sessionName,
+		"目录：" + directory,
+	}
+	if duration > 0 {
+		rows = append(rows, fmt.Sprintf("本轮耗时：%d秒", duration/1000))
+	}
+	if client == "pushdeer" {
+		for index, row := range rows {
+			parts := strings.SplitN(row, "：", 2)
+			if len(parts) == 2 {
+				rows[index] = "**" + parts[0] + "：** " + parts[1]
+			}
+		}
+	}
+	return title, strings.Join(rows, "\n\n")
+}
 func truncate(value string, max int) string {
 	runes := []rune(strings.TrimSpace(value))
 	if len(runes) <= max {
@@ -319,6 +382,7 @@ func (server *Server) registerNotificationRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/notifications/serverchan", server.clearServerChan)
 	mux.HandleFunc("POST /api/notifications/serverchan/test", server.testServerChan)
 	mux.HandleFunc("PUT /api/sessions/{id}/notifications/serverchan", server.enableServerChan)
+	mux.HandleFunc("PUT /api/rooms/{id}/notifications/serverchan", server.enableRoomServerChan)
 }
 func (server *Server) saveServerChan(w http.ResponseWriter, r *http.Request) {
 	var input map[string]any
@@ -347,7 +411,31 @@ func (server *Server) clearServerChan(w http.ResponseWriter, r *http.Request) {
 		session.mu.Unlock()
 	}
 	server.sessions.mu.RUnlock()
+	server.rooms.DisableServerChanNotifications()
 	respondJSON(w, 200, map[string]any{"success": true, "settings": publicServerChan(settings)})
+}
+
+func (server *Server) enableRoomServerChan(w http.ResponseWriter, r *http.Request) {
+	if _, err := server.rooms.GetRecord(r.PathValue("id")); err != nil {
+		server.writeRoomError(w, err)
+		return
+	}
+	var input map[string]any
+	_ = decodeJSON(r, &input)
+	enabled := boolValue(input["enabled"])
+	settings := server.notifications.settings()
+	if enabled && settings.SendKey == "" {
+		respondJSON(w, 409, map[string]any{"error": "请先配置 Server酱", "code": "SERVERCHAN_NOT_CONFIGURED"})
+		return
+	}
+	if err := server.rooms.SetServerChanNotification(r.PathValue("id"), enabled); err != nil {
+		server.writeRoomError(w, err)
+		return
+	}
+	respondJSON(w, 200, map[string]any{
+		"success": true,
+		"state":   map[string]any{"enabled": enabled, "configured": settings.SendKey != ""},
+	})
 }
 func (server *Server) testServerChan(w http.ResponseWriter, r *http.Request) {
 	var input map[string]any

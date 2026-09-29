@@ -17,7 +17,7 @@ func notificationFixture(t *testing.T) (*Session, *CodexProvider, *NotificationS
 	provider := NewCodexProvider(session, nil)
 	provider.threadID = "root"
 	config := &ConfigStore{data: map[string]any{"serverChan": map[string]any{"sendKey": "FAKE_LOCAL_TEST_KEY"}}}
-	service := NewNotificationService(config, nil)
+	service := NewNotificationService(config, nil, nil)
 	subscription := session.events.Subscribe(session.ID, 128)
 	t.Cleanup(func() { subscription.Close(); session.cancel() })
 	drain := func() {

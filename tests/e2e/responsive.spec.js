@@ -155,7 +155,8 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
   await expect(page.locator('.header')).toBeVisible();
   await expect(page.locator('#lobby-view .header h1')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
-  await expect(page.getByTitle('New AI session')).toContainText('Session');
+  await expect(page.getByTitle('New AI session')).toBeVisible();
+  await expect(page.getByTitle('New AI session').locator('svg')).toBeVisible();
   await expect(page.getByTitle('Usage dashboard')).toBeVisible();
   await expect(page.getByTitle('New scheduled task')).toBeVisible();
   await expect(page.locator('#lobby-tab-sessions')).toHaveText('Sessions');
@@ -171,14 +172,14 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
       };
     })
   );
-  expect(headerActionStyles).toHaveLength(4);
+  expect(headerActionStyles).toHaveLength(5);
   expect(new Set(headerActionStyles.map(style => style.backgroundColor)).size).toBe(1);
   expect(new Set(headerActionStyles.map(style => style.height)).size).toBe(1);
   expect(new Set(headerActionStyles.map(style => style.borderRadius)).size).toBe(1);
   const headerActionTitles = await page.locator('.header-action-btn').evaluateAll(buttons =>
     buttons.map(button => button.title)
   );
-  expect(headerActionTitles).toEqual(['New AI session', 'Usage dashboard', 'New scheduled task', 'Settings']);
+  expect(headerActionTitles).toEqual(['New AI session', 'New group chat', 'Usage dashboard', 'New scheduled task', 'Settings']);
 
   const layout = await page.evaluate(() => ({
     bodyWidth: document.body.scrollWidth,

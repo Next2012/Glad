@@ -36,7 +36,10 @@ module.exports = defineConfig({
       CODEX_HOME: testCodexHome,
       PATH: `${providerBin}${path.delimiter}${process.env.PATH || ''}`
     },
-    reuseExistingServer: !process.env.CI,
+    // Never point E2E writes at a developer's already-running Glad instance.
+    // The spawned daemon receives an isolated HOME; reusing a live server
+    // would bypass that boundary and can create/delete real rooms or sessions.
+    reuseExistingServer: false,
     timeout: 120000
   },
   projects: [
