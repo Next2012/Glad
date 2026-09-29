@@ -108,7 +108,9 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
   await expect(page.locator('.codex-message.assistant').last()).toContainText('root completed after child');
   await page.locator('#nav-bar').getByTitle('History').click();
   await expect(page.locator('#history-view')).toBeVisible();
-  await page.locator('#room-session-close').click();
+  await expect(page.locator('#room-session-close')).toHaveCount(0);
+  await page.locator('#history-view').getByRole('button', { name: /Terminal/ }).click();
+  await page.locator('#back-btn').click();
   await expect(page.locator('#room-view')).toBeVisible();
   await expect(page.locator('#history-view')).toBeHidden();
   await expect(page.locator('.room-entry.user').last()).toContainText('direct mini message');
@@ -171,7 +173,8 @@ test('landscape tablet gives the room the full canvas and keeps mini-session com
     return {
       roomWidth: roomView.width, composerBottom: composer.bottom, viewportHeight: innerHeight,
       controlBottoms: controls.map(box => box.bottom), buttonHeights: controls.map(box => box.height),
-      inputBottom: input.bottom, toolbarTop: toolbar.top, railOverflowX: rail.overflowX
+      inputBottom: input.bottom, toolbarTop: toolbar.top, railOverflowX: rail.overflowX,
+      firstActionId: document.querySelector('.room-action-rail').firstElementChild.id
     };
   });
   expect(roomLayout.roomWidth).toBeGreaterThan(980);
@@ -180,6 +183,7 @@ test('landscape tablet gives the room the full canvas and keeps mini-session com
   expect(new Set(roomLayout.buttonHeights.map(Math.round)).size).toBe(1);
   expect(roomLayout.toolbarTop).toBeGreaterThanOrEqual(roomLayout.inputBottom);
   expect(roomLayout.railOverflowX).toBe('auto');
+  expect(roomLayout.firstActionId).toBe('room-mention-button');
   await expect(page.locator('#room-member-strip')).toHaveCount(0);
   await page.locator('#room-mention-button').click();
   const pickerWidth = await page.locator('#room-mention-picker').evaluate(element => element.getBoundingClientRect().width);
@@ -221,7 +225,7 @@ test('group timeline surfaces member permission requests and opens the approval 
   const approval = page.locator('#codex-chat-container [data-codex-permission-id]');
   await expect(approval).toBeVisible();
   await approval.getByRole('button', { name: 'Yes', exact: true }).click();
-  await page.locator('#room-session-close').click();
+  await page.locator('#back-btn').click();
   await expect(page.locator('.room-attention-pill')).toHaveCount(0, { timeout: 10000 });
   await page.request.delete(`/api/rooms/${room.id}`);
   await page.request.delete(`/api/sessions/${session.id}`);
@@ -244,7 +248,8 @@ test('group and member names are editable without leaving the room and user mess
   page.once('dialog', dialog => dialog.accept('审阅者'));
   await page.locator('.room-manage-member').getByRole('button', { name: 'Rename' }).click();
   await expect(page.locator('.room-manage-member strong')).toHaveText('审阅者');
-  await page.locator('#room-members-overlay .icon-btn').click();
+  await expect(page.locator('#room-members-overlay .room-modal-back')).toBeVisible();
+  await page.locator('#room-members-overlay .room-modal-back').click();
   await page.locator('#room-input').fill('User avatar message');
   await page.locator('#room-send-button').click();
   const userEntry = page.locator('.room-entry.user').last();

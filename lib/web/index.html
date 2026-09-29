@@ -113,7 +113,7 @@
     <section id="room-view" class="view" aria-label="Group chat">
         <header class="room-header">
             <button class="room-back-button" type="button" onclick="closeRoom()" aria-label="Back to groups">
-                <svg class="action-icon" aria-hidden="true"><use href="#icon-back"></use></svg>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
             </button>
             <div class="room-heading"><button id="room-title" type="button" onclick="renameActiveRoom()" title="Rename group">Group</button><span id="room-subtitle"></span></div>
             <div class="room-header-actions">
@@ -132,8 +132,8 @@
             </div>
             <div class="room-toolbar-row">
                 <div class="room-action-rail" aria-label="Group actions">
-                    <button id="room-attachment-button" class="composer-action-btn" type="button" onclick="document.getElementById('room-file-input').click()" title="Attachments are delivered to mentioned sessions only"><svg class="action-icon" aria-hidden="true"><use href="#icon-file"></use></svg></button>
                     <button id="room-mention-button" class="composer-action-btn" type="button" onclick="toggleRoomMentionPicker()" title="Choose sessions" aria-label="Choose sessions"><svg class="action-icon" aria-hidden="true"><use href="#icon-at"></use></svg></button>
+                    <button id="room-attachment-button" class="composer-action-btn" type="button" onclick="document.getElementById('room-file-input').click()" title="Attachments are delivered to mentioned sessions only"><svg class="action-icon" aria-hidden="true"><use href="#icon-file"></use></svg></button>
                     <button id="room-history-resume" class="composer-action-btn" type="button" onclick="toggleRoomHistoryPanel('resume')" title="Browse groups to resume" aria-label="Browse groups to resume"><svg class="action-icon" aria-hidden="true"><use href="#icon-resume"></use></svg></button>
                     <button id="room-history-fork" class="composer-action-btn" type="button" onclick="toggleRoomHistoryPanel('fork')" title="Browse groups to fork" aria-label="Browse groups to fork"><svg class="action-icon" aria-hidden="true"><use href="#icon-fork"></use></svg></button>
                 </div>
@@ -146,7 +146,6 @@
     </section>
 
     <div id="room-session-backdrop" aria-hidden="true" onclick="closeRoomSessionOverlay()"></div>
-    <button id="room-session-close" type="button" onclick="closeRoomSessionOverlay()" title="Close mini session" aria-label="Close mini session">×</button>
 
     <!-- Desktop tiled workspace -->
     <section id="tile-workspace" class="view" aria-label="Tiled sessions">
@@ -627,7 +626,7 @@
 
     <div id="room-members-overlay" class="room-modal-overlay" onclick="closeRoomMembers(event)">
         <section class="room-members-modal" role="dialog" aria-modal="true" aria-labelledby="room-members-title" onclick="event.stopPropagation()">
-            <header><div><h2 id="room-members-title">Group members</h2><p>Sessions keep their own independent context.</p></div><button class="icon-btn" type="button" onclick="closeRoomMembers()">×</button></header>
+            <header><button class="room-modal-back" type="button" onclick="closeRoomMembers()" aria-label="Back"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg></button><div><h2 id="room-members-title">Group members</h2><p>Sessions keep their own independent context.</p></div><span class="room-modal-header-spacer" aria-hidden="true"></span></header>
             <div class="room-member-actions"><button class="small-btn primary" type="button" onclick="showRoomExistingSessions()">Add running session</button><button class="small-btn" type="button" onclick="createSessionForRoom()">Create session</button></div>
             <div id="room-members-list"></div>
             <div id="room-session-picker"></div>
