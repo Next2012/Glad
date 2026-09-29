@@ -34,6 +34,15 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
   await expect(page.locator('.room-entry.user')).toContainText('discuss this');
   await expect(page.locator('.room-entry.session')).toContainText('root completed after child', { timeout: 15000 });
   await expect(page.locator('.room-entry.session .room-provider-label')).toHaveText('Codex');
+  const replyLayout = await page.locator('.room-entry.session').first().evaluate(entry => {
+    const bubble = entry.querySelector('.room-entry-bubble').getBoundingClientRect();
+    const column = entry.querySelector('.room-entry-column').getBoundingClientRect();
+    const avatar = entry.querySelector('.room-entry-avatar').getBoundingClientRect();
+    const author = entry.querySelector('.room-entry-author').getBoundingClientRect();
+    return { bubbleRatio: bubble.width / column.width, avatarOnHeader: avatar.top >= author.top && avatar.bottom <= author.bottom + 1 };
+  });
+  expect(replyLayout.bubbleRatio).toBeGreaterThan(.98);
+  expect(replyLayout.avatarOnHeader).toBe(true);
 
   await page.reload({ waitUntil: 'networkidle' });
   await page.locator('#lobby-tab-rooms').click();
@@ -55,7 +64,7 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
 
   const quotedReply = page.locator('.room-entry.session').first();
   await expect(quotedReply.locator(':scope > .room-quote-button')).toHaveCount(0);
-  await expect(quotedReply.locator('.room-entry-author .room-quote-button')).toHaveText('选中');
+  await expect(quotedReply.locator('.room-entry-author .room-quote-button')).toHaveText('+');
   await expect(quotedReply.getByRole('button', { name: 'Add to references' })).toBeVisible();
   await quotedReply.getByRole('button', { name: 'Add to references' }).click();
   await expect(page.locator('.room-context-chip.quote')).toBeVisible();
