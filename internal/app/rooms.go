@@ -43,7 +43,8 @@ type RoomTurnView struct {
 }
 
 type RoomNotificationTarget struct {
-	RoomID, RoomName, MemberName string
+	RoomID, RoomName, MemberName, ToolName    string
+	ActiveMembers, RoundTotal, RoundCompleted int
 }
 
 type sessionRoomTurnResolver struct{ sessions *SessionManager }
@@ -413,7 +414,7 @@ func (manager *RoomManager) DisableServerChanNotifications() {
 	}
 }
 
-func (manager *RoomManager) NotificationTargets(sessionID string) []RoomNotificationTarget {
+func (manager *RoomManager) NotificationTargets(sessionID, runtimeTurnID string, currentCompleted bool) []RoomNotificationTarget {
 	rooms, err := manager.store.List()
 	if err != nil {
 		return nil
@@ -423,14 +424,70 @@ func (manager *RoomManager) NotificationTargets(sessionID string) []RoomNotifica
 		if !room.ServerChanNotificationEnabled {
 			continue
 		}
+		activeMembers := 0
+		for _, member := range room.Members {
+			if member.LeftAt == 0 {
+				activeMembers++
+			}
+		}
 		for _, member := range room.Members {
 			if member.LeftAt == 0 && member.RuntimeSessionID == sessionID {
-				result = append(result, RoomNotificationTarget{RoomID: room.ID, RoomName: room.Name, MemberName: member.DisplayName})
+				total, completed := roomNotificationProgress(room, sessionID, runtimeTurnID, currentCompleted)
+				result = append(result, RoomNotificationTarget{
+					RoomID: room.ID, RoomName: room.Name, MemberName: member.DisplayName,
+					ToolName: firstNonEmpty(member.ToolName, member.ToolKey), ActiveMembers: activeMembers,
+					RoundTotal: total, RoundCompleted: completed,
+				})
 				break
 			}
 		}
 	}
 	return result
+}
+
+func roomNotificationProgress(room RoomRecord, sessionID, runtimeTurnID string, currentCompleted bool) (int, int) {
+	targetIndex := -1
+	for index := len(room.Entries) - 1; index >= 0; index-- {
+		entry := room.Entries[index]
+		if entry.Type != "session" || entry.SourceSessionID != sessionID {
+			continue
+		}
+		if runtimeTurnID != "" && entry.NativeTurnID == runtimeTurnID {
+			targetIndex = index
+			break
+		}
+		if targetIndex == -1 && (entry.Status == "pending" || entry.Status == "running") {
+			targetIndex = index
+		}
+	}
+	if targetIndex < 0 {
+		if currentCompleted {
+			return 1, 1
+		}
+		return 1, 0
+	}
+	start := targetIndex - 1
+	for start >= 0 && room.Entries[start].Type != "user" {
+		start--
+	}
+	total, completed := 0, 0
+	for index := start + 1; index < len(room.Entries); index++ {
+		entry := room.Entries[index]
+		if entry.Type == "user" {
+			break
+		}
+		if entry.Type != "session" {
+			continue
+		}
+		total++
+		if entry.Status == "completed" || index == targetIndex && currentCompleted && entry.Status != "completed" {
+			completed++
+		}
+	}
+	if total == 0 {
+		total = 1
+	}
+	return total, completed
 }
 
 func (manager *RoomManager) GetRecord(id string) (RoomRecord, error) {

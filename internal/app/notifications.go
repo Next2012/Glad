@@ -268,7 +268,11 @@ func (service *NotificationService) HandleRoomEvent(session *Session, event map[
 	}
 	// Disk-backed room membership is consulted only for notification-worthy
 	// events, never for token/message delta traffic.
-	targets := service.rooms.NotificationTargets(session.ID)
+	targets := service.rooms.NotificationTargets(
+		session.ID,
+		stringValue(classified.message["turnId"]),
+		classified.kind == "已完成",
+	)
 	if len(targets) == 0 {
 		return
 	}
@@ -346,11 +350,20 @@ func formatRoomNotification(kind string, target RoomNotificationTarget, session 
 	directory := session.WorkingDirectory
 	sessionName := session.Name
 	session.mu.RUnlock()
-	title := kind + "｜" + truncate(target.RoomName, 20)
+	progress := fmt.Sprintf("%d/%d", target.RoundCompleted, target.RoundTotal)
+	title := kind + "｜" + truncate(target.RoomName, 16) + "｜" + progress
+	sessionLabel := "当前会话："
+	if kind == "已完成" {
+		sessionLabel = "完成会话："
+	} else if kind == "执行失败" {
+		sessionLabel = "失败会话："
+	}
 	rows := []string{
 		"群聊：" + target.RoomName,
-		"成员：" + target.MemberName,
-		"类型：" + tool,
+		sessionLabel + target.MemberName,
+		"类型：" + firstNonEmpty(target.ToolName, tool),
+		"本轮进度：" + progress,
+		fmt.Sprintf("群成员：%d个", target.ActiveMembers),
 		"会话：" + sessionName,
 		"目录：" + directory,
 	}

@@ -233,3 +233,34 @@ func TestRoomNotificationPreferenceIsPersistentAndIndependentFromSession(t *test
 		t.Fatal("room notification preference changed the session preference")
 	}
 }
+
+func TestRoomNotificationTargetsReportCurrentBatchProgress(t *testing.T) {
+	store, _ := OpenRoomStoreAt(t.TempDir())
+	room := RoomRecord{
+		SchemaVersion: currentRoomSchemaVersion, ID: newUUID(), Name: "Review group",
+		CreatedAt: 1, UpdatedAt: 1, NextSequence: 5, ServerChanNotificationEnabled: true,
+		Members: []RoomMemberRecord{
+			{ID: "member-a", RuntimeSessionID: "session-a", DisplayName: "Alpha", ToolKey: "codex", ToolName: "Codex"},
+			{ID: "member-b", RuntimeSessionID: "session-b", DisplayName: "Beta", ToolKey: "claude-code", ToolName: "Claude"},
+			{ID: "member-c", RuntimeSessionID: "session-c", DisplayName: "Gamma", ToolKey: "codex", ToolName: "Codex"},
+		},
+		Entries: []RoomEntryRecord{
+			{ID: "user", Sequence: 1, Type: "user", UserText: "Review this", Status: "completed"},
+			{ID: "a", Sequence: 2, Type: "session", MemberID: "member-a", SourceSessionID: "session-a", NativeTurnID: "turn-a", Status: "completed"},
+			{ID: "b", Sequence: 3, Type: "session", MemberID: "member-b", SourceSessionID: "session-b", NativeTurnID: "turn-b", Status: "running"},
+			{ID: "c", Sequence: 4, Type: "session", MemberID: "member-c", SourceSessionID: "session-c", NativeTurnID: "turn-c", Status: "pending"},
+		},
+	}
+	if err := store.Save(room); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewRoomManager(store, NewSessionManager(t.TempDir()), NewAttachmentStore())
+	targets := manager.NotificationTargets("session-b", "turn-b", true)
+	if len(targets) != 1 {
+		t.Fatalf("notification targets = %#v", targets)
+	}
+	target := targets[0]
+	if target.MemberName != "Beta" || target.ToolName != "Claude" || target.ActiveMembers != 3 || target.RoundTotal != 3 || target.RoundCompleted != 2 {
+		t.Fatalf("wrong notification progress: %#v", target)
+	}
+}

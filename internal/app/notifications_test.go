@@ -6,9 +6,24 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestFormatRoomNotificationIncludesCompletedMemberAndProgress(t *testing.T) {
+	session := newSession("notify-room", "Worker", "codex-structured", ToolInfo{Key: "codex", DisplayName: "Codex"}, t.TempDir())
+	target := RoomNotificationTarget{
+		RoomID: "room", RoomName: "Architecture", MemberName: "Reviewer", ToolName: "Codex",
+		ActiveMembers: 4, RoundTotal: 3, RoundCompleted: 2,
+	}
+	title, description := formatRoomNotification("已完成", target, session, 3500, "wechat")
+	for _, wanted := range []string{"已完成｜Architecture｜2/3", "完成会话：Reviewer", "类型：Codex", "本轮进度：2/3", "群成员：4个"} {
+		if !strings.Contains(title+"\n"+description, wanted) {
+			t.Fatalf("notification omitted %q: title=%q description=%q", wanted, title, description)
+		}
+	}
+}
 
 func notificationFixture(t *testing.T) (*Session, *CodexProvider, *NotificationService, func()) {
 	t.Helper()
