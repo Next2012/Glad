@@ -252,24 +252,28 @@ test('desktop sidebar identifies and deletes the active structured session', asy
   await page.goto('/', { waitUntil: 'networkidle' });
 
   const newSessionButton = page.getByTitle('New AI session');
-  await expect(newSessionButton).toContainText('+Session');
+  await expect(newSessionButton).toHaveAttribute('aria-label', 'New AI session');
+  await expect(newSessionButton.locator('svg')).toBeVisible();
   const newSessionGeometry = await newSessionButton.evaluate(button => {
-    const label = button.querySelector('span:last-child').getBoundingClientRect();
+    const box = button.getBoundingClientRect();
+    const icon = button.querySelector('svg').getBoundingClientRect();
     const sidebar = document.getElementById('lobby-view').getBoundingClientRect();
     const header = document.querySelector('#lobby-view .header').getBoundingClientRect();
     return {
-      buttonLeft: button.getBoundingClientRect().left,
+      buttonLeft: box.left,
+      buttonRight: box.right,
+      buttonWidth: box.width,
       headerLeft: header.left,
-      labelWidth: label.width,
-      labelRight: label.right,
+      iconWidth: icon.width,
+      iconCenterOffset: Math.abs((icon.left + icon.width / 2) - (box.left + box.width / 2)),
       sidebarRight: sidebar.right,
-      fontSize: parseFloat(getComputedStyle(button.querySelector('span:last-child')).fontSize)
     };
   });
-  expect(newSessionGeometry.fontSize).toBeGreaterThan(0);
-  expect(newSessionGeometry.labelWidth).toBeGreaterThan(35);
+  expect(newSessionGeometry.buttonWidth).toBeGreaterThanOrEqual(34);
+  expect(newSessionGeometry.iconWidth).toBeGreaterThan(0);
+  expect(newSessionGeometry.iconCenterOffset).toBeLessThan(1);
   expect(newSessionGeometry.buttonLeft).toBeGreaterThanOrEqual(newSessionGeometry.headerLeft);
-  expect(newSessionGeometry.labelRight).toBeLessThanOrEqual(newSessionGeometry.sidebarRight);
+  expect(newSessionGeometry.buttonRight).toBeLessThanOrEqual(newSessionGeometry.sidebarRight);
 
   const sessionCard = page.locator(`.session-card[data-session-id="${sessionId}"]`);
   await expect(sessionCard).toHaveCount(1);

@@ -10,6 +10,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-09-29
+
+### Added
+
+- Create durable group chats that coordinate independent Codex and Claude sessions through explicit mentions and selectively quoted context.
+- Add existing or new sessions to a group, rename members in place, inspect each member in a full mini-session, and surface pending approvals from the shared timeline.
+- Resume or fork every recoverable member conversation together, with previews and per-member failure reporting before changing provider history.
+- Persist groups in independent, versioned room documents without copying assistant responses, tool output, reasoning, or attachments.
+- Send group-specific ServerChan completion notifications with the provider, member name, and completed/total progress for the current round.
+
+### Changed
+
+- Add responsive group layouts for phones, tablets, and desktops, including compact lobby actions, message selection, forwarded-message previews, and three-line reply folding.
+- Keep group notification preferences independent from each member session and assign provider-scoped persistent avatar colors within every group.
+
+### Fixed
+
+- Prevent resumed provider history from re-importing Glad's private group transport prompt as user-authored messages.
+- Migrate room documents to schema version 2 and remove transport artifacts created by older group-chat builds while preserving real user messages and native session locators.
+- Keep mini-session Terminal, History, and Git navigation contained inside the group overlay and restore the group correctly when it closes.
+
 ## [2.5.5] - 2026-09-25
 
 ### Added

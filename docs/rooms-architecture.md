@@ -34,7 +34,7 @@ Every document carries `schemaVersion`. `migrateRoom` is the single ordered
 migration entry point. Glad refuses to load a future schema rather than
 silently dropping fields and overwriting it with an older representation.
 
-Version 1 persists:
+Version 2 persists:
 
 - room metadata and monotonic `nextSequence`;
 - stable member identity and avatar seed;
@@ -45,6 +45,11 @@ Version 1 persists:
 
 It does not persist assistant response text, tool data, reasoning, or
 attachments.
+
+The v1-to-v2 migration removes internal group transport envelopes that older
+provider histories could expose as direct user turns after resume. Migration is
+atomic and preserves the original monotonic sequence counter, real user entries,
+member identities, and provider-native locators.
 
 ## Message lifecycle
 
