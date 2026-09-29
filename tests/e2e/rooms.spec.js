@@ -54,6 +54,8 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
   await page.locator('#room-history-panel > header .icon-btn').click();
 
   const quotedReply = page.locator('.room-entry.session').first();
+  await expect(quotedReply.locator(':scope > .room-quote-button')).toHaveCount(0);
+  await expect(quotedReply.locator('.room-entry-author .room-quote-button')).toHaveText('选中');
   await expect(quotedReply.getByRole('button', { name: 'Add to references' })).toBeVisible();
   await quotedReply.getByRole('button', { name: 'Add to references' }).click();
   await expect(page.locator('.room-context-chip.quote')).toBeVisible();
