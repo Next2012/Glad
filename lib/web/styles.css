@@ -1359,6 +1359,8 @@ body.room-session-open #back-btn { visibility:visible; pointer-events:auto; }
     .room-context-row { grid-template-columns:62px minmax(0,1fr); }
     .room-modal-overlay { align-items:flex-end; padding:8px; }
     .room-quotes-modal,.room-members-modal { width:100%; max-height:88dvh; border-radius:18px 18px 12px 12px; }
+    #room-members-overlay { align-items:center; padding:16px; }
+    #room-members-overlay .room-members-modal { width:min(620px,100%); border-radius:18px; }
     .room-history-panel { left:8px; right:8px; bottom:calc(100% + 6px); width:auto; max-height:calc(100dvh - 150px); border-radius:16px; }
     .room-history-preview > button { grid-template-columns:72px minmax(0,1fr); }
     body.room-session-open #detail-pane > :is(#terminal-view,#history-view,#git-view).active { inset:max(18px,env(safe-area-inset-top)) 8px max(12px,env(safe-area-inset-bottom)); border-radius:18px; }

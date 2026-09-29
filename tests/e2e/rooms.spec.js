@@ -248,6 +248,11 @@ test('group and member names are editable without leaving the room and user mess
   await expect(page.locator(`.room-list-card[data-room-id="${room.id}"] .room-list-name`)).toHaveText('Renamed group');
   await page.locator(`.room-list-card[data-room-id="${room.id}"] .btn-join`).click();
   await page.getByRole('button', { name: 'Members' }).click();
+  const membersCenterOffset = await page.locator('.room-members-modal').evaluate(element => {
+    const box = element.getBoundingClientRect();
+    return Math.abs((box.top + box.height / 2) - innerHeight / 2);
+  });
+  expect(membersCenterOffset).toBeLessThan(2);
   page.once('dialog', dialog => dialog.accept('审阅者'));
   await page.locator('.room-manage-member').getByRole('button', { name: 'Rename' }).click();
   await expect(page.locator('.room-manage-member strong')).toHaveText('审阅者');
