@@ -34,6 +34,13 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
   await expect(page.locator('.room-entry.user')).toContainText('discuss this');
   await expect(page.locator('.room-entry.session')).toContainText('root completed after child', { timeout: 15000 });
   await expect(page.locator('.room-entry.session .room-provider-label')).toHaveText('Codex');
+  await expect(page.locator('.room-entry.user').first()).not.toHaveClass(/collapsible/);
+  await page.locator('#room-input').fill('This is a deliberately long room message. '.repeat(30));
+  await page.locator('#room-send-button').click();
+  const longUserMessage = page.locator('.room-entry.user').last();
+  await expect(longUserMessage).toHaveClass(/collapsible/);
+  await longUserMessage.locator('.room-entry-bubble').click();
+  await expect(longUserMessage).toHaveClass(/expanded/);
   const replyLayout = await page.locator('.room-entry.session').first().evaluate(entry => {
     const bubble = entry.querySelector('.room-entry-bubble').getBoundingClientRect();
     const column = entry.querySelector('.room-entry-column').getBoundingClientRect();
@@ -160,7 +167,7 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
     expect(forked.id).toBe(room.id);
     const forkedRoom = await (await page.request.get(`/api/rooms/${room.id}`)).json();
     expect(forkedRoom.name).toBe('Architecture room');
-    expect(forkedRoom.entries).toHaveLength(6);
+    expect(forkedRoom.entries).toHaveLength(7);
     expect(forkedRoom.members[0].available).toBe(true);
     expect(forkedRoom.members[0].sessionId).toBe(session.id);
     expect(forkedRoom.members[0].nativeConversationId).toContain('fork-of-');
