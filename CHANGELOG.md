@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.1] - 2026-09-29
+
+### Added
+
+- Project each member session's complete Codex or Claude history into a group, including turns created before membership, without copying provider-owned message text into room storage.
+- Open any sourced group message in a neighboring-turn context viewer and load reasoning, tool, and subagent details only when requested.
+- Read Codex rollout history without resuming its writer, allowing groups to display linked conversations that are active in another process.
+
+### Changed
+
+- Attach stable room provenance to new group transports and provider client IDs for attribution and duplicate suppression while keeping sessions independent and reusable across groups.
+- Treat untouched empty groups as disposable drafts; adding a member, renaming, or sending a message makes the group durable.
+
+### Fixed
+
+- Recover the visible user text from historical Glad group transport envelopes so existing Codex and Claude sessions no longer appear empty when added to a new group.
+- Preserve copied Codex history when a fork response omits its initial turns, and retain original turn timestamps when hydrating history.
+- Prevent duplicate group creation and safely delete only empty drafts when leaving or closing the page.
+
 ## [2.6.0] - 2026-09-29
 
 ### Added
