@@ -71,6 +71,7 @@ type ProviderInput struct {
 	Images          []Attachment
 	Files           []Attachment
 	Skills          []map[string]any
+	Internal        bool
 }
 
 type Attachment struct {
@@ -535,11 +536,11 @@ func (manager *SessionManager) Get(id string) *Session {
 }
 
 func (manager *SessionManager) Create(ctx context.Context, request CreateSessionRequest) (*Session, error) {
-	if request.Instructions != "" && request.ToolKey != "codex" {
-		return nil, fmt.Errorf("session instructions are only supported by Codex")
+	if request.Instructions != "" && request.ToolKey != "codex" && request.ToolKey != "claude-code" {
+		return nil, fmt.Errorf("session instructions require Codex or Claude")
 	}
-	if request.AutoStart && (request.ToolKey != "codex" || strings.TrimSpace(request.InitialMessage) != "") {
-		return nil, fmt.Errorf("autoStart requires Codex and no initialMessage")
+	if request.AutoStart && ((request.ToolKey != "codex" && request.ToolKey != "claude-code") || strings.TrimSpace(request.InitialMessage) != "") {
+		return nil, fmt.Errorf("autoStart requires Codex or Claude and no initialMessage")
 	}
 	if len(request.Instructions) > 64<<10 || len(request.InitialMessage) > 16<<10 {
 		return nil, fmt.Errorf("session instructions or initial message is too long")
@@ -600,7 +601,11 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 		provider.defaultsStore = manager.config
 		session.Provider = provider
 	} else {
-		session.Provider = NewClaudeProvider(session, request.ClaudeOptions)
+		options := cloneMap(request.ClaudeOptions)
+		if request.Instructions != "" {
+			options["developerInstructions"] = request.Instructions
+		}
+		session.Provider = NewClaudeProvider(session, options)
 	}
 	if err := session.Provider.Start(ctx); err != nil {
 		_ = session.Provider.Close(context.Background())
@@ -612,7 +617,7 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 	manager.mu.Unlock()
 	if request.AutoStart {
 		// 空输入会启动首轮 Codex 回复，聊天记录中不产生一条用户消息。
-		if err := session.Provider.Send(ctx, ProviderInput{}); err != nil {
+		if err := session.Provider.Send(ctx, sessionBootstrapInput(session)); err != nil {
 			manager.Delete(context.Background(), id)
 			return nil, err
 		}
@@ -627,6 +632,16 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 		}
 	}
 	return session, nil
+}
+
+const claudeWorkbenchBootstrap = "请根据工作台开发指令主动开始对话，先询问用户当前阶段需要确认的问题。"
+
+func sessionBootstrapInput(session *Session) ProviderInput {
+	if session.Tool.Key == "claude-code" {
+		// Claude 需要非空输入；内部开场不添加到 Glad 的用户聊天记录。
+		return ProviderInput{Internal: true, AgentText: claudeWorkbenchBootstrap}
+	}
+	return ProviderInput{}
 }
 
 func (manager *SessionManager) codexOptions(overrides map[string]any) map[string]any {

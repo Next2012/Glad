@@ -136,6 +136,31 @@ glad tools list
 glad tools detect
 ```
 
+### Connect to an agent workbench
+
+Glad can initiate an authenticated WSS connection to a workbench:
+
+```bash
+glad connect \
+  --url wss://workbench.example.com:8443/api/assistant-connections/ws \
+  --token-file /private/workbench-client.token \
+  --name 'Development Glad' \
+  --directory /workspace/project
+```
+
+Use `--ca-file /private/workbench-ca.pem` for a private certificate authority.
+This mode has no listening port and makes one connection attempt. Ctrl+C closes
+its sessions and exits; reconnecting requires running the command again.
+The workbench can use Codex or Claude through this connection. Session creation
+uses the local directory, Codex `on-request` / `workspace-write`, and Claude manual
+approvals. Connection history is scoped to the workbench, client identity, and
+directory, and stored under the user's `glad-workbench` configuration directory.
+Keep it and the native CLI history to resume conversations after reconnecting.
+
+For the BotLink STDIO MCP client, `--mcp-url` and `--mcp-token-file` together select
+the Hub used by CLI processes started through this connection. Other Glad
+processes keep their own configuration.
+
 ## Supported Tools
 
 Glad intentionally supports the two structured coding-agent integrations below:

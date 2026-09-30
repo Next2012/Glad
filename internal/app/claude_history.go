@@ -179,6 +179,10 @@ func claudeTranscriptUserText(record map[string]any) string {
 
 func visibleClaudePrompt(text string) string {
 	text = strings.TrimSpace(text)
+	// CLI 会保存内部开场输入，恢复聊天和生成历史摘要时继续隐藏同一条内部提示。
+	if text == claudeWorkbenchBootstrap {
+		return ""
+	}
 	for _, prefix := range []string{
 		"<command-name>", "<command-message>", "<local-command-caveat>", "<system-reminder>",
 	} {

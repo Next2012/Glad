@@ -182,6 +182,7 @@ func (server *Server) sessionMetadata(writer http.ResponseWriter, request *http.
 	item := session.listItem()
 	session.mu.RLock()
 	item["threadId"] = session.State["threadId"]
+	item["claudeSessionId"] = session.State["claudeSessionId"]
 	session.mu.RUnlock()
 	respondJSON(writer, http.StatusOK, item)
 }
@@ -230,8 +231,8 @@ func (server *Server) sendSessionInput(writer http.ResponseWriter, request *http
 		return
 	}
 	if input.AutoStart {
-		if strings.TrimSpace(input.Text) != "" || session.Tool.Key != "codex" {
-			respondError(writer, http.StatusBadRequest, errors.New("autoStart requires Codex and no text"))
+		if strings.TrimSpace(input.Text) != "" || (session.Tool.Key != "codex" && session.Tool.Key != "claude-code") {
+			respondError(writer, http.StatusBadRequest, errors.New("autoStart requires Codex or Claude and no text"))
 			return
 		}
 	} else if strings.TrimSpace(input.Text) == "" || len(input.Text) > 16<<10 {
@@ -242,7 +243,7 @@ func (server *Server) sendSessionInput(writer http.ResponseWriter, request *http
 	defer session.commandMu.Unlock()
 	message := ProviderInput{ClientMessageID: newUUID(), Text: input.Text, AgentText: input.Text}
 	if input.AutoStart {
-		message = ProviderInput{}
+		message = sessionBootstrapInput(session)
 	}
 	if err := session.Provider.Send(request.Context(), message); err != nil {
 		respondError(writer, http.StatusConflict, err)

@@ -1,9 +1,47 @@
 package app
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
+
+func TestClaudeWorkbenchBootstrapStaysHiddenAfterRestore(t *testing.T) {
+	records := []map[string]any{
+		{"type": "user", "uuid": "bootstrap", "message": map[string]any{"content": claudeWorkbenchBootstrap}},
+		{"type": "assistant", "uuid": "opening", "message": map[string]any{"content": []any{map[string]any{"type": "text", "text": "请确认当前需求。"}}}},
+		{"type": "user", "uuid": "real-user", "message": map[string]any{"content": "我的需求是保留历史。"}},
+	}
+	var transcript strings.Builder
+	for _, record := range records {
+		data, err := json.Marshal(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		transcript.Write(data)
+		transcript.WriteByte('\n')
+	}
+	messages, err := readClaudeTranscriptReader(strings.NewReader(transcript.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var users, assistants []string
+	for _, message := range messages {
+		switch message["kind"] {
+		case "user":
+			users = append(users, stringValue(message["text"]))
+		case "assistant":
+			assistants = append(assistants, stringValue(message["text"]))
+		}
+	}
+	if len(users) != 1 || users[0] != "我的需求是保留历史。" || len(assistants) != 1 || assistants[0] != "请确认当前需求。" {
+		t.Fatalf("恢复历史应隐藏内部输入并保留用户及开场回复: users=%v assistants=%v", users, assistants)
+	}
+	questions, _, err := claudeTranscriptSummaryReader(strings.NewReader(transcript.String()))
+	if err != nil || len(questions) != 1 || questions[0] != users[0] {
+		t.Fatalf("历史摘要出现内部提示: questions=%v err=%v", questions, err)
+	}
+}
 
 func TestClaudeTranscriptRestoresStructuredConversationWithoutInternalUserMessages(t *testing.T) {
 	transcript := strings.Join([]string{

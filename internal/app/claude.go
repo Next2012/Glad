@@ -146,6 +146,9 @@ func (provider *ClaudeProvider) startLocked(ctx context.Context, fork bool) erro
 	if effort := stringValue(provider.options["effort"]); effort != "" {
 		args = append(args, "--effort", effort)
 	}
+	if instructions := stringValue(provider.options["developerInstructions"]); instructions != "" {
+		args = append(args, "--append-system-prompt", instructions)
+	}
 	if provider.resumeID != "" {
 		args = append(args, "--resume", provider.resumeID)
 		if fork {
@@ -270,13 +273,15 @@ func (provider *ClaudeProvider) Send(ctx context.Context, input ProviderInput) e
 			"clientMessageId": input.ClientMessageID,
 		},
 	)
-	provider.session.appendMessage(
-		map[string]any{
-			"kind": "user", "text": input.Text, "agentText": input.AgentText,
-			"attachments": attachments, "skills": input.Skills, "turnId": turn.ID, "createdAt": turn.Started,
-			"clientMessageId": input.ClientMessageID,
-		},
-	)
+	if !input.Internal {
+		provider.session.appendMessage(
+			map[string]any{
+				"kind": "user", "text": input.Text, "agentText": input.AgentText,
+				"attachments": attachments, "skills": input.Skills, "turnId": turn.ID, "createdAt": turn.Started,
+				"clientMessageId": input.ClientMessageID,
+			},
+		)
+	}
 	provider.session.setState(map[string]any{"status": "thinking", "canAbort": true})
 	provider.mu.Unlock()
 	return nil
@@ -787,6 +792,21 @@ func (provider *ClaudeProvider) Resume(ctx context.Context, id string) error {
 	err := provider.startLocked(ctx, false)
 	provider.mu.Unlock()
 	return err
+}
+
+// UpdateInstructions 保留 Claude 原对话，空闲时重新启动并应用新的工作台系统指令。
+func (provider *ClaudeProvider) UpdateInstructions(ctx context.Context, instructions string) error {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	if provider.closed || len(provider.turns) > 0 || len(provider.permissions) > 0 || len(provider.questions) > 0 || provider.localCommand != "" {
+		return errors.New("Claude instructions can only be updated while idle")
+	}
+	if provider.claudeSessionID != "" {
+		provider.resumeID = provider.claudeSessionID
+	}
+	provider.stopLocked()
+	provider.options["developerInstructions"] = instructions
+	return provider.startLocked(ctx, false)
 }
 func (provider *ClaudeProvider) Fork(ctx context.Context, id string) (string, error) {
 	provider.mu.Lock()
