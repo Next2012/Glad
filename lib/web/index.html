@@ -117,12 +117,27 @@
             </button>
             <div class="room-heading"><button id="room-title" type="button" onclick="renameActiveRoom()" title="Rename group">Group (0)</button></div>
             <div class="room-header-actions">
+                <button class="icon-btn room-tile-button" type="button" onclick="enterTiledMode()" aria-label="Tile groups"><svg class="action-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button>
                 <button class="small-btn primary" type="button" onclick="openRoomMembers()">Members</button>
             </div>
         </header>
         <div id="room-attention-rail" class="room-attention-rail" aria-live="polite"></div>
         <div id="room-message-list" class="room-message-list" aria-live="polite"></div>
         <footer class="room-composer">
+            <div id="room-run-status" class="room-run-status" role="status" hidden></div>
+            <section id="room-timed-send-panel" role="group" aria-label="Group scheduled send">
+                <div class="timed-row">
+                    <select id="room-timed-hours" aria-label="Group timer hours" onchange="updateRoomTimerPreview()"></select>
+                    <select id="room-timed-minutes" aria-label="Group timer minutes" onchange="updateRoomTimerPreview()"></select>
+                    <button id="room-timed-save-btn" class="small-btn primary" type="button" onclick="saveRoomTimer()">Add Timer</button>
+                </div>
+                <div id="room-timed-preview" class="timed-preview"></div>
+                <div id="room-timed-editor-actions" class="timed-editor-actions" hidden>
+                    <button class="small-btn" type="button" onclick="resetRoomTimerEditor()">New Timer</button>
+                    <button id="room-timed-delete-btn" class="small-btn danger" type="button" onclick="deleteRoomTimer()">Delete Timer</button>
+                </div>
+            </section>
+            <div id="room-timed-tag-rail" class="room-timed-tag-rail"></div>
             <section id="room-history-panel" class="room-history-panel" aria-label="Group history"></section>
             <div id="room-mention-picker" class="room-mention-picker"></div>
             <div id="room-context-chips" class="room-context-chips"></div>
@@ -135,6 +150,8 @@
                     <button id="room-mention-button" class="composer-action-btn" type="button" onclick="toggleRoomMentionPicker()" title="Choose sessions" aria-label="Choose sessions"><svg class="action-icon" aria-hidden="true"><use href="#icon-at"></use></svg></button>
                     <button id="room-attachment-button" class="composer-action-btn" type="button" onclick="document.getElementById('room-file-input').click()" title="Attachments are delivered to mentioned sessions only"><svg class="action-icon" aria-hidden="true"><use href="#icon-file"></use></svg></button>
                     <button id="room-history-resume" class="composer-action-btn" type="button" onclick="toggleRoomHistoryPanel('resume')" title="Browse groups to resume" aria-label="Browse groups to resume"><svg class="action-icon" aria-hidden="true"><use href="#icon-resume"></use></svg></button>
+                    <button id="room-schedule-send-btn" class="composer-action-btn" type="button" onclick="toggleRoomTimerPanel()" title="Schedule group message" aria-label="Schedule group message"><svg class="action-icon" aria-hidden="true"><use href="#icon-schedule"></use></svg></button>
+                    <button id="room-abort-button" class="composer-action-btn danger" type="button" onclick="abortRoom()" title="Stop running group sessions" aria-label="Stop group" disabled><svg class="action-icon" aria-hidden="true"><use href="#icon-stop"></use></svg></button>
                     <button id="room-history-fork" class="composer-action-btn" type="button" onclick="toggleRoomHistoryPanel('fork')" title="Browse groups to fork" aria-label="Browse groups to fork"><svg class="action-icon" aria-hidden="true"><use href="#icon-fork"></use></svg></button>
                 </div>
                 <button id="room-send-button" type="button" onclick="sendRoomMessage()" title="Send" aria-label="Send group message">
@@ -679,6 +696,7 @@
     <script src="timed-inputs.js"></script>
     <script src="workspace.js"></script>
     <script src="rooms.js"></script>
+    <script src="room-controls.js"></script>
     <script src="terminal-scroll.js"></script>
     <script src="git.js"></script>
     <script src="usage.js"></script>

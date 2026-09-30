@@ -12,6 +12,16 @@ import (
 
 func (server *Server) registerRoomRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/rooms", server.listRooms)
+	mux.HandleFunc("GET /ws/rooms", server.roomWebsocket)
+	mux.HandleFunc("POST /api/rooms/{id}/abort", server.abortRoom)
+	mux.HandleFunc("POST /api/rooms/{id}/completion/read", server.markRoomRead)
+	mux.HandleFunc("GET /api/rooms/{id}/timed-inputs", server.roomTimedInputs)
+	mux.HandleFunc("POST /api/rooms/{id}/timed-inputs", server.roomTimedInputs)
+	mux.HandleFunc("PATCH /api/rooms/{id}/timed-inputs/{inputId}", server.roomTimedInputs)
+	mux.HandleFunc("DELETE /api/rooms/{id}/timed-inputs/{inputId}", server.roomTimedInputs)
+	mux.HandleFunc("GET /api/room-history", server.listRoomHistory)
+	mux.HandleFunc("GET /api/room-history/{id}", server.getRoomHistory)
+	mux.HandleFunc("GET /api/room-history/{id}/operation-status", server.roomOperationStatus)
 	mux.HandleFunc("POST /api/rooms", server.createRoom)
 	mux.HandleFunc("GET /api/rooms/{id}", server.getRoom)
 	mux.HandleFunc("PATCH /api/rooms/{id}", server.renameRoom)
@@ -79,11 +89,16 @@ func (server *Server) renameRoom(writer http.ResponseWriter, request *http.Reque
 }
 
 type roomOperationRequest struct {
+	SourceRoomID      string   `json:"sourceRoomId"`
 	ExcludedMemberIDs []string `json:"excludedMemberIds"`
 }
 
 func (server *Server) roomOperationStatus(writer http.ResponseWriter, request *http.Request) {
-	room, err := server.rooms.GetRecord(request.PathValue("id"))
+	getRecord := server.rooms.GetRecord
+	if strings.HasPrefix(request.URL.Path, "/api/room-history/") {
+		getRecord = server.rooms.GetHistoryRecord
+	}
+	room, err := getRecord(request.PathValue("id"))
 	if err != nil {
 		server.writeRoomError(writer, err)
 		return
@@ -109,12 +124,23 @@ func (server *Server) roomOperationStatus(writer http.ResponseWriter, request *h
 }
 
 func (server *Server) resumeRoom(writer http.ResponseWriter, request *http.Request) {
+	runtimeID := request.PathValue("id")
+	unlock := server.rooms.lockOperation(runtimeID)
+	defer unlock()
+	if !server.rooms.IsActive(runtimeID) {
+		server.writeRoomError(writer, errRoomNotFound)
+		return
+	}
+	if server.rooms.Busy(runtimeID) {
+		server.writeRoomError(writer, errors.New("group is busy"))
+		return
+	}
 	var input roomOperationRequest
 	if err := decodeJSON(request, &input); err != nil {
 		respondError(writer, http.StatusBadRequest, err)
 		return
 	}
-	room, err := server.rooms.GetRecord(request.PathValue("id"))
+	room, err := server.roomOperationSource(runtimeID, input.SourceRoomID)
 	if err != nil {
 		server.writeRoomError(writer, err)
 		return
@@ -127,6 +153,12 @@ func (server *Server) resumeRoom(writer http.ResponseWriter, request *http.Reque
 		})
 		return
 	}
+	operationCtx, endOperation, err := server.rooms.beginLifecycle(request.Context(), runtimeID, "resume")
+	if err != nil {
+		server.writeRoomError(writer, err)
+		return
+	}
+	defer endOperation()
 	results := []map[string]any{}
 	var resultsMu sync.Mutex
 	var wait sync.WaitGroup
@@ -142,7 +174,7 @@ func (server *Server) resumeRoom(writer http.ResponseWriter, request *http.Reque
 			limit <- struct{}{}
 			defer func() { <-limit }()
 			result := map[string]any{"memberId": member.ID}
-			session, err := server.recreateRoomMember(request.Context(), member, false)
+			session, err := server.recreateRoomMember(operationCtx, member, false, runtimeID)
 			if err != nil {
 				result["success"], result["error"] = false, err.Error()
 			} else {
@@ -160,16 +192,52 @@ func (server *Server) resumeRoom(writer http.ResponseWriter, request *http.Reque
 		}()
 	}
 	wait.Wait()
+	if operationCtx.Err() != nil {
+		for _, result := range results {
+			if id := stringValue(result["sessionId"]); id != "" {
+				server.sessions.Delete(context.Background(), id)
+			}
+		}
+		respondJSON(writer, http.StatusConflict, map[string]any{"success": false, "error": "Group recovery stopped", "results": results})
+		return
+	}
+	if len(results) > 0 {
+		succeeded := false
+		for _, result := range results {
+			if boolValue(result["success"]) {
+				succeeded = true
+			}
+		}
+		if !succeeded {
+			respondJSON(writer, http.StatusBadRequest, map[string]any{"success": false, "error": "No member sessions could be restored", "results": results})
+			return
+		}
+	}
+	if err := server.rooms.SwitchHistory(runtimeID, room.ID); err != nil {
+		server.writeRoomError(writer, err)
+		return
+	}
 	respondJSON(writer, http.StatusOK, map[string]any{"success": true, "results": results})
 }
 
 func (server *Server) forkRoom(writer http.ResponseWriter, request *http.Request) {
+	runtimeID := request.PathValue("id")
+	unlock := server.rooms.lockOperation(runtimeID)
+	defer unlock()
+	if !server.rooms.IsActive(runtimeID) {
+		server.writeRoomError(writer, errRoomNotFound)
+		return
+	}
+	if server.rooms.Busy(runtimeID) {
+		server.writeRoomError(writer, errors.New("group is busy"))
+		return
+	}
 	var input roomOperationRequest
 	if err := decodeJSON(request, &input); err != nil {
 		respondError(writer, http.StatusBadRequest, err)
 		return
 	}
-	source, err := server.rooms.GetRecord(request.PathValue("id"))
+	source, err := server.roomOperationSource(runtimeID, input.SourceRoomID)
 	if err != nil {
 		server.writeRoomError(writer, err)
 		return
@@ -182,6 +250,17 @@ func (server *Server) forkRoom(writer http.ResponseWriter, request *http.Request
 		})
 		return
 	}
+	forked, err := server.rooms.CopyHistory(source.ID)
+	if err != nil {
+		server.writeRoomError(writer, err)
+		return
+	}
+	operationCtx, endOperation, err := server.rooms.beginLifecycle(request.Context(), runtimeID, "fork")
+	if err != nil {
+		server.writeRoomError(writer, err)
+		return
+	}
+	defer endOperation()
 	results := []map[string]any{}
 	var resultsMu sync.Mutex
 	var wait sync.WaitGroup
@@ -197,12 +276,13 @@ func (server *Server) forkRoom(writer http.ResponseWriter, request *http.Request
 			limit <- struct{}{}
 			defer func() { <-limit }()
 			result := map[string]any{"memberId": member.ID}
-			session, err := server.forkRoomMember(request.Context(), member)
+			session, err := server.recreateRoomMember(operationCtx, member, true, runtimeID)
 			if err != nil {
 				result["success"], result["error"] = false, err.Error()
 			} else {
 				conversationID := sessionConversationID(session)
-				if err := server.rooms.BindRuntimeSession(source.ID, member.ID, session.ID, conversationID); err != nil {
+				if err := server.rooms.BindRuntimeSession(forked.ID, member.ID, session.ID, conversationID); err != nil {
+					server.sessions.Delete(context.Background(), session.ID)
 					result["success"], result["error"] = false, err.Error()
 				} else {
 					result["success"], result["sessionId"] = true, session.ID
@@ -215,36 +295,58 @@ func (server *Server) forkRoom(writer http.ResponseWriter, request *http.Request
 		}()
 	}
 	wait.Wait()
-	respondJSON(writer, http.StatusOK, map[string]any{"success": true, "id": source.ID, "name": source.Name, "results": results})
+	if operationCtx.Err() != nil {
+		for _, result := range results {
+			if id := stringValue(result["sessionId"]); id != "" {
+				server.sessions.Delete(context.Background(), id)
+			}
+		}
+		_ = server.rooms.Delete(forked.ID)
+		respondJSON(writer, http.StatusConflict, map[string]any{"success": false, "error": "Group recovery stopped", "results": results})
+		return
+	}
+	if len(results) > 0 {
+		succeeded := false
+		for _, result := range results {
+			if boolValue(result["success"]) {
+				succeeded = true
+			}
+		}
+		if !succeeded {
+			_ = server.rooms.Delete(forked.ID)
+			respondJSON(writer, http.StatusBadRequest, map[string]any{"success": false, "error": "No member sessions could be restored", "results": results})
+			return
+		}
+	}
+	if err := server.rooms.SwitchHistory(runtimeID, forked.ID); err != nil {
+		server.writeRoomError(writer, err)
+		return
+	}
+	respondJSON(writer, http.StatusOK, map[string]any{"success": true, "id": runtimeID, "historyId": forked.ID, "name": source.Name, "results": results})
 }
 
-func (server *Server) forkRoomMember(ctx context.Context, member RoomMemberRecord) (*Session, error) {
-	session := server.sessions.Get(member.RuntimeSessionID)
-	if session == nil {
-		return server.recreateRoomMember(ctx, member, true)
+func (server *Server) roomOperationSource(runtimeID, sourceID string) (RoomRecord, error) {
+	if sourceID != "" {
+		return server.rooms.GetHistoryRecord(sourceID)
 	}
-	provider, ok := session.Provider.(ForkProvider)
-	if !ok {
-		return nil, errors.New("provider fork is not supported")
-	}
-	if member.ToolKey == "claude-code" {
-		messages, historyErr := readClaudeTranscriptFile(member.WorkingDirectory, member.NativeConversationID)
-		if historyErr != nil {
-			return nil, errors.New("Claude conversation history is unavailable")
-		}
-		if _, err := provider.Fork(ctx, member.NativeConversationID); err != nil {
-			return nil, err
-		}
-		session.replaceClaudeConversation(messages)
-		return session, nil
-	}
-	if _, err := provider.Fork(ctx, member.NativeConversationID); err != nil {
-		return nil, err
-	}
-	return session, nil
+	return server.rooms.GetRecord(runtimeID)
 }
 
-func (server *Server) recreateRoomMember(ctx context.Context, member RoomMemberRecord, fork bool) (*Session, error) {
+func (server *Server) recreateRoomMember(ctx context.Context, member RoomMemberRecord, fork bool, runtimeID string) (*Session, error) {
+	var sourceMessages []map[string]any
+	if fork && member.ToolKey == "codex" {
+		if source := server.sessions.Get(member.RuntimeSessionID); source != nil {
+			source.mu.RLock()
+			for _, message := range source.Messages {
+				sourceMessages = append(sourceMessages, cloneMap(message))
+			}
+			source.mu.RUnlock()
+		} else {
+			// Fork responses can omit copied turns. Seed the independent
+			// destination from source history, as single-session Fork does.
+			sourceMessages, _ = readCodexTranscriptFile(member.NativeConversationID)
+		}
+	}
 	request := CreateSessionRequest{
 		ToolKey: member.ToolKey, WorkingDirectory: member.WorkingDirectory,
 		Name: member.DisplayName,
@@ -258,6 +360,7 @@ func (server *Server) recreateRoomMember(ctx context.Context, member RoomMemberR
 	if err != nil {
 		return nil, err
 	}
+	server.rooms.trackOperationSession(runtimeID, session.ID)
 	cleanup := func(err error) (*Session, error) {
 		server.sessions.Delete(context.Background(), session.ID)
 		return nil, err
@@ -276,8 +379,13 @@ func (server *Server) recreateRoomMember(ctx context.Context, member RoomMemberR
 				return cleanup(err)
 			}
 			session.replaceClaudeConversation(messages)
-		} else if _, err := provider.Fork(ctx, member.NativeConversationID); err != nil {
-			return cleanup(err)
+		} else {
+			if len(sourceMessages) > 0 {
+				session.replaceMessages(sourceMessages)
+			}
+			if _, err := provider.Fork(ctx, member.NativeConversationID); err != nil {
+				return cleanup(err)
+			}
 		}
 		return session, nil
 	}
@@ -352,6 +460,17 @@ func (server *Server) listRooms(writer http.ResponseWriter, _ *http.Request) {
 	respondJSON(writer, http.StatusOK, rooms)
 }
 
+func (server *Server) listRoomHistory(writer http.ResponseWriter, request *http.Request) {
+	offset, _ := strconv.Atoi(request.URL.Query().Get("offset"))
+	limit, _ := strconv.Atoi(request.URL.Query().Get("limit"))
+	page, err := server.rooms.HistoryPage(request.URL.Query().Get("sort"), request.URL.Query().Get("q"), offset, limit)
+	if err != nil {
+		server.writeRoomError(writer, err)
+		return
+	}
+	respondJSON(writer, http.StatusOK, page)
+}
+
 func (server *Server) createRoom(writer http.ResponseWriter, request *http.Request) {
 	var input struct {
 		Name string `json:"name"`
@@ -369,6 +488,10 @@ func (server *Server) createRoom(writer http.ResponseWriter, request *http.Reque
 }
 
 func (server *Server) getRoom(writer http.ResponseWriter, request *http.Request) {
+	if !server.rooms.IsActive(request.PathValue("id")) {
+		server.writeRoomError(writer, errRoomNotFound)
+		return
+	}
 	room, err := server.rooms.GetPublic(request.PathValue("id"))
 	if err != nil {
 		server.writeRoomError(writer, err)
@@ -377,8 +500,19 @@ func (server *Server) getRoom(writer http.ResponseWriter, request *http.Request)
 	respondJSON(writer, http.StatusOK, room)
 }
 
+func (server *Server) getRoomHistory(writer http.ResponseWriter, request *http.Request) {
+	room, err := server.rooms.GetHistoryPublic(request.PathValue("id"))
+	if err != nil {
+		server.writeRoomError(writer, err)
+		return
+	}
+	respondJSON(writer, http.StatusOK, room)
+}
+
 func (server *Server) deleteRoom(writer http.ResponseWriter, request *http.Request) {
-	if err := server.rooms.Delete(request.PathValue("id")); err != nil {
+	unlock := server.rooms.lockOperation(request.PathValue("id"))
+	defer unlock()
+	if err := server.rooms.Close(request.PathValue("id")); err != nil {
 		server.writeRoomError(writer, err)
 		return
 	}
@@ -412,6 +546,12 @@ func (server *Server) removeRoomMember(writer http.ResponseWriter, request *http
 }
 
 func (server *Server) postRoomMessage(writer http.ResponseWriter, request *http.Request) {
+	unlock := server.rooms.lockOperation(request.PathValue("id"))
+	defer unlock()
+	if !server.rooms.IsActive(request.PathValue("id")) {
+		server.writeRoomError(writer, errRoomNotFound)
+		return
+	}
 	var input RoomMessageInput
 	if err := decodeJSON(request, &input); err != nil {
 		respondError(writer, http.StatusBadRequest, err)
@@ -424,7 +564,11 @@ func (server *Server) postRoomMessage(writer http.ResponseWriter, request *http.
 		server.writeRoomError(writer, err)
 		return
 	}
-	respondJSON(writer, http.StatusAccepted, map[string]any{"success": true, "room": room})
+	if failure := server.rooms.RequestDispatchFailure(request.PathValue("id"), input.ClientMessageID); failure != "" {
+		respondJSON(writer, http.StatusBadRequest, map[string]any{"success": false, "accepted": false, "clientMessageId": input.ClientMessageID, "room": room, "error": failure})
+		return
+	}
+	respondJSON(writer, http.StatusAccepted, map[string]any{"success": true, "accepted": true, "clientMessageId": input.ClientMessageID, "room": room})
 }
 
 func (server *Server) writeRoomError(writer http.ResponseWriter, err error) {
@@ -437,4 +581,30 @@ func (server *Server) writeRoomError(writer http.ResponseWriter, err error) {
 		status = http.StatusConflict
 	}
 	respondError(writer, status, err)
+}
+
+func (server *Server) abortRoom(writer http.ResponseWriter, request *http.Request) {
+	ctx, cancel := context.WithTimeout(request.Context(), 30*time.Second)
+	defer cancel()
+	results, err := server.rooms.Abort(ctx, request.PathValue("id"))
+	if err != nil {
+		server.writeRoomError(writer, err)
+		return
+	}
+	respondJSON(writer, http.StatusOK, map[string]any{"success": true, "results": results})
+}
+
+func (server *Server) markRoomRead(writer http.ResponseWriter, request *http.Request) {
+	var input struct {
+		Revision uint64 `json:"revision"`
+	}
+	if err := decodeJSON(request, &input); err != nil {
+		respondError(writer, 400, err)
+		return
+	}
+	if err := server.rooms.MarkRead(request.PathValue("id"), input.Revision); err != nil {
+		server.writeRoomError(writer, err)
+		return
+	}
+	respondJSON(writer, 200, map[string]any{"success": true})
 }

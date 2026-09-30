@@ -169,13 +169,22 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
     expect(forkedRoom.name).toBe('Architecture room');
     expect(forkedRoom.entries).toHaveLength(7);
     expect(forkedRoom.members[0].available).toBe(true);
-    expect(forkedRoom.members[0].sessionId).toBe(session.id);
+    expect(forkedRoom.members[0].sessionId).not.toBe(session.id);
+    const forkSessionId = forkedRoom.members[0].sessionId;
+    const originalRoom = await (await page.request.get(`/api/room-history/${room.id}`)).json();
+    expect(originalRoom.members[0].sessionId).toBe(session.id);
+    expect(originalRoom.members[0].nativeConversationId).not.toContain('fork-of-');
+    expect(forkedRoom.historyId).not.toBe(room.id);
     expect(forkedRoom.members[0].nativeConversationId).toContain('fork-of-');
 
-    await page.request.delete(`/api/sessions/${session.id}`);
+    await page.request.delete(`/api/sessions/${forkSessionId}`);
     await page.reload({ waitUntil: 'networkidle' });
     await page.locator('#lobby-tab-rooms').click();
     await page.locator(`.room-list-card[data-room-id="${room.id}"] .btn-join`).click();
+    const unavailableRoom = await (await page.request.get(`/api/rooms/${room.id}`)).json();
+    expect(unavailableRoom.members[0].available).toBe(false);
+    await page.locator('#room-history-resume').click();
+    await page.locator(`.room-history-item[data-room-history-id="${forkedRoom.historyId}"]`).getByRole('button', { name: 'Resume', exact: true }).click();
     await expect.poll(async () => {
       const current = await (await page.request.get(`/api/rooms/${room.id}`)).json();
       return current.members[0].available;
@@ -235,20 +244,139 @@ test('group dynamically projects pre-join history and opens neighboring turns wi
   await page.request.delete(`/api/sessions/${session.id}`);
 });
 
-test('abandoned empty group drafts are deleted and duplicate creation is suppressed', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'MacBook Pro 16', 'Draft lifecycle runs once');
-  const before = await (await page.request.get('/api/rooms')).json();
-  await page.goto('/', { waitUntil: 'networkidle' });
-  await page.evaluate(() => Promise.all([createRoomFromLobby(), createRoomFromLobby()]));
-  await expect(page.locator('#room-title')).toHaveText('New group (0)');
-  const draftId = await page.evaluate(() => activeRoomId);
-  const draft = await (await page.request.get(`/api/rooms/${draftId}`)).json();
-  expect(draft.draft).toBe(true);
-  expect(await (await page.request.get('/api/rooms')).json()).toHaveLength(before.length + 1);
-  await page.locator('.room-back-button').click();
-  await expect.poll(async () => (await page.request.get(`/api/rooms/${draftId}`)).status()).toBe(404);
-  const after = await (await page.request.get('/api/rooms')).json();
-  expect(after).toHaveLength(before.length);
+test('new empty groups survive returning and reloading alongside existing groups', async ({ page }) => {
+  const sessions = [];
+  const roomIds = [];
+  try {
+    for (const name of ['test1', 'test2']) {
+      const response = await page.request.post('/api/sessions', { data: { toolKey: 'codex', name } });
+      expect(response.ok()).toBe(true);
+      sessions.push(await response.json());
+    }
+    const oldRoom = await (await page.request.post('/api/rooms', { data: { name: '111' } })).json();
+    roomIds.push(oldRoom.id);
+    for (const session of sessions) {
+      const response = await page.request.post(`/api/rooms/${oldRoom.id}/members`, { data: { sessionId: session.id } });
+      expect(response.ok()).toBe(true);
+    }
+    const before = await (await page.request.get('/api/rooms')).json();
+    await page.goto('/', { waitUntil: 'networkidle' });
+    await page.locator('#lobby-tab-rooms').click();
+    const oldCard = page.locator(`.room-list-card[data-room-id="${oldRoom.id}"]`);
+    await expect(oldCard).toContainText('111');
+    await expect(oldCard).toContainText('2 sessions');
+    await page.evaluate(() => Promise.all([createRoomFromLobby(), createRoomFromLobby()]));
+    await expect(page.locator('#room-title')).toHaveText('New group (0)');
+    const newId = await page.evaluate(() => activeRoomId);
+    roomIds.push(newId);
+    expect(newId).not.toBe(oldRoom.id);
+    expect(await (await page.request.get('/api/rooms')).json()).toHaveLength(before.length + 1);
+
+    await page.locator('.room-back-button').click();
+    const newCard = page.locator(`.room-list-card[data-room-id="${newId}"]`);
+    await expect(newCard).toBeVisible();
+    await expect(newCard).toContainText('New group');
+    await expect(newCard).toContainText('0 sessions');
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.locator('#lobby-tab-rooms').click();
+    await expect(newCard).toBeVisible();
+    await expect(oldCard).toContainText('2 sessions');
+    await newCard.locator('.btn-join').click();
+    await expect(page.locator('#room-title')).toHaveText('New group (0)');
+    // Reloading an open empty group triggers pagehide, another former cleanup path.
+    await page.reload({ waitUntil: 'networkidle' });
+    const newRoom = await (await page.request.get(`/api/rooms/${newId}`)).json();
+    expect(newRoom.members).toEqual([]);
+    expect(newRoom.entries).toEqual([]);
+    expect(await (await page.request.get('/api/rooms')).json()).toHaveLength(before.length + 1);
+    await page.locator('#lobby-tab-rooms').click();
+    await expect(newCard).toBeVisible();
+    page.once('dialog', dialog => dialog.accept());
+    await newCard.getByRole('button', { name: 'Delete group', exact: true }).click();
+    await expect(newCard).toHaveCount(0);
+    expect((await page.request.get(`/api/rooms/${newId}`)).status()).toBe(404);
+    const archived = await (await page.request.get(`/api/room-history/${newId}`)).json();
+    expect(archived.members).toEqual([]);
+    expect(archived.entries).toEqual([]);
+    await expect(oldCard).toContainText('2 sessions');
+  } finally {
+    for (const id of roomIds) await page.request.delete(`/api/rooms/${id}`);
+    for (const session of sessions) await page.request.delete(`/api/sessions/${session.id}`);
+  }
+});
+
+test('group history previews are read only and resume and fork switch the current group', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'MacBook Pro 16', 'Saved group lifecycle runs once');
+  const roomIds = [];
+  const sessionIds = [];
+  try {
+    const session = await (await page.request.post('/api/sessions', {
+      data: { toolKey: 'codex', name: 'Saved member' }
+    })).json();
+    sessionIds.push(session.id);
+    const source = await (await page.request.post('/api/rooms', { data: { name: 'Saved group' } })).json();
+    roomIds.push(source.id);
+    await page.request.post(`/api/rooms/${source.id}/members`, { data: { sessionId: session.id } });
+    const sourceView = await (await page.request.get(`/api/rooms/${source.id}`)).json();
+    await page.request.post(`/api/rooms/${source.id}/messages`, {
+      data: { text: '__GLAD_E2E_SUBAGENT_LIFECYCLE__ saved group question', mentionedMemberIds: [sourceView.members[0].id] }
+    });
+    await expect.poll(async () => {
+      const current = await (await page.request.get(`/api/rooms/${source.id}`)).json();
+      return current.entries.at(-1)?.status;
+    }).toBe('completed');
+    await page.request.delete(`/api/rooms/${source.id}`);
+    await page.request.delete(`/api/sessions/${session.id}`);
+    const sessionsBeforePreview = await (await page.request.get('/api/sessions')).json();
+    expect((await page.request.get('/api/rooms')).ok()).toBe(true);
+    expect((await (await page.request.get('/api/rooms')).json()).some(item => item.id === source.id)).toBe(false);
+
+    const operations = [];
+    page.on('request', request => {
+      if (request.method() === 'POST' && /\/api\/rooms\/[^/]+\/(resume|fork)$/.test(new URL(request.url()).pathname)) operations.push(request.url());
+    });
+    await page.goto('/', { waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: 'New group chat', exact: true }).click();
+    await expect(page.locator('#room-title')).toHaveText('New group (0)');
+    const runtimeId = await page.evaluate(() => activeRoomId);
+    roomIds.push(runtimeId);
+    expect(operations).toEqual([]);
+    await page.locator('#room-history-resume').click();
+    const savedItem = page.locator(`.room-history-item[data-room-history-id="${source.id}"]`);
+    await savedItem.getByRole('button', { name: 'Preview', exact: true }).click();
+    await expect(savedItem.locator('.room-history-preview')).toContainText('saved group question');
+    expect(await page.evaluate(() => activeRoomId)).toBe(runtimeId);
+    expect(await (await page.request.get('/api/sessions')).json()).toEqual(sessionsBeforePreview);
+    expect(operations).toEqual([]);
+
+    await savedItem.getByRole('button', { name: 'Resume', exact: true }).click();
+    await expect(page.locator('#room-title')).toHaveText('Saved group (1)');
+    expect(await page.evaluate(() => activeRoomId)).toBe(runtimeId);
+    const resumed = await (await page.request.get(`/api/rooms/${runtimeId}`)).json();
+    expect(resumed.historyId).toBe(source.id);
+    expect(resumed.members[0].available).toBe(true);
+    sessionIds.push(resumed.members[0].sessionId);
+    const original = await (await page.request.get(`/api/room-history/${source.id}`)).json();
+
+    await page.locator('#room-history-fork').click();
+    await savedItem.getByRole('button', { name: 'Fork', exact: true }).click();
+    await expect.poll(async () => (await (await page.request.get(`/api/rooms/${runtimeId}`)).json()).historyId).not.toBe(source.id);
+    const forked = await (await page.request.get(`/api/rooms/${runtimeId}`)).json();
+    expect(await page.evaluate(() => activeRoomId)).toBe(runtimeId);
+    expect(forked.members[0].sessionId).not.toBe(original.members[0].sessionId);
+    expect(forked.members[0].nativeConversationId).not.toBe(original.members[0].nativeConversationId);
+    sessionIds.push(forked.members[0].sessionId);
+    const preserved = await (await page.request.get(`/api/room-history/${source.id}`)).json();
+    expect(preserved.members).toEqual(original.members);
+    expect(preserved.entries).toEqual(original.entries);
+    await page.locator('.room-back-button').click();
+    await page.locator('#lobby-tab-rooms').click();
+    await expect(page.locator(`.room-list-card[data-room-id="${runtimeId}"]`)).toBeVisible();
+    await expect(page.locator(`.room-list-card[data-room-id="${source.id}"]`)).toHaveCount(0);
+  } finally {
+    for (const id of roomIds) await page.request.delete(`/api/rooms/${id}`);
+    for (const id of sessionIds) await page.request.delete(`/api/sessions/${id}`);
+  }
 });
 
 test('a new group imports the complete history of an existing member session', async ({ page }, testInfo) => {

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	sessioncore "glad-web/internal/session"
 	"os"
 	"sort"
 	"strings"
@@ -29,6 +30,10 @@ type RoomManager struct {
 	sessions    *SessionManager
 	attachments *AttachmentStore
 	resolver    RoomTurnResolver
+	activeIDs   map[string]string
+	operations  map[string]*sync.Mutex
+	runtimes    map[string]*roomRuntime
+	events      *sessioncore.EventHub
 }
 
 // RoomTurnResolver keeps persistence independent from provider history. A
@@ -84,6 +89,7 @@ func (resolver sessionRoomTurnResolver) Resolve(member RoomMemberRecord, entry R
 }
 
 type RoomMessageInput struct {
+	ClientMessageID    string                           `json:"clientMessageId,omitempty"`
 	Text               string                           `json:"text"`
 	MentionedMemberIDs []string                         `json:"mentionedMemberIds"`
 	QuotedEntryIDs     []string                         `json:"quotedEntryIds"`
@@ -98,7 +104,9 @@ type RoomTargetAttachments struct {
 func NewRoomManager(store RoomStore, sessions *SessionManager, attachments *AttachmentStore) *RoomManager {
 	return &RoomManager{
 		store: store, sessions: sessions, attachments: attachments,
-		resolver: sessionRoomTurnResolver{sessions: sessions},
+		resolver:  sessionRoomTurnResolver{sessions: sessions},
+		activeIDs: map[string]string{}, operations: map[string]*sync.Mutex{},
+		runtimes: map[string]*roomRuntime{}, events: sessioncore.NewEventHub(),
 	}
 }
 
@@ -109,6 +117,7 @@ func (manager *RoomManager) Start(ctx context.Context) {
 		for {
 			select {
 			case event := <-subscription.Events():
+				manager.sessionEvent(event)
 				if stringValue(event.Payload["type"]) == "session-renamed" {
 					manager.syncSessionName(event.SessionID, stringValue(event.Payload["name"]))
 					continue
@@ -155,7 +164,7 @@ func (manager *RoomManager) syncSessionConversation(sessionID, conversationID st
 	}
 	for _, snapshot := range rooms {
 		roomID := snapshot.ID
-		_ = manager.mutate(roomID, func(room *RoomRecord) error {
+		_ = manager.mutateHistory(roomID, func(room *RoomRecord) error {
 			changed := false
 			for index := range room.Members {
 				if room.Members[index].RuntimeSessionID == sessionID && room.Members[index].LeftAt == 0 {
@@ -182,7 +191,7 @@ func (manager *RoomManager) syncSessionName(sessionID, name string) {
 	}
 	for _, snapshot := range rooms {
 		roomID := snapshot.ID
-		_ = manager.mutate(roomID, func(room *RoomRecord) error {
+		_ = manager.mutateHistory(roomID, func(room *RoomRecord) error {
 			changed := false
 			for index := range room.Members {
 				if room.Members[index].RuntimeSessionID == sessionID && room.Members[index].LeftAt == 0 {
@@ -206,11 +215,11 @@ func (manager *RoomManager) finishSessionTurn(sessionID, runtimeTurnID string, t
 	for _, snapshot := range rooms {
 		roomID := snapshot.ID
 		retryEntryIDs := []string{}
-		_ = manager.mutate(roomID, func(room *RoomRecord) error {
+		_ = manager.mutateHistory(roomID, func(room *RoomRecord) error {
 			changed := false
 			for index := range room.Entries {
 				entry := &room.Entries[index]
-				if entry.Type != "session" || entry.SourceSessionID != sessionID ||
+				if entry.Type != "session" || (entry.Status != "pending" && entry.Status != "running") || entry.SourceSessionID != sessionID ||
 					(entry.NativeTurnID != "" && entry.NativeTurnID != runtimeTurnID) {
 					continue
 				}
@@ -285,6 +294,14 @@ func (manager *RoomManager) retryClaudeTurnLocator(roomID, entryID, sessionID st
 }
 
 func (manager *RoomManager) List() ([]map[string]any, error) {
+	return manager.list(true)
+}
+
+func (manager *RoomManager) History() ([]map[string]any, error) {
+	return manager.list(false)
+}
+
+func (manager *RoomManager) list(activeOnly bool) ([]map[string]any, error) {
 	rooms, err := manager.store.List()
 	if err != nil {
 		return nil, err
@@ -293,6 +310,18 @@ func (manager *RoomManager) List() ([]map[string]any, error) {
 	defer manager.mu.Unlock()
 	result := make([]map[string]any, 0, len(rooms))
 	for _, room := range rooms {
+		runtimeIDs := []string{room.ID}
+		if activeOnly {
+			runtimeIDs = nil
+			for runtimeID, historyID := range manager.activeIDs {
+				if historyID == room.ID {
+					runtimeIDs = append(runtimeIDs, runtimeID)
+				}
+			}
+			if len(runtimeIDs) == 0 {
+				continue
+			}
+		}
 		activeMembers := 0
 		for _, member := range room.Members {
 			if member.LeftAt == 0 {
@@ -300,17 +329,27 @@ func (manager *RoomManager) List() ([]map[string]any, error) {
 			}
 		}
 		messageCount := len(manager.projectRoomEntriesLocked(room))
-		result = append(result, map[string]any{
-			"id": room.ID, "name": room.Name, "createdAt": room.CreatedAt,
-			"updatedAt": room.UpdatedAt, "memberCount": activeMembers,
-			"messageCount": messageCount, "draft": room.Draft,
-			"serverChanNotificationEnabled": room.ServerChanNotificationEnabled,
-		})
+		sort.Strings(runtimeIDs)
+		for _, runtimeID := range runtimeIDs {
+			item := manager.runtimeFieldsLocked(runtimeID, room)
+			metadata := map[string]any{
+				"id": runtimeID, "historyId": room.ID, "name": room.Name, "createdAt": room.CreatedAt,
+				"updatedAt": room.UpdatedAt, "memberCount": activeMembers,
+				"messageCount": messageCount, "draft": room.Draft,
+				"serverChanNotificationEnabled": room.ServerChanNotificationEnabled,
+			}
+			for key, value := range metadata {
+				item[key] = value
+			}
+			result = append(result, item)
+		}
 	}
 	return result, nil
 }
 
 func (manager *RoomManager) Create(name string) (RoomRecord, error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
 	name = strings.TrimSpace(name)
 	if name == "" {
 		name = "New group"
@@ -322,7 +361,122 @@ func (manager *RoomManager) Create(name string) (RoomRecord, error) {
 	room := RoomRecord{
 		SchemaVersion: currentRoomSchemaVersion, ID: newUUID(), Name: name,
 		CreatedAt: now, UpdatedAt: now, NextSequence: 1,
-		Members: []RoomMemberRecord{}, Entries: []RoomEntryRecord{}, Draft: true,
+		Members: []RoomMemberRecord{}, Entries: []RoomEntryRecord{},
+	}
+	if err := manager.store.Save(room); err != nil {
+		return RoomRecord{}, err
+	}
+	manager.activeIDs[room.ID] = room.ID
+	manager.runtimeLocked(room.ID)
+	manager.publishLocked(room.ID)
+	return room, nil
+}
+
+func (manager *RoomManager) lockOperation(id string) func() {
+	manager.mu.Lock()
+	lock := manager.operations[id]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		manager.operations[id] = lock
+	}
+	manager.mu.Unlock()
+	lock.Lock()
+	return lock.Unlock
+}
+
+func (manager *RoomManager) Busy(id string) bool {
+	room, err := manager.GetRecord(id)
+	if err != nil {
+		return false
+	}
+	for _, member := range room.Members {
+		if member.LeftAt != 0 {
+			continue
+		}
+		if session := manager.sessions.Get(member.RuntimeSessionID); session != nil {
+			session.mu.RLock()
+			status := session.StatusValue
+			session.mu.RUnlock()
+			switch status {
+			case "running", "thinking", "waiting_approval", "waiting_input":
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// SwitchHistory binds an existing runtime group to a saved conversation.
+// Runtime identities live only in memory, just like ordinary sessions.
+func (manager *RoomManager) SwitchHistory(runtimeID, historyID string) error {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.activeIDs[runtimeID] == "" {
+		return errRoomNotFound
+	}
+	if _, err := manager.store.Get(historyID); err != nil {
+		return err
+	}
+	manager.activeIDs[runtimeID] = historyID
+	manager.publishLocked(runtimeID)
+	return nil
+}
+
+func (manager *RoomManager) IsActive(id string) bool {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	return manager.activeIDs[id] != ""
+}
+
+func (manager *RoomManager) roomIDLocked(id string) string {
+	if historyID := manager.activeIDs[id]; historyID != "" {
+		return historyID
+	}
+	return id
+}
+
+// Close removes the runtime group while preserving its saved history and members.
+func (manager *RoomManager) Close(id string) error {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.activeIDs[id] == "" {
+		return errRoomNotFound
+	}
+	runtime := manager.runtimeLocked(id)
+	runtime.cancel()
+	if runtime.operationCancel != nil {
+		runtime.operationCancel()
+	}
+	for _, item := range runtime.timers {
+		if item.Timer != nil {
+			item.Timer.Stop()
+		}
+	}
+	delete(manager.runtimes, id)
+	delete(manager.activeIDs, id)
+	manager.publishLocked(id)
+	return nil
+}
+
+func (manager *RoomManager) GetHistoryRecord(id string) (RoomRecord, error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	return manager.store.Get(id)
+}
+
+func (manager *RoomManager) CopyHistory(id string) (RoomRecord, error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	room, err := manager.store.Get(id)
+	if err != nil {
+		return RoomRecord{}, err
+	}
+	room.ID = newUUID()
+	room.CreatedAt, room.UpdatedAt = millis(), millis()
+	room.Draft = false
+	for index := range room.Members {
+		// Failed or excluded forks must not silently reuse a source session.
+		room.Members[index].RuntimeSessionID = ""
 	}
 	if err := manager.store.Save(room); err != nil {
 		return RoomRecord{}, err
@@ -333,7 +487,11 @@ func (manager *RoomManager) Create(name string) (RoomRecord, error) {
 func (manager *RoomManager) Delete(id string) error {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
-	return manager.store.Delete(id)
+	if err := manager.store.Delete(id); err != nil {
+		return err
+	}
+	delete(manager.activeIDs, id)
+	return nil
 }
 
 func (manager *RoomManager) DeleteDraft(id string) error {
@@ -351,7 +509,11 @@ func (manager *RoomManager) DeleteDraft(id string) error {
 			return errors.New("room is not an empty draft")
 		}
 	}
-	return manager.store.Delete(id)
+	if err := manager.store.Delete(id); err != nil {
+		return err
+	}
+	delete(manager.activeIDs, id)
+	return nil
 }
 
 func (manager *RoomManager) Rename(id, name string) error {
@@ -380,7 +542,10 @@ func (manager *RoomManager) DisableServerChanNotifications() {
 	}
 	for _, room := range rooms {
 		if room.ServerChanNotificationEnabled {
-			_ = manager.SetServerChanNotification(room.ID, false)
+			_ = manager.mutateHistory(room.ID, func(saved *RoomRecord) error {
+				saved.ServerChanNotificationEnabled = false
+				return nil
+			})
 		}
 	}
 }
@@ -390,9 +555,15 @@ func (manager *RoomManager) NotificationTargets(sessionID, runtimeTurnID string,
 	if err != nil {
 		return nil
 	}
+	manager.mu.Lock()
+	activeHistory := map[string]bool{}
+	for _, historyID := range manager.activeIDs {
+		activeHistory[historyID] = true
+	}
+	manager.mu.Unlock()
 	result := []RoomNotificationTarget{}
 	for _, room := range rooms {
-		if !room.ServerChanNotificationEnabled {
+		if !room.ServerChanNotificationEnabled || !activeHistory[room.ID] {
 			continue
 		}
 		activeMembers := 0
@@ -464,15 +635,22 @@ func roomNotificationProgress(room RoomRecord, sessionID, runtimeTurnID string, 
 func (manager *RoomManager) GetRecord(id string) (RoomRecord, error) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
-	return manager.store.Get(id)
+	return manager.store.Get(manager.roomIDLocked(id))
 }
 
 func (manager *RoomManager) BindRuntimeSession(roomID, memberID, sessionID, conversationID string) error {
-	return manager.mutate(roomID, func(room *RoomRecord) error {
+	return manager.mutateHistory(roomID, func(room *RoomRecord) error {
 		for index := range room.Members {
 			if room.Members[index].ID == memberID && room.Members[index].LeftAt == 0 {
 				room.Members[index].RuntimeSessionID = sessionID
 				room.Members[index].NativeConversationID = firstNonEmpty(conversationID, room.Members[index].NativeConversationID)
+				for entryIndex := range room.Entries {
+					entry := &room.Entries[entryIndex]
+					if entry.Type == "session" && entry.MemberID == memberID {
+						entry.SourceSessionID = sessionID
+						entry.NativeConversationID = firstNonEmpty(conversationID, entry.NativeConversationID)
+					}
+				}
 				return nil
 			}
 		}
@@ -481,8 +659,20 @@ func (manager *RoomManager) BindRuntimeSession(roomID, memberID, sessionID, conv
 }
 
 func (manager *RoomManager) GetPublic(id string) (map[string]any, error) {
+	return manager.getPublic(id, false)
+}
+
+func (manager *RoomManager) GetHistoryPublic(id string) (map[string]any, error) {
+	return manager.getPublic(id, true)
+}
+
+func (manager *RoomManager) getPublic(id string, history bool) (map[string]any, error) {
 	manager.mu.Lock()
-	room, err := manager.store.Get(id)
+	historyID := id
+	if !history {
+		historyID = manager.roomIDLocked(id)
+	}
+	room, err := manager.store.Get(historyID)
 	if err != nil {
 		manager.mu.Unlock()
 		return nil, err
@@ -521,13 +711,22 @@ func (manager *RoomManager) GetPublic(id string) (map[string]any, error) {
 	for _, entry := range projected {
 		entries = append(entries, manager.publicEntryLocked(room, memberByID, entry))
 	}
+	runtimeID := id
+	if history {
+		runtimeID = ""
+	}
+	fields := manager.runtimeFieldsLocked(runtimeID, room)
 	manager.mu.Unlock()
-	return map[string]any{
-		"schemaVersion": room.SchemaVersion, "id": room.ID, "name": room.Name,
+	result := map[string]any{
+		"schemaVersion": room.SchemaVersion, "id": id, "historyId": room.ID, "name": room.Name,
 		"createdAt": room.CreatedAt, "updatedAt": room.UpdatedAt, "draft": room.Draft,
 		"serverChanNotificationEnabled": room.ServerChanNotificationEnabled,
 		"members":                       members, "entries": entries,
-	}, nil
+	}
+	for key, value := range fields {
+		result[key] = value
+	}
+	return result, nil
 }
 
 type roomProjectedTurn struct {
@@ -699,7 +898,7 @@ func (manager *RoomManager) projectRoomEntriesLocked(room RoomRecord) []RoomEntr
 func (manager *RoomManager) EntryContext(roomID, entryID string, before, after int) (map[string]any, error) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
-	room, err := manager.store.Get(roomID)
+	room, err := manager.store.Get(manager.roomIDLocked(roomID))
 	if err != nil {
 		return nil, err
 	}
@@ -741,7 +940,7 @@ func (manager *RoomManager) EntryContext(roomID, entryID string, before, after i
 func (manager *RoomManager) EntryTurnDetails(roomID, entryID, turnID string) (map[string]any, error) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
-	room, err := manager.store.Get(roomID)
+	room, err := manager.store.Get(manager.roomIDLocked(roomID))
 	if err != nil {
 		return nil, err
 	}
@@ -926,7 +1125,7 @@ func roomSourceMessages(messages []map[string]any, conversationID string) []room
 func (manager *RoomManager) AddSession(roomID, sessionID string) (RoomMemberRecord, error) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
-	room, err := manager.store.Get(roomID)
+	room, err := manager.store.Get(manager.roomIDLocked(roomID))
 	if err != nil {
 		return RoomMemberRecord{}, err
 	}
@@ -966,6 +1165,7 @@ func (manager *RoomManager) AddSession(roomID, sessionID string) (RoomMemberReco
 	if err := manager.store.Save(room); err != nil {
 		return RoomMemberRecord{}, err
 	}
+	manager.publishHistoryLocked(room.ID)
 	return member, nil
 }
 
@@ -983,6 +1183,10 @@ func (manager *RoomManager) RemoveMember(roomID, memberID string) error {
 
 func (manager *RoomManager) PostMessage(ctx context.Context, roomID string, input RoomMessageInput) (map[string]any, error) {
 	input.Text = strings.TrimSpace(input.Text)
+	input.ClientMessageID = strings.TrimSpace(input.ClientMessageID)
+	if len(input.ClientMessageID) > 128 {
+		return nil, errors.New("invalid message ID")
+	}
 	input.MentionedMemberIDs = uniqueStrings(input.MentionedMemberIDs)
 	input.QuotedEntryIDs = uniqueStrings(input.QuotedEntryIDs)
 	if len(input.Text) > maxRoomMessageBytes {
@@ -996,10 +1200,24 @@ func (manager *RoomManager) PostMessage(ctx context.Context, roomID string, inpu
 	}
 
 	manager.mu.Lock()
-	room, err := manager.store.Get(roomID)
+	room, err := manager.store.Get(manager.roomIDLocked(roomID))
 	if err != nil {
 		manager.mu.Unlock()
 		return nil, err
+	}
+	encoded, _ := json.Marshal(input)
+	hash := sha256.Sum256(encoded)
+	requestHash := hex.EncodeToString(hash[:])
+	if input.ClientMessageID != "" {
+		for _, entry := range room.Entries {
+			if entry.Type == "user" && entry.ClientMessageID == input.ClientMessageID {
+				manager.mu.Unlock()
+				if entry.RequestHash != requestHash {
+					return nil, errors.New("message ID was already used for different content")
+				}
+				return manager.GetPublic(roomID)
+			}
+		}
 	}
 	activeMembers := map[string]RoomMemberRecord{}
 	for _, member := range room.Members {
@@ -1022,7 +1240,7 @@ func (manager *RoomManager) PostMessage(ctx context.Context, roomID string, inpu
 	userEntry := RoomEntryRecord{
 		ID: newUUID(), Sequence: room.NextSequence, Type: "user", UserText: input.Text,
 		MentionedMemberIDs: input.MentionedMemberIDs, QuotedEntryIDs: input.QuotedEntryIDs,
-		Status: "completed", CreatedAt: now,
+		Status: "completed", CreatedAt: now, ClientMessageID: input.ClientMessageID, RequestHash: requestHash,
 	}
 	room.NextSequence++
 	room.Entries = append(room.Entries, userEntry)
@@ -1032,7 +1250,7 @@ func (manager *RoomManager) PostMessage(ctx context.Context, roomID string, inpu
 			ID: newUUID(), Sequence: room.NextSequence, Type: "session", MemberID: member.ID,
 			SourceSessionID:      member.RuntimeSessionID,
 			NativeConversationID: member.NativeConversationID,
-			ClientMessageID:      newRoomClientID(roomID), OriginRoomID: roomID,
+			ClientMessageID:      newRoomClientID(room.ID), OriginRoomID: room.ID,
 			Status: "pending", CreatedAt: now,
 		}
 		room.NextSequence++
@@ -1045,16 +1263,17 @@ func (manager *RoomManager) PostMessage(ctx context.Context, roomID string, inpu
 		manager.mu.Unlock()
 		return nil, err
 	}
+	manager.publishHistoryLocked(room.ID)
 	manager.mu.Unlock()
 
-	agentText := buildRoomAgentTextForRoom(roomID, input.Text, references, missing)
+	agentText := buildRoomAgentTextForRoom(room.ID, input.Text, references, missing)
 	var wait sync.WaitGroup
 	for _, target := range targets {
 		target := target
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			manager.dispatch(ctx, roomID, replyIDs[target.ID], target, input.Text, agentText, input.Attachments[target.ID])
+			manager.dispatch(ctx, room.ID, replyIDs[target.ID], target, input.Text, agentText, input.Attachments[target.ID])
 		}()
 	}
 	wait.Wait()
@@ -1116,7 +1335,7 @@ func (manager *RoomManager) dispatch(
 		return
 	}
 	turnID, conversationID := sessionTurnLocator(session, clientID)
-	_ = manager.mutate(roomID, func(room *RoomRecord) error {
+	_ = manager.mutateHistory(roomID, func(room *RoomRecord) error {
 		for index := range room.Entries {
 			if room.Entries[index].ID != entryID {
 				continue
@@ -1138,7 +1357,7 @@ func (manager *RoomManager) dispatch(
 }
 
 func (manager *RoomManager) failEntry(roomID, entryID, message string) {
-	_ = manager.mutate(roomID, func(room *RoomRecord) error {
+	_ = manager.mutateHistory(roomID, func(room *RoomRecord) error {
 		for index := range room.Entries {
 			if room.Entries[index].ID == entryID {
 				room.Entries[index].Status = "failed"
@@ -1151,8 +1370,19 @@ func (manager *RoomManager) failEntry(roomID, entryID, message string) {
 }
 
 func (manager *RoomManager) mutate(roomID string, update func(*RoomRecord) error) error {
+	return manager.updateRoom(roomID, update, false)
+}
+
+func (manager *RoomManager) mutateHistory(roomID string, update func(*RoomRecord) error) error {
+	return manager.updateRoom(roomID, update, true)
+}
+
+func (manager *RoomManager) updateRoom(roomID string, update func(*RoomRecord) error, history bool) error {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	if !history {
+		roomID = manager.roomIDLocked(roomID)
+	}
 	room, err := manager.store.Get(roomID)
 	if err != nil {
 		return err
@@ -1161,7 +1391,11 @@ func (manager *RoomManager) mutate(roomID string, update func(*RoomRecord) error
 		return err
 	}
 	room.UpdatedAt = millis()
-	return manager.store.Save(room)
+	if err := manager.store.Save(room); err != nil {
+		return err
+	}
+	manager.publishHistoryLocked(room.ID)
+	return nil
 }
 
 func (manager *RoomManager) publicEntryLocked(
@@ -1392,4 +1626,42 @@ func resolveClaudeNativeTurnID(session *Session, clientID, conversationID string
 
 func roomContext(timeout time.Duration) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), timeout)
+}
+
+// RequestDispatchFailure reports a synchronous rejection by every mentioned
+// member. A later failed agent turn was already accepted and is not a send error.
+func (manager *RoomManager) RequestDispatchFailure(id, clientID string) string {
+	room, err := manager.GetRecord(id)
+	if err != nil {
+		return err.Error()
+	}
+	start := -1
+	for index := len(room.Entries) - 1; index >= 0; index-- {
+		entry := room.Entries[index]
+		if entry.Type == "user" && (clientID == "" || entry.ClientMessageID == clientID) {
+			start = index
+			break
+		}
+	}
+	if start < 0 {
+		return ""
+	}
+	attempted := 0
+	failures := []string{}
+	for _, entry := range room.Entries[start+1:] {
+		if entry.Type == "user" {
+			break
+		}
+		if entry.Type != "session" {
+			continue
+		}
+		attempted++
+		if entry.Status == "failed" && entry.Error != "" {
+			failures = append(failures, entry.Error)
+		}
+	}
+	if attempted > 0 && len(failures) == attempted {
+		return strings.Join(uniqueStrings(failures), "; ")
+	}
+	return ""
 }

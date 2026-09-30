@@ -10,9 +10,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-09-30
+
+### Added
+
+- Add group message acknowledgements and persistent retry deduplication, live WebSocket updates, revisioned completion indicators, and metadata-only history sorting and pagination.
+- Add group Stop and recovery cancellation, plus editable scheduled messages with countdowns, selected members, references, and failed-send retry controls.
+- Show groups in the desktop tiled workspace with live previews and focused editors while keeping group tiles out of drag reordering.
+
 ### Fixed
 
 - Remove an obsolete token-budget configuration override from automatic Codex title generation to prevent configuration warnings with Codex 0.159.
+- Align group lifecycle with sessions: keep new groups empty, list only active groups in the lobby, and select saved history explicitly through Resume/Fork while keeping the current group identity.
+- Preserve saved group history on closing, keep history previews read only, and fork member conversations independently without changing the original group.
+- Keep empty groups when returning or reloading, and guard group switches against in-flight sends and stale history responses.
 
 ## [2.6.1] - 2026-09-29
 
