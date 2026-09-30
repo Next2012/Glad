@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="vendor/xterm.css" />
     <link rel="stylesheet" href="vendor/katex/katex.min.css">
     <link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="settings-pages.css">
 </head>
 <body>
     <div id="pwa-top-edge" aria-hidden="true"></div>
@@ -294,8 +295,8 @@
                 <!-- Expand auxiliary editors above the bottom action toolbars. -->
                 <div id="timed-send-panel" role="group" aria-label="Scheduled send">
                     <div class="timed-row">
-                        <select id="timed-hours" onchange="updateTimedSendPreview()" title="Hours" aria-label="Delay hours"></select>
-                        <select id="timed-minutes" onchange="updateTimedSendPreview()" title="Minutes" aria-label="Delay minutes"></select>
+                        <select id="timed-hours" oninput="updateTimedSendPreview()" onchange="updateTimedSendPreview()" title="Hours" aria-label="Delay hours"></select>
+                        <select id="timed-minutes" oninput="updateTimedSendPreview()" onchange="updateTimedSendPreview()" title="Minutes" aria-label="Delay minutes"></select>
                         <button id="timed-save-btn" class="small-btn primary" onclick="saveTimedSend()">Add Timer</button>
                     </div>
                     <div id="timed-preview" class="timed-preview"></div>
@@ -308,10 +309,10 @@
                     <div class="claude-control-rail">
                         <div class="agent-control-group primary">
                             <div class="claude-picker-wrap">
-                                <select id="claude-model-select" class="claude-select" title="Model" onchange="updateClaudeSettingsFromControls()">
+                                <select id="claude-model-select" class="claude-select" title="Model" onchange="updateClaudeSettingsFromControls('model')">
                                     <option value="default">M:Def</option>
                                 </select>
-                                <select id="claude-effort-select" class="claude-select" title="Effort" onchange="updateClaudeSettingsFromControls()">
+                                <select id="claude-effort-select" class="claude-select" title="Effort" onchange="updateClaudeSettingsFromControls('effort')">
                                     <option value="low">Low</option>
                                     <option value="medium">Medium</option>
                                     <option value="high">High</option>
@@ -329,10 +330,11 @@
                             <button id="claude-prompts-btn" class="claude-ctrl-btn" onclick="toggleClaudePromptPanel()" title="Browse and copy recent Claude prompts" aria-label="Browse recent Claude prompts"><svg class="action-icon" aria-hidden="true"><use href="#icon-prompts"></use></svg><span class="action-label">Prompts</span></button>
                             <button id="claude-compact-btn" class="claude-ctrl-btn" onclick="compactClaudeContext()" title="Compact the current Claude context" aria-label="Compact Claude context"><svg class="action-icon" aria-hidden="true"><use href="#icon-compact"></use></svg><span class="action-label">Compact</span></button>
                             <div class="claude-picker-wrap">
-                                <select id="claude-permission-select" class="claude-select" title="Permission mode" onchange="updateClaudeSettingsFromControls()">
+                                <select id="claude-permission-select" class="claude-select" title="Permission mode" onchange="updateClaudeSettingsFromControls('permissionMode')">
                                     <option value="default">Default</option>
                                     <option value="acceptEdits">Accept edits</option>
-                                    <option value="auto">Auto</option>
+                                    <option value="auto" selected>Auto</option>
+                                    <option value="manual">Manual</option>
                                     <option value="plan">Plan mode</option>
                                     <option value="dontAsk">Don't ask</option>
                                     <option value="bypassPermissions">Bypass</option>
@@ -513,14 +515,14 @@
     <!-- App Settings Modal -->
     <div id="settings-modal-overlay" onclick="closeSettings(event)">
         <div id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title" onclick="event.stopPropagation()">
-            <div class="settings-modal-header">
+            <div class="settings-modal-header"><button class="settings-back small-btn" type="button" onclick="selectSettingsPage(null)" aria-label="Back to settings">‹ Settings</button>
                 <div>
                     <h2 id="settings-modal-title">Settings</h2>
                     <p>Manage Glad preferences and integrations.</p>
                 </div>
                 <button class="icon-btn settings-close" type="button" onclick="closeSettings()" aria-label="Close">×</button>
             </div>
-            <section class="settings-section" aria-labelledby="appearance-settings-title">
+            <div class="settings-layout"><nav class="settings-nav" aria-label="Settings categories"><button type="button" class="settings-nav-card" data-settings-nav="appearance" onclick="selectSettingsPage('appearance')"><span class="settings-nav-icon appearance" aria-hidden="true">◐</span><span>Appearance</span><span class="settings-chevron" aria-hidden="true">›</span></button><button type="button" class="settings-nav-card" data-settings-nav="serverchan" onclick="selectSettingsPage('serverchan')"><span class="settings-nav-icon serverchan" aria-hidden="true">↗</span><span>ServerChan</span><span class="settings-chevron" aria-hidden="true">›</span></button><button type="button" class="settings-nav-card" data-settings-nav="skillhub" onclick="selectSettingsPage('skillhub')"><span class="settings-nav-icon skillhub" aria-hidden="true">✦</span><span>SkillHub</span><span class="settings-chevron" aria-hidden="true">›</span></button><button type="button" class="settings-nav-card" data-settings-nav="agentworkbench" onclick="selectSettingsPage('agentworkbench')"><span class="settings-nav-icon agentworkbench" aria-hidden="true">↔</span><span>AgentWorkbench</span><span class="settings-chevron" aria-hidden="true">›</span></button></nav><div class="settings-content"><section class="settings-section settings-page" data-settings-page="appearance" aria-labelledby="appearance-settings-title">
                 <div class="settings-section-label" id="appearance-settings-title">Appearance</div>
                 <div class="theme-choice" role="group" aria-label="Color theme">
                     <button id="theme-light-btn" type="button" onclick="setGladTheme('light')" aria-pressed="false">
@@ -534,8 +536,8 @@
                 </div>
                 <p class="settings-theme-help">Glad follows your system until you choose a theme.</p>
             </section>
-            <section class="settings-section" aria-labelledby="notifications-settings-title">
-                <div class="settings-section-label" id="notifications-settings-title">Notifications</div>
+<section class="settings-section settings-page" data-settings-page="serverchan" aria-labelledby="notifications-settings-title">
+                <div class="settings-section-label" id="notifications-settings-title">ServerChan</div>
                 <div class="settings-provider-header">
                     <div>
                         <h3>ServerChan</h3>
@@ -563,8 +565,8 @@
                     <button id="serverchan-test-btn" class="small-btn" type="button" onclick="testServerChanSettings()">Send Test</button>
                 </div>
             </section>
-            <section class="settings-section" aria-labelledby="skillhub-settings-title">
-                <div class="settings-section-label" id="skillhub-settings-title">Skills</div>
+<section class="settings-section settings-page" data-settings-page="skillhub" aria-labelledby="skillhub-settings-title">
+                <div class="settings-section-label" id="skillhub-settings-title">SkillHub</div>
                 <div class="settings-provider-header">
                     <div><h3>SkillHub</h3><p>Connect Glad to a private Skill server.</p></div>
                 </div>
@@ -586,6 +588,28 @@
                     <button id="skillhub-test-btn" class="small-btn" type="button" onclick="testSkillHubSettings()">Test</button>
                 </div>
             </section>
+<section class="settings-section settings-page" data-settings-page="agentworkbench" aria-labelledby="workbench-settings-title">
+<div class="settings-section-label" id="workbench-settings-title">AgentWorkbench</div>
+<p class="settings-theme-help">Share this Glad with agent workbenches through a connection started here.</p>
+<div class="form-field"><label for="workbench-glad-id">Glad ID</label><input id="workbench-glad-id" readonly><button class="small-btn" type="button" onclick="copyWorkbenchField('workbench-glad-id')">Copy ID</button></div>
+<div class="form-field"><label for="workbench-glad-alias">Glad alias</label><div class="settings-inline"><input id="workbench-glad-alias" maxlength="128"><button class="small-btn primary" type="button" onclick="saveWorkbenchAlias()">Save alias</button></div></div>
+<div id="workbench-settings-status" class="serverchan-settings-status" role="status" aria-live="polite"></div>
+<div id="workbench-connection-cards" class="workbench-connection-cards"></div>
+<details class="workbench-add"><summary>Add AgentWorkbench</summary>
+<form id="workbench-add-form" onsubmit="addWorkbenchTarget(event)">
+<div class="form-field"><label for="workbench-url">Connection address</label><input id="workbench-url" type="url" required placeholder="wss://workbench:8443/api/assistant-connections/ws"></div>
+<div class="form-field"><label for="workbench-token">Connection token</label><input id="workbench-token" type="password" required autocomplete="off"></div>
+<div class="form-field"><label for="workbench-directory">Glad working directory</label><input id="workbench-directory" required></div>
+<div class="form-field"><label for="workbench-ca">Private CA certificate (optional)</label><input id="workbench-ca" type="file" accept=".pem,.crt,.cer"><p class="serverchan-help">Use the certificate provided by the workbench administrator.</p></div>
+<details><summary>MCPHub configuration (optional)</summary>
+<div class="form-field"><label for="workbench-mcp-url">MCPHub address</label><input id="workbench-mcp-url" type="url" placeholder="http://workbench:8082/mcp"></div>
+<div class="form-field"><label for="workbench-mcp-token-file">Local MCPHub token file</label><input id="workbench-mcp-token-file"><p class="serverchan-help">Leave both blank to use the CLI's existing MCP configuration.</p></div>
+</details>
+<button id="workbench-add-button" class="small-btn primary" type="submit">Add</button>
+</form></details>
+<p class="serverchan-help">Auto-connect is saved. At startup each enabled workbench is tried once; a failed connection stays disconnected.</p>
+<p id="workbench-config-path" class="serverchan-help"></p>
+</section></div></div>
         </div>
     </div>
     <div id="app-toast" role="status" aria-live="polite"></div>
@@ -667,6 +691,8 @@
     <script defer src="vendor/xterm.js"></script>
     <script defer src="vendor/xterm-addon-fit.js"></script>
     <script src="theme.js"></script>
+    <script src="settings-pages.js"></script>
+    <script src="workbench-settings.js"></script>
     <script src="gitgraph.js"></script>
     <script src="session-order.js"></script>
     <script src="core.js"></script>

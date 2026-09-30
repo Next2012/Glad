@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 )
 
-// 原生对话 ID 按工作台入口和客户端身份保存在本地，重连时不开放其他本地历史。
+// 原生对话 ID 按入口和客户端身份登记，重连时保持同一原生对话。
 func (bridge *workbenchBridge) loadThreads(endpoint, clientID string) error {
 	if clientID == "" {
 		return errors.New("工作台未返回客户端身份")
@@ -42,6 +42,7 @@ func (bridge *workbenchBridge) knowsThread(threadID string) bool {
 func (bridge *workbenchBridge) rememberThread(session *Session, notify bool) {
 	session.mu.RLock()
 	threadID := firstNonEmpty(stringValue(session.State["threadId"]), stringValue(session.State["claudeSessionId"]))
+	settings := workbenchSessionSettings(session.State)
 	session.mu.RUnlock()
 	if threadID == "" {
 		return
@@ -73,7 +74,7 @@ func (bridge *workbenchBridge) rememberThread(session *Session, notify bool) {
 	bridge.mu.Unlock()
 	if notify {
 		_ = bridge.write(workbenchMessage{Type: "session_state", SessionID: session.ID,
-			ThreadID: threadID, ToolKey: session.Tool.Key})
+			ThreadID: threadID, ToolKey: session.Tool.Key, Settings: settings})
 	}
 }
 
@@ -111,4 +112,15 @@ func (bridge *workbenchBridge) rememberAllThreads() {
 			bridge.rememberThread(session, false)
 		}
 	}
+}
+
+// 只保存恢复会话所需的选项，避免将用量、工具输出等临时状态写入工作台。
+func workbenchSessionSettings(state map[string]any) map[string]any {
+	settings := map[string]any{}
+	for _, key := range []string{"model", "effort", "permissionMode", "sandboxMode", "serviceTier", "personality"} {
+		if value, ok := state[key]; ok {
+			settings[key] = value
+		}
+	}
+	return settings
 }

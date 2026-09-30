@@ -33,6 +33,7 @@ type Server struct {
 	skillhub      *SkillHubService
 	rooms         *RoomManager
 	assets        fs.FS
+	sharing       *WorkbenchSharing
 }
 
 func NewServer(baseDir string, port int, assets fs.FS) (*Server, error) {
@@ -56,6 +57,11 @@ func NewServer(baseDir string, port int, assets fs.FS) (*Server, error) {
 	server.rooms = NewRoomManager(roomStore, sessions, attachments)
 	server.notifications = NewNotificationService(config, server.sessions, server.rooms)
 	server.skillhub = NewSkillHubService(config, server.sessions)
+	server.sharing, err = OpenWorkbenchSharing(baseDir, assets)
+	if err != nil {
+		return nil, err
+	}
+	server.sharing.globalConfig = config
 	return server, nil
 }
 
@@ -74,6 +80,7 @@ func (server *Server) Run(ctx context.Context) error {
 	}
 	server.notifications.Start(runCtx)
 	server.rooms.Start(runCtx)
+	server.sharing.Start(runCtx)
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)
@@ -82,6 +89,7 @@ func (server *Server) Run(ctx context.Context) error {
 		defer cancel()
 		_ = server.http.Shutdown(shutdownCtx)
 		server.schedules.Stop()
+		server.sharing.Stop(shutdownCtx)
 		server.rooms.Stop()
 		server.notifications.Close()
 		server.sessions.Close(shutdownCtx)
@@ -148,6 +156,7 @@ func (server *Server) registerRoutes(mux *http.ServeMux) {
 	server.registerUsageRoutes(mux)
 	server.registerSkillHubRoutes(mux)
 	server.registerRoomRoutes(mux)
+	server.registerWorkbenchSharingRoutes(mux)
 	server.registerStaticRoutes(mux)
 }
 
@@ -184,6 +193,7 @@ func (server *Server) sessionMetadata(writer http.ResponseWriter, request *http.
 	session.mu.RLock()
 	item["threadId"] = session.State["threadId"]
 	item["claudeSessionId"] = session.State["claudeSessionId"]
+	item["settings"] = workbenchSessionSettings(session.State)
 	session.mu.RUnlock()
 	respondJSON(writer, http.StatusOK, item)
 }
@@ -578,7 +588,9 @@ func (server *Server) handleWebsocketMessage(
 		}
 	case "claude-settings", "codex-settings":
 		if provider, ok := session.Provider.(SettingsProvider); ok {
-			_ = provider.UpdateSettings(ctx, mapValue(payload["settings"]))
+			if err := provider.UpdateSettings(ctx, mapValue(payload["settings"])); err != nil {
+				send(map[string]any{"type": "error", "error": err.Error(), "message": err.Error()})
+			}
 		}
 	case "claude-abort", "codex-abort":
 		if provider, ok := session.Provider.(InterruptProvider); ok {

@@ -60,13 +60,13 @@ func TestWorkbenchSecurityInvalidHTTPMessagesDoNotPanic(t *testing.T) {
 	}
 }
 
-func TestWorkbenchSecurityClaudeApprovalCannotExpandPermissions(t *testing.T) {
+func TestWorkbenchClaudeApprovalMatchesLocalActions(t *testing.T) {
 	for _, action := range []string{"bypass", "allow-edits", "allow-tool"} {
 		t.Run(action, func(t *testing.T) {
 			payload := map[string]any{"type": "claude-permission", "id": "pending",
 				"approved": true, "action": action}
-			if workbenchPayloadAllowed(payload) {
-				t.Fatalf("remote approval action %q can expand later tool permissions", action)
+			if !workbenchPayloadAllowed(payload) {
+				t.Fatalf("local approval action %q was blocked", action)
 			}
 		})
 	}

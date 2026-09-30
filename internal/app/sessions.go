@@ -130,6 +130,7 @@ type Session struct {
 	Kind                          string
 	Tool                          ToolInfo
 	WorkingDirectory              string
+	environment                   []string
 	StartTime                     int64
 	StatusValue                   string
 	State                         map[string]any
@@ -497,12 +498,13 @@ func (session *Session) detail(ids []string, threadID string) map[string]any {
 }
 
 type SessionManager struct {
-	mu       sync.RWMutex
-	baseDir  string
-	config   *ConfigStore
-	sessions map[string]*Session
-	creating map[string]struct{}
-	events   *sessioncore.EventHub
+	mu          sync.RWMutex
+	baseDir     string
+	environment []string
+	config      *ConfigStore
+	sessions    map[string]*Session
+	creating    map[string]struct{}
+	events      *sessioncore.EventHub
 }
 
 func NewSessionManager(baseDir string) *SessionManager {
@@ -590,6 +592,7 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 		name = tool.DisplayName
 	}
 	session := newSession(id, name, kind, tool, directory)
+	session.environment = append([]string(nil), manager.environment...)
 	session.NameManual = strings.TrimSpace(request.Name) != ""
 	session.events = manager.events
 	if request.ToolKey == "codex" {

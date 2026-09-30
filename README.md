@@ -138,6 +138,42 @@ glad tools detect
 
 ### Connect to an agent workbench
 
+Open **Settings → AgentWorkbench** to see this Glad installation's stable ID,
+edit its alias, and add workbenches. Enter the workbench WSS address and token,
+choose a local working directory, and upload a private CA certificate if needed.
+Each workbench appears as a card with its own auto-connect switch and delete button.
+The connected workbench's ID and alias are synchronized on the card.
+
+The switch is saved. Starting Glad attempts each enabled workbench once; a failed
+or closed connection stays disconnected until you explicitly connect again.
+Turning the switch off saves that choice for subsequent starts. Settings use
+`~/.glad/agent-workbench.json`, which can be supplied before starting Glad:
+
+```json
+{
+  "gladId": "2c9b8335-5c7d-4a91-850c-cd827cd2a105",
+  "alias": "Development Glad",
+  "workbenches": [
+    {
+      "url": "wss://workbench.example.com:8443/api/assistant-connections/ws",
+      "token": "REPLACE_WITH_A_RANDOM_TOKEN_AT_LEAST_32_CHARACTERS",
+      "workingDirectory": "/workspace/project",
+      "autoConnect": true
+    }
+  ]
+}
+```
+
+Omit `gladId` to generate a new installation ID. Keep the file private (`0600`)
+and preserve it across restarts. Optional `caCertificate` contains the private CA
+PEM; optional `mcpUrl` and `mcpTokenFile` select the CLI MCPHub for that connection.
+All other Glad sessions keep their existing MCP configuration.
+
+Settings use a navigation panel on desktop and a list of configuration cards on
+mobile. Claude's default permission mode is `auto`; users can select another mode.
+Workbench conversations use the same session controls as Glad, including permissions,
+approval actions, native history, resume, fork and scheduled inputs.
+
 Glad can initiate an authenticated WSS connection to a workbench:
 
 ```bash
@@ -152,14 +188,19 @@ Use `--ca-file /private/workbench-ca.pem` for a private certificate authority.
 This mode has no listening port and makes one connection attempt. Ctrl+C closes
 its sessions and exits; reconnecting requires running the command again.
 The workbench can use Codex or Claude through this connection. Session creation
-uses the local directory, Codex `on-request` / `workspace-write`, and Claude manual
-approvals. Connection history is scoped to the workbench, client identity, and
+uses the local directory and Glad's session defaults; Claude defaults to `auto`.
+Permissions and other session controls can be changed in the workbench.
+Connection history is scoped to the workbench, client identity, and
 directory, and stored under the user's `glad-workbench` configuration directory.
 Keep it and the native CLI history to resume conversations after reconnecting.
 
 For the BotLink STDIO MCP client, `--mcp-url` and `--mcp-token-file` together select
 the Hub used by CLI processes started through this connection. Other Glad
 processes keep their own configuration.
+
+When Codex starts this helper as a STDIO MCP server, add
+`env_vars = ["GLAD_WORKBENCH_MCP_URL", "GLAD_WORKBENCH_MCP_TOKEN_FILE"]`
+to that server's `config.toml` entry so the helper receives the selected route.
 
 ## Supported Tools
 

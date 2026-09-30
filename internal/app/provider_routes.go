@@ -402,7 +402,11 @@ var uuidJSONL = regexp.MustCompile(`^[0-9a-f-]{36}\.jsonl$`)
 func claudeProjectDir(cwd string) string {
 	home, _ := os.UserHomeDir()
 	encoded := regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(filepath.Clean(cwd), "-")
-	return filepath.Join(home, ".claude", "projects", encoded)
+	root := strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR"))
+	if root == "" {
+		root = filepath.Join(home, ".claude")
+	}
+	return filepath.Join(root, "projects", encoded)
 }
 func listClaudeTranscriptPage(cwd, sortBy string, offset, limit int) ([]map[string]any, int) {
 	directory := claudeProjectDir(cwd)

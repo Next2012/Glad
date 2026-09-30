@@ -1,0 +1,38 @@
+#settings-modal {max-width:980px;padding:0;overflow:hidden;display:flex;flex-direction:column;max-height:calc(100dvh - 48px)}
+.settings-modal-header {padding:22px 24px;margin:0;border-bottom:1px solid var(--border-color,rgba(128,128,128,.18));align-items:center}
+.settings-layout {display:grid;grid-template-columns:220px minmax(0,1fr);min-height:420px;overflow:hidden}
+.settings-nav {padding:16px 12px;background:rgba(128,128,128,.06);border-right:1px solid rgba(128,128,128,.15)}
+.settings-nav-card {display:flex;align-items:center;gap:12px;width:100%;border:0;border-radius:10px;padding:12px 10px;margin:3px 0;text-align:left;background:transparent;color:var(--text);font:inherit;font-size:14px;cursor:pointer}
+.settings-nav-card.active {background:rgba(0,122,255,.13);color:#3295ff}
+.settings-nav-icon {display:grid;place-items:center;width:30px;height:30px;flex-shrink:0;border-radius:8px;color:#fff;font-size:19px;background:#6873ed}
+.settings-nav-icon.serverchan {background:#34a476}.settings-nav-icon.skillhub {background:#a15fde}.settings-nav-icon.agentworkbench {background:#087fe7}
+.settings-chevron {margin-left:auto;color:var(--text-dim)}
+.settings-content {padding:24px;overflow-y:auto;min-width:0;max-height:calc(100dvh - 150px)}
+.settings-page {padding:0;border:0}.settings-page[hidden] {display:none}
+.settings-back {display:none}
+.settings-inline {display:flex;align-items:center;gap:10px}.settings-inline input {flex:1;min-width:0}.settings-inline button {white-space:nowrap}
+.workbench-connection-cards {display:grid;gap:12px;margin:18px 0}
+.workbench-connection-card {padding:16px;border:1px solid rgba(128,128,128,.22);border-radius:14px;background:rgba(128,128,128,.05)}
+.workbench-card-heading,.workbench-card-actions {display:flex;justify-content:space-between;gap:12px;align-items:center}
+.workbench-card-heading strong {overflow-wrap:anywhere}.workbench-card-detail {font-size:12px;color:var(--text-dim);overflow-wrap:anywhere;margin:10px 0}
+.workbench-status {font-size:11px;border-radius:12px;padding:4px 8px;background:rgba(128,128,128,.13);white-space:nowrap}.workbench-status.connected {color:#34c759;background:rgba(52,199,89,.1)}
+.workbench-connect-toggle {display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer}
+#settings-modal .workbench-connect-toggle input {appearance:none;min-height:0;width:38px;height:23px;border:0;border-radius:20px;padding:0;background:#68686b;cursor:pointer;position:relative;transition:background .2s}
+#settings-modal .workbench-connect-toggle input::after {content:'';position:absolute;width:19px;height:19px;background:#fff;top:2px;left:2px;border-radius:50%;transition:transform .2s}
+#settings-modal .workbench-connect-toggle input:checked {background:#34c759}#settings-modal .workbench-connect-toggle input:checked::after {transform:translateX(15px)}
+#settings-modal .workbench-connect-toggle input:focus-visible {outline:2px solid #0a84ff;outline-offset:3px}
+.workbench-card-error {color:#ff6961;font-size:12px;overflow-wrap:anywhere}.workbench-add {border-top:1px solid rgba(128,128,128,.18);padding-top:16px;margin-top:20px}.workbench-add summary {cursor:pointer;font-weight:650;padding-bottom:14px}
+html[data-theme="light"] .settings-nav-card {color:#172033}html[data-theme="light"] .settings-nav-card.active {color:#007aff}
+/* 覆盖旧浅色主题的通用输入框样式，保留开关状态和清晰的标签。 */
+html[data-theme="light"] #settings-modal .form-field label {color:var(--text)}
+html[data-theme="light"] #settings-modal .workbench-connect-toggle input {background:#b9bec7}
+html[data-theme="light"] #settings-modal .workbench-connect-toggle input:checked {background:#34c759}
+@media(max-width:720px) {
+ #settings-modal-overlay {padding:0}#settings-modal {height:100dvh;max-height:100dvh;max-width:none;border-radius:0}
+ .settings-modal-header {padding:18px 16px}.settings-modal-header p {display:none}.settings-layout {display:block;flex:1;min-height:0}
+ .settings-nav {border:0;padding:18px 16px;background:transparent}.settings-nav-card {border-radius:0;margin:0;padding:15px 14px;border-bottom:1px solid rgba(128,128,128,.15);background:rgba(128,128,128,.07)}
+ .settings-nav-card:first-child {border-radius:12px 12px 0 0}.settings-nav-card:last-child {border-radius:0 0 12px 12px;border-bottom:0}.settings-nav-card.active {color:inherit;background:rgba(128,128,128,.07)}
+ #settings-modal[data-page=""] .settings-content {display:none}#settings-modal:not([data-page=""]) .settings-nav {display:none}
+ #settings-modal:not([data-page=""]) .settings-back {display:inline-flex}.settings-content {padding:20px 16px;max-height:calc(100dvh - 75px);box-sizing:border-box;height:100%}
+ .settings-modal-header h2 {font-size:17px}.settings-inline {align-items:stretch}.workbench-card-heading {align-items:flex-start}
+}

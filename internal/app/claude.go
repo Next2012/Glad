@@ -63,6 +63,11 @@ func NewClaudeProvider(session *Session, options map[string]any) *ClaudeProvider
 	if options == nil {
 		options = map[string]any{}
 	}
+	options = cloneMap(options)
+	if mode := stringValue(options["permissionMode"]); mode == "" || mode == "default" {
+		options["permissionMode"] = "auto"
+	}
+
 	return &ClaudeProvider{
 		session:       session,
 		options:       options,
@@ -134,7 +139,7 @@ func (provider *ClaudeProvider) startLocked(ctx context.Context, fork bool) erro
 	}
 	mode := stringValue(provider.options["permissionMode"])
 	if mode == "" || mode == "default" {
-		mode = "manual"
+		mode = "auto"
 	}
 	if mode == "bypassPermissions" {
 		args = append(args, "--allow-dangerously-skip-permissions")
@@ -158,7 +163,7 @@ func (provider *ClaudeProvider) startLocked(ctx context.Context, fork bool) erro
 	command := exec.Command(provider.session.Tool.Command, args...)
 	configureProcess(command)
 	command.Dir = provider.session.WorkingDirectory
-	command.Env = append(os.Environ(), "CLAUDE_CODE_ENTRYPOINT=sdk-go", "CLAUDE_AGENT_SDK_CLIENT_APP=glad-web")
+	command.Env = append(append(os.Environ(), provider.session.environment...), "CLAUDE_CODE_ENTRYPOINT=sdk-go", "CLAUDE_AGENT_SDK_CLIENT_APP=glad-web")
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		return err
@@ -190,7 +195,7 @@ func (provider *ClaudeProvider) startLocked(ctx context.Context, fork bool) erro
 	provider.initialized = true
 	provider.session.setState(
 		map[string]any{
-			"permissionMode":         optionDefault(provider.options, "permissionMode", "default"),
+			"permissionMode":         optionDefault(provider.options, "permissionMode", "auto"),
 			"model":                  optionDefault(provider.options, "model", "default"),
 			"effort":                 optionDefault(provider.options, "effort", "high"),
 			"status":                 "idle",
@@ -501,7 +506,7 @@ func (provider *ClaudeProvider) Approve(ctx context.Context, id, decision string
 	}
 	provider.session.setState(
 		map[string]any{
-			"permissionMode":         optionDefault(provider.options, "permissionMode", "default"),
+			"permissionMode":         optionDefault(provider.options, "permissionMode", "auto"),
 			"pendingPermissionCount": pendingCount,
 			"status":                 nextStatus,
 		},
@@ -723,20 +728,25 @@ func (provider *ClaudeProvider) writeLocked(value any) error {
 
 func (provider *ClaudeProvider) UpdateSettings(ctx context.Context, settings map[string]any) error {
 	provider.mu.Lock()
+	settings = cloneMap(settings)
+	if stringValue(settings["permissionMode"]) == "default" {
+		settings["permissionMode"] = "auto"
+	}
 	previousEffort := stringValue(provider.options["effort"])
 	previousMode := stringValue(provider.options["permissionMode"])
-	for key, value := range settings {
-		provider.options[key] = value
-	}
 	mode := stringValue(settings["permissionMode"])
-	if mode == "default" {
-		mode = "manual"
+	nextMode := previousMode
+	if mode != "" {
+		nextMode = mode
 	}
-	restartForBypass := (previousMode == "bypassPermissions") !=
-		(stringValue(settings["permissionMode"]) == "bypassPermissions")
+	restartForBypass := (previousMode == "bypassPermissions") != (nextMode == "bypassPermissions")
+	// 先检查是否可切换，再更新选项，避免繁忙时失败却留下错误的权限状态。
 	if restartForBypass && provider.session.StatusValue != "idle" {
 		provider.mu.Unlock()
 		return errors.New("Claude permission mode can only enter or leave Bypass while idle")
+	}
+	for key, value := range settings {
+		provider.options[key] = value
 	}
 	if restartForBypass && provider.cmd != nil {
 		provider.stopLocked()
@@ -757,14 +767,15 @@ func (provider *ClaudeProvider) UpdateSettings(ctx context.Context, settings map
 		provider.stopLocked()
 		_ = provider.startLocked(ctx, false)
 	}
+	// 只发布本次修改的字段，保留 SDK 已确认的模型和其他会话设置。
+	state := map[string]any{}
+	for _, key := range []string{"permissionMode", "model", "effort"} {
+		if _, changed := settings[key]; changed {
+			state[key] = provider.options[key]
+		}
+	}
 	provider.mu.Unlock()
-	provider.session.setState(
-		map[string]any{
-			"permissionMode": optionDefault(provider.options, "permissionMode", "default"),
-			"model":          optionDefault(provider.options, "model", "default"),
-			"effort":         optionDefault(provider.options, "effort", "high"),
-		},
-	)
+	provider.session.setState(state)
 	return nil
 }
 

@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -26,18 +27,21 @@ import (
 )
 
 type workbenchMessage struct {
-	Type        string         `json:"type"`
-	ID          string         `json:"id,omitempty"`
-	Method      string         `json:"method,omitempty"`
-	Path        string         `json:"path,omitempty"`
-	Body        string         `json:"body,omitempty"`
-	ContentType string         `json:"content_type,omitempty"`
-	Status      int            `json:"status,omitempty"`
-	SessionID   string         `json:"session_id,omitempty"`
-	Payload     map[string]any `json:"payload,omitempty"`
-	ClientID    string         `json:"client_id,omitempty"`
-	ThreadID    string         `json:"thread_id,omitempty"`
-	ToolKey     string         `json:"tool_key,omitempty"`
+	Type           string         `json:"type"`
+	ID             string         `json:"id,omitempty"`
+	Method         string         `json:"method,omitempty"`
+	Path           string         `json:"path,omitempty"`
+	Body           string         `json:"body,omitempty"`
+	ContentType    string         `json:"content_type,omitempty"`
+	Status         int            `json:"status,omitempty"`
+	SessionID      string         `json:"session_id,omitempty"`
+	Payload        map[string]any `json:"payload,omitempty"`
+	ClientID       string         `json:"client_id,omitempty"`
+	ThreadID       string         `json:"thread_id,omitempty"`
+	ToolKey        string         `json:"tool_key,omitempty"`
+	WorkbenchID    string         `json:"workbench_id,omitempty"`
+	WorkbenchAlias string         `json:"workbench_alias,omitempty"`
+	Settings       map[string]any `json:"settings,omitempty"`
 }
 
 type workbenchStream struct {
@@ -61,10 +65,13 @@ type workbenchBridge struct {
 	threadsDirty bool
 }
 
-// newWorkbenchServer 只创建连接所需的会话与临时附件，不打开共享 Glad 配置和群聊数据。
+// 连接只管理自己创建的会话，普通 Glad 的群聊和其他会话保持独立。
 func newWorkbenchServer(baseDir string, assets fs.FS) (*Server, error) {
-	return &Server{baseDir: baseDir, assets: assets,
-		sessions: NewSessionManager(baseDir), attachments: NewAttachmentStore()}, nil
+	server := &Server{baseDir: baseDir, assets: assets, sessions: NewSessionManager(baseDir), attachments: NewAttachmentStore()}
+	empty := &ConfigStore{data: map[string]any{}}
+	server.notifications = NewNotificationService(empty, server.sessions, nil)
+	server.skillhub = NewSkillHubService(empty, server.sessions)
+	return server, nil
 }
 
 func runWorkbenchConnection(arguments []string, assets fs.FS) error {
@@ -79,44 +86,72 @@ func runWorkbenchConnection(arguments []string, assets fs.FS) error {
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
-	endpoint, err := url.Parse(*address)
-	if err != nil || endpoint.Scheme != "wss" || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || endpoint.Path != "/api/assistant-connections/ws" {
-		return errors.New("--url 必须是工作台的 wss://<地址>/api/assistant-connections/ws")
+	if _, err := normalizeWorkbenchURL(*address); err != nil {
+		return err
 	}
 	if *tokenPath == "" || flags.NArg() != 0 {
-		return errors.New("用法: glad connect --url <wss-url> --token-file <path> [--ca-file <path>] [--directory <path>]")
-	}
-	if (*mcpURL == "") != (*mcpToken == "") {
-		return errors.New("--mcp-url 和 --mcp-token-file 必须同时配置")
-	}
-	if *mcpURL != "" {
-		if err := os.Setenv("GLAD_WORKBENCH_MCP_URL", *mcpURL); err != nil {
-			return err
-		}
-		if err := os.Setenv("GLAD_WORKBENCH_MCP_TOKEN_FILE", *mcpToken); err != nil {
-			return err
-		}
+		return errors.New("需要 --token-file 指定客户端凭据")
 	}
 	tokenBytes, err := os.ReadFile(*tokenPath)
 	if err != nil {
 		return fmt.Errorf("读取客户端凭据: %w", err)
 	}
-	token := strings.TrimSpace(string(tokenBytes))
+	certificate := []byte(nil)
+	if *caPath != "" {
+		certificate, err = os.ReadFile(*caPath)
+		if err != nil {
+			return err
+		}
+	}
+	sharing, err := OpenWorkbenchSharing(*directory, assets)
+	if err != nil {
+		return err
+	}
+	options := workbenchConnectOptions{URL: *address, Token: strings.TrimSpace(string(tokenBytes)), CACertificate: string(certificate),
+		Directory: *directory, MCPURL: *mcpURL, MCPTokenFile: *mcpToken, GladID: sharing.config.GladID, Alias: *name}
+	if *name == "Glad" {
+		options.Alias = sharing.config.Alias
+	}
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	fmt.Println("GLAD_WORKBENCH_CONNECTING")
+	// 心跳仍同步工作台身份，连接成功日志只输出一次。
+	var connected sync.Once
+	return connectWorkbench(ctx, options, assets, func(*workbenchBridge, string, string) {
+		connected.Do(func() { fmt.Println("GLAD_WORKBENCH_CONNECTED") })
+	})
+}
+
+type workbenchConnectOptions struct {
+	URL, Token, CACertificate, Directory, MCPURL, MCPTokenFile, GladID, Alias string
+	Config                                                                    *ConfigStore
+}
+
+func connectWorkbench(parent context.Context, options workbenchConnectOptions, assets fs.FS, observer func(*workbenchBridge, string, string)) error {
+	address, err := normalizeWorkbenchURL(options.URL)
+	if err != nil {
+		return err
+	}
+	endpoint, _ := url.Parse(address)
+	token := strings.TrimSpace(options.Token)
 	if len(token) < 32 || strings.ContainsAny(token, "\r\n") {
 		return errors.New("客户端凭据无效")
 	}
-	baseDir, err := filepath.Abs(*directory)
+	baseDir, err := filepath.Abs(options.Directory)
 	if err != nil {
 		return err
 	}
 	if info, err := os.Stat(baseDir); err != nil || !info.IsDir() {
 		return errors.New("本地工作目录不存在")
 	}
-	client, err := workbenchTLSClient(*caPath)
+	if (options.MCPURL == "") != (options.MCPTokenFile == "") {
+		return errors.New("MCPHub 地址和凭据文件需要同时配置")
+	}
+	client, err := workbenchTLSClientPEM([]byte(options.CACertificate))
 	if err != nil {
 		return err
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	connection, _, err := websocket.Dial(ctx, endpoint.String(), &websocket.DialOptions{
 		HTTPClient: client, HTTPHeader: http.Header{"Authorization": []string{"Bearer " + token}},
@@ -132,6 +167,18 @@ func runWorkbenchConnection(arguments []string, assets fs.FS) error {
 	}
 	bridge := &workbenchBridge{server: server, mux: http.NewServeMux(), connection: connection,
 		ctx: ctx, owned: map[string]bool{}, streams: map[string]*workbenchStream{}, threads: map[string]bool{}}
+	// MCP 路由仅传给本连接创建的 CLI 子进程，不改动 Glad 其他会话的环境。
+	if options.MCPURL != "" {
+		server.sessions.environment = []string{"GLAD_WORKBENCH_MCP_URL=" + options.MCPURL, "GLAD_WORKBENCH_MCP_TOKEN_FILE=" + options.MCPTokenFile}
+	}
+	if options.Config != nil {
+		server.config = options.Config
+		server.sessions.config = options.Config
+		server.notifications = NewNotificationService(options.Config, server.sessions, nil)
+		server.skillhub = NewSkillHubService(options.Config, server.sessions)
+	}
+	server.notifications.Start(ctx)
+	defer server.notifications.Close()
 	server.registerRoutes(bridge.mux)
 	defer func() {
 		cancel()
@@ -145,10 +192,9 @@ func runWorkbenchConnection(arguments []string, assets fs.FS) error {
 			tools = append(tools, tool.Key)
 		}
 	}
-	if err := bridge.write(map[string]any{"type": "hello", "protocol": "glad-workbench/v1", "name": *name, "tools": tools}); err != nil {
+	if err := bridge.write(map[string]any{"type": "hello", "protocol": "glad-workbench/v1", "name": options.Alias, "glad_id": options.GladID, "tools": tools}); err != nil {
 		return err
 	}
-	fmt.Printf("GLAD_WORKBENCH_CONNECTING %s\n", endpoint.Host)
 	go func() {
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
@@ -185,8 +231,13 @@ func runWorkbenchConnection(arguments []string, assets fs.FS) error {
 			if err := bridge.loadThreads(endpoint.String(), message.ClientID); err != nil {
 				return err
 			}
-			fmt.Println("GLAD_WORKBENCH_CONNECTED")
+			if observer != nil {
+				observer(bridge, message.WorkbenchID, message.WorkbenchAlias)
+			}
 		case "pong":
+			if observer != nil && message.WorkbenchID != "" {
+				observer(bridge, message.WorkbenchID, message.WorkbenchAlias)
+			}
 		case "http_request":
 			bridge.tasks.Add(1)
 			go func() { defer bridge.tasks.Done(); bridge.httpRequest(message) }()
@@ -196,7 +247,9 @@ func runWorkbenchConnection(arguments []string, assets fs.FS) error {
 			bridge.mu.Lock()
 			stream := bridge.streams[message.ID]
 			bridge.mu.Unlock()
-			if stream != nil && workbenchPayloadAllowed(message.Payload) {
+			allowed := workbenchPayloadAllowed(message.Payload)
+
+			if stream != nil && allowed {
 				bridge.tasks.Add(1)
 				go func() {
 					defer bridge.tasks.Done()
@@ -213,24 +266,30 @@ func runWorkbenchConnection(arguments []string, assets fs.FS) error {
 }
 
 func workbenchTLSClient(caPath string) (*http.Client, error) {
-	config := &tls.Config{MinVersion: tls.VersionTLS12}
+	var data []byte
+	var err error
 	if caPath != "" {
-		data, err := os.ReadFile(caPath)
+		data, err = os.ReadFile(caPath)
 		if err != nil {
-			return nil, fmt.Errorf("读取工作台 CA: %w", err)
+			return nil, err
 		}
+	}
+	return workbenchTLSClientPEM(data)
+}
+
+func workbenchTLSClientPEM(data []byte) (*http.Client, error) {
+	config := &tls.Config{MinVersion: tls.VersionTLS12}
+	if len(data) > 0 {
 		roots, err := x509.SystemCertPool()
 		if err != nil {
 			roots = x509.NewCertPool()
 		}
 		if !roots.AppendCertsFromPEM(data) {
-			return nil, errors.New("工作台 CA 文件无效")
+			return nil, errors.New("CA 证书格式无效")
 		}
 		config.RootCAs = roots
 	}
-	return &http.Client{Transport: &http.Transport{TLSClientConfig: config},
-		// 拒绝全部重定向，认证头只能发送给最初校验的 WSS 入口。
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, nil
+	return &http.Client{Transport: &http.Transport{TLSClientConfig: config, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 15 * time.Second, DialContext: (&net.Dialer{Timeout: 15 * time.Second}).DialContext}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, nil
 }
 
 func (bridge *workbenchBridge) write(message any) error {
@@ -263,7 +322,7 @@ func (bridge *workbenchBridge) httpRequest(message workbenchMessage) {
 }
 
 func (bridge *workbenchBridge) serveRequest(writer *httptest.ResponseRecorder, message workbenchMessage) error {
-	if message.Method != http.MethodGet && message.Method != http.MethodPost && message.Method != http.MethodPatch && message.Method != http.MethodDelete {
+	if message.Method != http.MethodGet && message.Method != http.MethodPost && message.Method != http.MethodPut && message.Method != http.MethodPatch && message.Method != http.MethodDelete {
 		return errors.New("请求方法无效")
 	}
 	parsed, err := url.ParseRequestURI(message.Path)
@@ -280,10 +339,8 @@ func (bridge *workbenchBridge) serveRequest(writer *httptest.ResponseRecorder, m
 		if json.Unmarshal(body, &value) != nil || value == nil {
 			return errors.New("创建对话参数无效")
 		}
-		// 目录与执行权限由本地客户端固定，远端创建会话时不能扩大本地权限。
+		// 会话目录由共享配置固定；模型和权限选项沿用 Glad 的同一套会话操作。
 		value["workingDirectory"] = bridge.server.baseDir
-		value["codexOptions"] = map[string]any{"permissionMode": "on-request", "sandboxMode": "workspace-write"}
-		value["claudeOptions"] = map[string]any{"permissionMode": "manual"}
 		body, _ = json.Marshal(value)
 	} else if strings.HasPrefix(path, "/api/sessions/") {
 		parts := strings.Split(strings.TrimPrefix(path, "/api/sessions/"), "/")
@@ -295,27 +352,6 @@ func (bridge *workbenchBridge) serveRequest(writer *httptest.ResponseRecorder, m
 			}
 			return errors.New("工作台只能访问此连接创建的对话")
 		}
-		if strings.Contains(path, "global-defaults") || strings.Contains(path, "resume-threads") || strings.Contains(path, "resume-sessions") || strings.Contains(path, "thread-preview") || strings.Contains(path, "session-preview") || strings.Contains(path, "timed-inputs") || strings.Contains(path, "serverchan") {
-			return errors.New("此本地历史或全局接口未开放给工作台")
-		}
-		if strings.HasSuffix(path, "-resume") || strings.HasSuffix(path, "-fork") {
-			var value map[string]any
-			if json.Unmarshal(body, &value) != nil {
-				return errors.New("恢复参数无效")
-			}
-			var thread string
-			switch {
-			case strings.HasSuffix(path, "/claude-resume"):
-				thread = stringValue(value["resumeSessionId"])
-			case strings.HasSuffix(path, "/claude-fork"):
-				thread = stringValue(value["claudeSessionId"])
-			case strings.HasSuffix(path, "/codex-resume"), strings.HasSuffix(path, "/codex-fork"):
-				thread = stringValue(value["threadId"])
-			}
-			if !bridge.knowsThread(thread) {
-				return errors.New("只能恢复此工作台连接曾创建的对话")
-			}
-		}
 		if strings.HasSuffix(path, "-settings") {
 			var settings map[string]any
 			if json.Unmarshal(body, &settings) != nil || !workbenchSettingsAllowed(settings) {
@@ -323,7 +359,7 @@ func (bridge *workbenchBridge) serveRequest(writer *httptest.ResponseRecorder, m
 			}
 		}
 	} else if !((message.Method == http.MethodGet && !strings.HasPrefix(path, "/api/")) ||
-		(message.Method == http.MethodGet && (path == "/api/config" || path == "/api/tools" || path == "/api/claude-config" || path == "/api/sessions")) ||
+		(message.Method == http.MethodGet && (path == "/api/config" || path == "/api/tools" || path == "/api/claude-config" || path == "/api/sessions" || path == "/api/skillhub/status" || path == "/api/skillhub/skills")) ||
 		(path == "/api/debug/client-log" && message.Method == http.MethodPost)) {
 		return errors.New("此接口未授权给工作台")
 	}
@@ -349,28 +385,27 @@ func (bridge *workbenchBridge) serveRequest(writer *httptest.ResponseRecorder, m
 	return nil
 }
 
+// 与 Glad 本地界面相同的权限枚举；设置最终由对应后端处理。
 func workbenchSettingsAllowed(settings map[string]any) bool {
-	if mode, ok := settings["permissionMode"]; ok && mode != "on-request" && mode != "manual" {
-		return false
+	if mode, ok := settings["permissionMode"]; ok {
+		switch mode {
+		case "default", "on-request", "on-failure", "untrusted", "never", "manual", "auto", "acceptEdits", "bypassPermissions", "dontAsk", "plan":
+		default:
+			return false
+		}
 	}
-	if mode, ok := settings["sandboxMode"]; ok && mode != "workspace-write" && mode != "read-only" {
-		return false
+	if mode, ok := settings["sandboxMode"]; ok {
+		switch mode {
+		case "default", "read-only", "workspace-write", "danger-full-access":
+		default:
+			return false
+		}
 	}
 	return true
 }
 
 func workbenchPayloadAllowed(payload map[string]any) bool {
 	kind := stringValue(payload["type"])
-	if kind == "codex-global-defaults" {
-		return false
-	}
-	if kind == "claude-resume" || kind == "codex-resume" || kind == "claude-fork" || kind == "codex-fork" {
-		return false // 原生恢复由工作台使用保存且经本地登记的 thread ID 调用 HTTP 接口。
-	}
-	if kind == "claude-permission" && boolValue(payload["approved"]) {
-		action := stringValue(payload["action"])
-		return action == "" || action == "approved" || action == "allow-once"
-	}
 	if kind == "codex-settings" || kind == "claude-settings" {
 		return workbenchSettingsAllowed(mapValue(payload["settings"]))
 	}

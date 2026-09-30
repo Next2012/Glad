@@ -964,7 +964,7 @@ html[data-theme="light"] .skill-hall-entry-btn { border-color: rgba(0,122,255,.2
 html[data-theme="light"] .claude-ctrl-btn.primary { color: #065fbd; background: rgba(0,122,255,.11); }
 html[data-theme="light"] .claude-ctrl-btn.danger,
 html[data-theme="light"] .small-btn.danger { color: #d92d20; background: rgba(217,45,32,.09); }
-html[data-theme="light"] #settings-modal input,
+html[data-theme="light"] #settings-modal input:not([type="checkbox"]),
 html[data-theme="light"] #settings-modal select,
 html[data-theme="light"] .skill-hall-search,
 html[data-theme="light"] .form-field input,

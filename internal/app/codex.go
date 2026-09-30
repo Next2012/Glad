@@ -150,7 +150,7 @@ func (provider *CodexProvider) startLocked(ctx context.Context) error {
 	command := exec.Command(provider.session.Tool.Command, "app-server", "--stdio")
 	configureProcess(command)
 	command.Dir = provider.session.WorkingDirectory
-	command.Env = os.Environ()
+	command.Env = append(os.Environ(), provider.session.environment...)
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		return err
