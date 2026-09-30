@@ -340,7 +340,9 @@ func codexTitleThreadParams(config map[string]any, model, provider, cwd string) 
 	for _, feature := range []string{"apps", "code_mode", "code_mode_only", "context_management", "current_time_reminder", "deferred_executor", "enable_fanout", "goals", "hooks", "image_generation", "memories", "multi_agent", "multi_agent_v2", "plugins", "request_permissions_tool", "shell_snapshot", "shell_tool", "standalone_web_search", "token_budget", "tool_suggest", "unified_exec", "view_image"} {
 		overrides["features."+feature] = false
 	}
-	for _, key := range []string{"orchestrator.skills.enabled", "skills.include_instructions", "token_budget.use_history_notes_extension", "tools.experimental_request_user_input.enabled", "tools.update_plan.enabled"} {
+	// Codex 0.159 no longer accepts the top-level token_budget table. Disable
+	// the feature above without sending the old history-notes override.
+	for _, key := range []string{"orchestrator.skills.enabled", "skills.include_instructions", "tools.experimental_request_user_input.enabled", "tools.update_plan.enabled"} {
 		overrides[key] = false
 	}
 	overrides["web_search"] = "disabled"

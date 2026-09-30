@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Remove an obsolete token-budget configuration override from automatic Codex title generation to prevent configuration warnings with Codex 0.159.
+
 ## [2.6.1] - 2026-09-29
 
 ### Added
