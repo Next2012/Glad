@@ -19,6 +19,7 @@ import (
 
 // Optional offline wire-protocol check. It starts and detaches the actual
 // ephemeral thread but never submits turn/start or makes a model request.
+// Strict config validation rejects obsolete overrides instead of ignoring them.
 func TestCodexTitleNativeProtocol(t *testing.T) {
 	binary := os.Getenv("GLAD_TITLE_PROTOCOL_BINARY")
 	if binary == "" {
@@ -42,7 +43,7 @@ func TestCodexTitleNativeProtocol(t *testing.T) {
 	t.Setenv("GLAD_TITLE_TEST_MARKER", marker)
 	wrapper := filepath.Join(isolatedHome, "codex-with-mcp")
 	script := fmt.Sprintf(`#!/bin/sh
-exec "$GLAD_TITLE_PROTOCOL_BINARY" \
+exec "$GLAD_TITLE_PROTOCOL_BINARY" --strict-config \
   -c 'mcp_servers.http_probe.url=%q' \
   -c 'mcp_servers.http_probe.required=true' \
   -c 'mcp_servers.stdio_probe.command="sh"' \

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,7 +129,189 @@ func TestRoomDispatchInjectsQuotesWithoutPersistingAssistantText(t *testing.T) {
 	}
 }
 
-func TestRoomDraftEndsOnFirstDurableEdit(t *testing.T) {
+func TestNewEmptyRoomPersistsAndRejectsDraftCleanup(t *testing.T) {
+	directory := t.TempDir()
+	store, err := OpenRoomStoreAt(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewRoomManager(store, NewSessionManager(directory), NewAttachmentStore())
+	room, err := manager.Create("New group")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if room.Draft {
+		t.Fatal("new empty room must be durable immediately")
+	}
+	if err := manager.DeleteDraft(room.ID); err == nil {
+		t.Fatal("draft cleanup deleted a newly created room")
+	}
+	reopened, err := OpenRoomStoreAt(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := reopened.Get(room.ID)
+	if err != nil || loaded.ID != room.ID || loaded.Name != room.Name || loaded.Draft ||
+		len(loaded.Members) != 0 || len(loaded.Entries) != 0 {
+		t.Fatalf("new empty room did not persist: %#v, err=%v", loaded, err)
+	}
+	if err := manager.Delete(room.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reopened.Get(room.ID); !errors.Is(err, errRoomNotFound) {
+		t.Fatalf("explicit deletion did not remove the room: %v", err)
+	}
+}
+
+func TestRoomRuntimeListAndHistoryAreIndependent(t *testing.T) {
+	directory := t.TempDir()
+	store, err := OpenRoomStoreAt(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewRoomManager(store, NewSessionManager(directory), NewAttachmentStore())
+	old, err := manager.Create("111")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A restarted daemon has no live groups, while the saved history survives.
+	manager = NewRoomManager(store, NewSessionManager(directory), NewAttachmentStore())
+	active, err := manager.List()
+	if err != nil || len(active) != 0 {
+		t.Fatalf("old groups appeared in the runtime list: %#v, %v", active, err)
+	}
+	history, err := manager.History()
+	if err != nil || len(history) != 1 || history[0]["id"] != old.ID {
+		t.Fatalf("saved group history was lost: %#v, %v", history, err)
+	}
+	current, err := manager.Create("New group")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SwitchHistory(current.ID, old.ID); err != nil {
+		t.Fatal(err)
+	}
+	view, err := manager.GetPublic(current.ID)
+	if err != nil || view["id"] != current.ID || view["historyId"] != old.ID || view["name"] != "111" {
+		t.Fatalf("resume changed the runtime identity: %#v, %v", view, err)
+	}
+	if err := manager.Rename(current.ID, "Continued group"); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := store.Get(old.ID)
+	if err != nil || saved.Name != "Continued group" {
+		t.Fatalf("runtime edits did not update the resumed history: %#v, %v", saved, err)
+	}
+	forked, err := manager.CopyHistory(old.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SwitchHistory(current.ID, forked.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Rename(current.ID, "Forked group"); err != nil {
+		t.Fatal(err)
+	}
+	original, err := store.Get(old.ID)
+	if err != nil || original.Name != "Continued group" {
+		t.Fatalf("fork modified the original history: %#v, %v", original, err)
+	}
+	active, err = manager.List()
+	if err != nil || len(active) != 1 || active[0]["id"] != current.ID || active[0]["historyId"] != forked.ID {
+		t.Fatalf("fork added another runtime entry: %#v, %v", active, err)
+	}
+	if err := manager.Close(current.ID); err != nil {
+		t.Fatal(err)
+	}
+	active, err = manager.List()
+	if err != nil || len(active) != 0 {
+		t.Fatalf("closed group remains active: %#v, %v", active, err)
+	}
+	if _, err := store.Get(forked.ID); err != nil {
+		t.Fatalf("closing deleted saved group history: %v", err)
+	}
+}
+
+func TestForkedRoomDoesNotReuseOriginalMemberBindings(t *testing.T) {
+	store, err := OpenRoomStoreAt(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewRoomManager(store, NewSessionManager(t.TempDir()), NewAttachmentStore())
+	original := RoomRecord{
+		SchemaVersion: currentRoomSchemaVersion, ID: newUUID(), Name: "Source", NextSequence: 2,
+		Members: []RoomMemberRecord{{ID: "member", RuntimeSessionID: "original-session", NativeConversationID: "original-thread"}},
+		Entries: []RoomEntryRecord{{ID: "reply", Type: "session", MemberID: "member", SourceSessionID: "original-session", NativeConversationID: "original-thread"}},
+	}
+	if err := store.Save(original); err != nil {
+		t.Fatal(err)
+	}
+	forked, err := manager.CopyHistory(original.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forked.Members[0].RuntimeSessionID != "" {
+		t.Fatal("unrestored fork reused the original runtime session")
+	}
+	if err := manager.BindRuntimeSession(forked.ID, "member", "fork-session", "fork-thread"); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := store.Get(forked.ID)
+	if err != nil || saved.Members[0].RuntimeSessionID != "fork-session" || saved.Entries[0].SourceSessionID != "fork-session" || saved.Entries[0].NativeConversationID != "fork-thread" {
+		t.Fatalf("forked locators were not rebound: %#v, %v", saved, err)
+	}
+	preserved, err := store.Get(original.ID)
+	if err != nil || preserved.Members[0].RuntimeSessionID != "original-session" || preserved.Entries[0].NativeConversationID != "original-thread" {
+		t.Fatalf("fork changed the original bindings: %#v, %v", preserved, err)
+	}
+}
+
+func TestFailedRoomHistoryOperationKeepsCurrentGroup(t *testing.T) {
+	for _, operation := range []string{"resume", "fork"} {
+		t.Run(operation, func(t *testing.T) {
+			store, err := OpenRoomStoreAt(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			sessions := NewSessionManager(t.TempDir())
+			manager := NewRoomManager(store, sessions, NewAttachmentStore())
+			source := RoomRecord{
+				SchemaVersion: currentRoomSchemaVersion, ID: newUUID(), Name: "Unavailable history",
+				Members: []RoomMemberRecord{{ID: "member", ToolKey: "missing-provider", NativeConversationID: "saved-thread"}},
+			}
+			if err := store.Save(source); err != nil {
+				t.Fatal(err)
+			}
+			current, err := manager.Create("New group")
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := &Server{rooms: manager, sessions: sessions}
+			mux := http.NewServeMux()
+			server.registerRoomRoutes(mux)
+			body, _ := json.Marshal(map[string]any{"sourceRoomId": source.ID})
+			request := httptest.NewRequest(http.MethodPost, "/api/rooms/"+current.ID+"/"+operation, strings.NewReader(string(body)))
+			response := httptest.NewRecorder()
+			mux.ServeHTTP(response, request)
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("failed operation returned %d: %s", response.Code, response.Body.String())
+			}
+			view, err := manager.GetPublic(current.ID)
+			if err != nil || view["historyId"] != current.ID || view["name"] != "New group" {
+				t.Fatalf("failed operation switched current group: %#v, %v", view, err)
+			}
+			history, err := manager.History()
+			if err != nil || len(history) != 2 {
+				t.Fatalf("failed operation left a copy in history: %#v, %v", history, err)
+			}
+			if manager.IsActive(source.ID) || len(sessions.List()) != 0 {
+				t.Fatal("failed operation activated source group or leaked member sessions")
+			}
+		})
+	}
+}
+
+func TestLegacyRoomDraftEndsOnFirstDurableEdit(t *testing.T) {
 	directory := t.TempDir()
 	store, err := OpenRoomStoreAt(filepath.Join(directory, "rooms"))
 	if err != nil {
@@ -138,7 +322,19 @@ func TestRoomDraftEndsOnFirstDurableEdit(t *testing.T) {
 	session.Provider = &stubProvider{}
 	sessions.sessions[session.ID] = session
 	manager := NewRoomManager(store, sessions, NewAttachmentStore())
-	discardedDraft, _ := manager.Create("New group")
+	createLegacyDraft := func() RoomRecord {
+		t.Helper()
+		room, err := manager.Create("New group")
+		if err != nil {
+			t.Fatal(err)
+		}
+		room.Draft = true
+		if err := store.Save(room); err != nil {
+			t.Fatal(err)
+		}
+		return room
+	}
+	discardedDraft := createLegacyDraft()
 	if err := manager.DeleteDraft(discardedDraft.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +342,7 @@ func TestRoomDraftEndsOnFirstDurableEdit(t *testing.T) {
 		t.Fatalf("empty draft still exists: %v", err)
 	}
 
-	memberDraft, _ := manager.Create("New group")
+	memberDraft := createLegacyDraft()
 	if !memberDraft.Draft {
 		t.Fatal("new room was not marked as a draft")
 	}
@@ -161,7 +357,7 @@ func TestRoomDraftEndsOnFirstDurableEdit(t *testing.T) {
 		t.Fatal("draft cleanup deleted a room with a member")
 	}
 
-	renameDraft, _ := manager.Create("New group")
+	renameDraft := createLegacyDraft()
 	if err := manager.Rename(renameDraft.ID, "Named room"); err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +366,7 @@ func TestRoomDraftEndsOnFirstDurableEdit(t *testing.T) {
 		t.Fatal("renaming the room did not finalize the draft")
 	}
 
-	messageDraft, _ := manager.Create("New group")
+	messageDraft := createLegacyDraft()
 	if _, err := manager.PostMessage(context.Background(), messageDraft.ID, RoomMessageInput{Text: "keep this room"}); err != nil {
 		t.Fatal(err)
 	}
@@ -451,6 +647,7 @@ func TestRoomNotificationTargetsReportCurrentBatchProgress(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := NewRoomManager(store, NewSessionManager(t.TempDir()), NewAttachmentStore())
+	manager.activeIDs[room.ID] = room.ID
 	targets := manager.NotificationTargets("session-b", "turn-b", true)
 	if len(targets) != 1 {
 		t.Fatalf("notification targets = %#v", targets)
@@ -458,5 +655,11 @@ func TestRoomNotificationTargetsReportCurrentBatchProgress(t *testing.T) {
 	target := targets[0]
 	if target.MemberName != "Beta" || target.ToolName != "Claude" || target.ActiveMembers != 3 || target.RoundTotal != 3 || target.RoundCompleted != 2 {
 		t.Fatalf("wrong notification progress: %#v", target)
+	}
+	if err := manager.Close(room.ID); err != nil {
+		t.Fatal(err)
+	}
+	if targets := manager.NotificationTargets("session-b", "turn-b", true); len(targets) != 0 {
+		t.Fatalf("closed group still sends notifications: %#v", targets)
 	}
 }

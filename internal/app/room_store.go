@@ -59,6 +59,7 @@ type RoomEntryRecord struct {
 	NativeConversationID string   `json:"nativeConversationId,omitempty"`
 	NativeTurnID         string   `json:"nativeTurnId,omitempty"`
 	OriginRoomID         string   `json:"originRoomId,omitempty"`
+	RequestHash          string   `json:"requestHash,omitempty"`
 	ClientMessageID      string   `json:"clientMessageId,omitempty"`
 	MentionedMemberIDs   []string `json:"mentionedMemberIds,omitempty"`
 	QuotedEntryIDs       []string `json:"quotedEntryIds,omitempty"`

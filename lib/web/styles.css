@@ -193,8 +193,8 @@
         .attachment-status { display: block; margin-top: 3px; color: #ffd59a; font-size: 10px; }
         @keyframes attachment-upload-pulse { from { background-position: 0 0; } to { background-position: 48px 0; } }
         .attachment-remove { width: 19px; height: 19px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,0.16); color: #fff; font-size: 15px; line-height: 18px; cursor: pointer; flex: 0 0 auto; }
-        #timed-send-panel { display: none; width: min(calc(100% - 28px), calc(var(--control-content-max) - 28px)); margin: 0 auto 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-raised); color: var(--text); box-sizing: border-box; }
-        #timed-send-panel.active { display: block; }
+        :is(#timed-send-panel,#room-timed-send-panel) { display: none; width: min(calc(100% - 28px), calc(var(--control-content-max) - 28px)); margin: 0 auto 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-raised); color: var(--text); box-sizing: border-box; }
+        :is(#timed-send-panel,#room-timed-send-panel).active { display: block; }
         .timed-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; align-items: center; }
         .timed-row select { min-width: 0; min-height: 38px; background: var(--input-bg); border: 1px solid var(--line); color: var(--input-fg); border-radius: 8px; padding: 7px 8px; font-size: 16px; box-sizing: border-box; }
         .timed-row option { background: var(--surface-raised); color: var(--text); }
@@ -790,11 +790,11 @@ html[data-theme="dark"] .tile-approval-alert { color: #ffd60a; }
 #tile-return-button { position: fixed; z-index: 5003; display: none; width: 32px; height: 32px; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); color: var(--primary); box-shadow: 0 5px 15px rgba(0,0,0,.18); cursor: pointer; }
 body.tile-focus-open #tile-focus-backdrop { display: block; }
 body.tile-focus-open #tile-return-button { display: flex; }
-body.tile-focus-open #detail-pane > :is(#terminal-view, #history-view, #git-view).active { position: fixed; z-index: 5002; left: 50%; top: 50%; width: min(1000px, calc(100vw - 80px)); height: min(820px, calc(100dvh - 64px)); overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--bg); box-shadow: 0 24px 70px rgba(0,0,0,.48); transform: translate(-50%, -50%); }
-body.tile-focus-open #detail-pane > :is(#terminal-view, #history-view, #git-view).active.tile-dialog-positioned { transform: none; }
+body.tile-focus-open #detail-pane > :is(#terminal-view, #history-view, #git-view, #room-view).active { position: fixed; z-index: 5002; left: 50%; top: 50%; width: min(1000px, calc(100vw - 80px)); height: min(820px, calc(100dvh - 64px)); overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--bg); box-shadow: 0 24px 70px rgba(0,0,0,.48); transform: translate(-50%, -50%); }
+body.tile-focus-open #detail-pane > :is(#terminal-view, #history-view, #git-view, #room-view).active.tile-dialog-positioned { transform: none; }
 /* Fixed dialogs follow the layout viewport, not the keyboard-sized
    visual viewport. Anchor them to the already corrected app pane instead. */
-html.visual-viewport body.tile-focus-open #detail-pane > :is(#terminal-view, #history-view, #git-view).active { position: absolute; width: min(1000px, calc(100% - 80px)); height: min(820px, calc(100% - 64px)); }
+html.visual-viewport body.tile-focus-open #detail-pane > :is(#terminal-view, #history-view, #git-view, #room-view).active { position: absolute; width: min(1000px, calc(100% - 80px)); height: min(820px, calc(100% - 64px)); }
 body.tile-focus-open :is(#nav-bar, .subview-nav-row) { cursor: move; touch-action: none; }
 body.tile-focus-open .subview-nav-row { padding-left: 50px; }
 
@@ -1198,10 +1198,10 @@ html[data-theme="light"] .claude-md a { color: #006acb; }
 .room-history-preview-button { flex:0 0 auto; }
 .room-history-preview { margin:9px 0 2px; overflow:hidden; border:1px solid var(--line); border-radius:11px; background:var(--surface); }
 .room-history-preview > span { display:block; padding:12px; color:var(--text-dim); font-size:11px; }
-.room-history-preview > button { width:100%; display:grid; grid-template-columns:90px minmax(0,1fr); gap:8px; padding:8px 10px; border:0; border-bottom:1px solid var(--line); background:none; color:var(--text); text-align:left; }
-.room-history-preview > button:last-child { border-bottom:0; }
-.room-history-preview > button strong,.room-history-preview > button span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
-.room-history-preview > button span { color:var(--text-dim); }
+.room-history-preview > .room-history-preview-entry { width:100%; display:grid; grid-template-columns:90px minmax(0,1fr); gap:8px; padding:8px 10px; border:0; border-bottom:1px solid var(--line); background:none; color:var(--text); text-align:left; }
+.room-history-preview > .room-history-preview-entry:last-child { border-bottom:0; }
+.room-history-preview > .room-history-preview-entry strong,.room-history-preview > .room-history-preview-entry span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
+.room-history-preview > .room-history-preview-entry span { color:var(--text-dim); }
 .room-history-actions { display:flex; justify-content:flex-end; gap:7px; margin-top:9px; }
 .room-history-actions .small-btn { display:inline-flex; align-items:center; gap:5px; }
 .room-history-actions .action-icon { width:14px; height:14px; }
@@ -1395,7 +1395,7 @@ body.room-session-open #back-btn { visibility:visible; pointer-events:auto; }
     #room-members-overlay { align-items:center; padding:16px; }
     #room-members-overlay .room-members-modal { width:min(620px,100%); border-radius:18px; }
     .room-history-panel { left:8px; right:8px; bottom:calc(100% + 6px); width:auto; max-height:calc(100dvh - 150px); border-radius:16px; }
-    .room-history-preview > button { grid-template-columns:72px minmax(0,1fr); }
+    .room-history-preview > .room-history-preview-entry { grid-template-columns:72px minmax(0,1fr); }
     body.room-session-open #detail-pane > :is(#terminal-view,#history-view,#git-view).active { inset:max(18px,env(safe-area-inset-top)) 8px max(12px,env(safe-area-inset-bottom)); border-radius:18px; }
 }
 
@@ -1403,3 +1403,23 @@ body.room-session-open #back-btn { visibility:visible; pointer-events:auto; }
     body.room-open .room-back-button { display:flex; }
     body.room-open .room-header { padding-left:max(14px,calc((100% - 1100px)/2)); padding-right:max(14px,calc((100% - 1100px)/2)); }
 }
+
+#room-timed-send-panel { width:100%; margin:0 0 8px; }
+.room-timed-tag-rail { display:flex; gap:6px; overflow-x:auto; padding:0 0 6px; }
+.room-timed-tag-rail:empty { display:none; }
+.room-run-status { font-size:12px; color:var(--text-dim); margin-bottom:6px; }
+.room-run-status[hidden] { display:none; }
+.room-action-rail .danger { color:var(--danger,#ff453a); }
+.room-action-rail button:disabled { opacity:.4; }
+.room-tile-button { display:none; }
+@media(min-width:920px) { .room-tile-button { display:inline-flex; } }
+.room-history-footer { display:flex; align-items:center; justify-content:space-between; padding:8px; font-size:11px; color:var(--text-dim); }
+.room-history-filters { display:flex; gap:8px; align-items:center; padding:0 0 8px; }
+.room-history-filters select { background:var(--input-bg); color:var(--input-fg); border:1px solid var(--line); border-radius:6px; min-height:32px; }
+
+.tile-group-window .tile-session-header { cursor:default; }
+.tile-group-window .tile-chat-surface { padding:10px; }
+.tile-room-conversation .room-entry { font-size:12px; }
+body.tile-focus-open #room-view .room-header { padding-left:50px; padding-right:14px; }
+body.tile-focus-open #room-view .room-back-button { visibility:hidden; }
+body.tile-focus-open #room-view .room-composer { padding-left:14px; padding-right:14px; }

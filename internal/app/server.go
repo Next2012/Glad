@@ -82,6 +82,7 @@ func (server *Server) Run(ctx context.Context) error {
 		defer cancel()
 		_ = server.http.Shutdown(shutdownCtx)
 		server.schedules.Stop()
+		server.rooms.Stop()
 		server.notifications.Close()
 		server.sessions.Close(shutdownCtx)
 	}()

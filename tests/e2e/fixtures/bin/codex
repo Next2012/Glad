@@ -128,6 +128,12 @@ input.on('line', line => {
     write({ id: request.id, error: { message: 'Glad conversation threads must enable the planning tool' } });
     return;
   }
+  if (['thread/resume', 'thread/fork'].includes(request.method)
+    && String(request.params?.cwd || '').includes('glad-room-recovery-e2e-')) {
+    // Exercise cancellation while a newly recreated group member is recovering.
+    setTimeout(() => write({ id: request.id, result: { thread: { id: request.params.threadId, turns: [] }, initialTurnsPage: { data: [], nextCursor: null } } }), 15000);
+    return;
+  }
   if (!request.method) {
     if (inputQuestion?.rpcID === request.id) {
       const answers = request.result?.answers || {};

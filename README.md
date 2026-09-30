@@ -35,7 +35,7 @@ Glad was created to enable **vibe coding** on mobile devices. By bringing variou
 Our design philosophy is **Easy to use, Stable, and Restrained**. Glad focuses strictly on the essentials:
 
 - **Session management:** Run multiple sessions from a single dashboard with per-session working directories.
-- **Multi-session group chat:** Put live Codex and Claude sessions in a lightweight room, explicitly @mention targets, and quote selected messages without duplicating provider histories or attachments into Glad room storage.
+- **Multi-session group chat:** Start an empty group, add live Codex and Claude sessions, explicitly @mention targets, and quote selected messages. Resume saved group history into the current group or Fork an independent copy. Groups support live updates, Stop/recovery cancellation, scheduled messages, completion indicators, and desktop tiles without drag reordering; provider histories and attachments remain owned by the member sessions.
 - **Session ordering:** Hold a lobby card for three seconds to drag it, with automatic edge scrolling for long lists. Drag a tiled session's header to reorder its current page. Both views share the order, saved as a browser-local layout preference.
 - **Responsive workspace:** Use a resizable session sidebar or a live tiled multi-session dashboard on wide screens, and focused lobby/chat pages on mobile, with light and dark themes.
 - **Diagrams and formulas:** Render Mermaid code blocks and inline/display LaTeX in Codex and Claude conversations, including restored messages and tiled previews. Mermaid, KaTeX, and fonts are bundled locally; diagrams follow the theme and keep their source available.

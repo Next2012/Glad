@@ -4,6 +4,14 @@ Group chat is a lightweight, durable index over independent provider sessions.
 Its timeline is a dynamic read model over provider-native history, not another
 copy of Codex or Claude history.
 
+Like a single session, a group has an in-memory runtime identity and a saved
+conversation identity. The lobby lists only runtime groups created in this
+daemon. Saved conversations are listed separately in the Resume/Fork picker;
+starting the daemon or creating an empty group does not activate old groups.
+Resume binds the current runtime group to the selected saved conversation. Fork
+copies the saved group, creates independent forked member sessions, and switches
+the current runtime group to the copy. Its runtime identity remains stable.
+
 ## Ownership boundaries
 
 - `RoomStore` owns room identity, membership, ordering, user-authored text,
@@ -44,7 +52,7 @@ Version 2 persists:
 - user-authored room text, mentions, and quoted entry IDs;
 - dispatch status and a small error string.
 - the origin room ID for every group-dispatched provider turn;
-- whether a newly-created empty room is still a disposable draft.
+- the draft flag retained for rooms created by older builds.
 
 It persists stable source IDs when a room message quotes provider history, but
 not the quoted text. History-only timeline entries use deterministic IDs derived
@@ -106,14 +114,19 @@ explicit `Message unavailable` placeholder.
 - Room deletion never deletes sessions or provider-native history.
 - Group ServerChan notification preferences are persisted on `RoomRecord` and
   evaluated independently from every member Session's notification switch.
-- Opening a room automatically recreates missing runtime sessions from each
-  member's durable provider conversation ID.
-- Room resume and fork match the single-session semantics: member and room IDs
-  stay stable while each provider conversation is resumed or forked and the
-  live session switches to it. Provider-side forks cannot be rolled back
-  transactionally, so per-member failures are reported and left unchanged.
-- A newly created empty room is a draft. Adding a member, renaming it, or
-  sending a message makes it durable; leaving an untouched draft deletes it.
+- Opening a room or previewing saved history does not resume member sessions.
+  Resume/Fork requires an explicit selection and runs only while the current
+  group is idle. Closing its lobby entry preserves saved history and does not
+  terminate independently reusable member sessions.
+- Resume/Fork keeps the runtime group ID stable. Resume continues the selected
+  saved group; Fork preserves the original group and member conversations.
+  Operations report per-member failures. If every attempted member fails, the
+  current group remains unchanged; provider-side partial success cannot be
+  rolled back transactionally.
+- A newly created room is durable immediately, even without members or messages.
+  Returning to the lobby, reloading, or closing the page preserves it. Only
+  explicitly closing the group removes its runtime entry. Saved history remains
+  available for Resume/Fork after closing or restarting the daemon.
 
 ## Attachments
 
@@ -121,3 +134,38 @@ The browser uploads a selected file independently to every mentioned session.
 Only provider input attachment IDs cross the room-message API. Room documents
 never contain attachment metadata or bytes. Existing session cleanup rules
 remain authoritative.
+
+## Runtime controls
+
+Group controls follow single-session behavior while membership stays independent:
+
+- Each submitted message carries a browser `clientMessageId`. The room persists
+  that ID and a request hash before dispatching any member. Retrying the same
+  request returns its accepted state without creating another entry or turn;
+  reusing an ID with different content is rejected. The browser retains the
+  message and ID after an uncertain network result until acceptance is confirmed.
+  If every mentioned member rejects dispatch, the response rejects the send and
+  the editor keeps its draft. An explicit corrected retry receives a new ID.
+  Enter inserts a new line and Shift+Enter sends; disconnected or running groups
+  retain the draft and reject keyboard sends just like the disabled send button.
+- Group views, the lobby and desktop tiles subscribe to `/ws/rooms`. Bounded
+  event streams push member messages, approvals, state, timers and completions.
+  Updates are coalesced and carry snapshot revisions so delayed HTTP responses
+  cannot replace newer state. Reconnecting starts with a complete snapshot.
+- Stop interrupts all running members. During Resume/Fork it also cancels the
+  recovery context and any newly created member providers. Cancellation leaves
+  the current runtime group bound to its previous history.
+- Root-turn completions increment a runtime completion revision. Child turns and
+  repeated completions do not increment it. A visible group or tile acknowledges
+  the revision; an older acknowledgement cannot clear a newer completion.
+- Saved history is listed in metadata-only pages, sorted by creation or update
+  time. The default page contains 20 groups; transcript projection is requested
+  only when previewing or connecting.
+- Scheduled text messages snapshot the selected member IDs and quoted entry IDs.
+  Timers support creation, editing, deletion, countdowns and failure reporting.
+  Timer revisions prevent replaced or deleted tasks from sending. Like session
+  timers, group timers belong to the running daemon and are cancelled when the
+  group closes or the daemon stops. Attachments use immediate sends.
+- Desktop groups share the tiled workspace with sessions, including live,
+  read-only previews and a focused group editor. Group tiles do not participate
+  in drag reordering.
