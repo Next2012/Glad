@@ -17,21 +17,23 @@ import (
 var deployIdentityPattern = regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$`)
 
 type WorkbenchTarget struct {
-	ID               string `json:"id"`
-	URL              string `json:"url"`
-	Token            string `json:"token"`
-	CACertificate    string `json:"caCertificate,omitempty"`
-	WorkingDirectory string `json:"workingDirectory"`
-	MCPURL           string `json:"mcpUrl,omitempty"`
-	MCPTokenFile     string `json:"mcpTokenFile,omitempty"`
-	AutoConnect      bool   `json:"autoConnect"`
-	WorkbenchID      string `json:"workbenchId,omitempty"`
-	WorkbenchAlias   string `json:"workbenchAlias,omitempty"`
+	ID                     string `json:"id"`
+	URL                    string `json:"url"`
+	Token                  string `json:"token"`
+	CACertificate          string `json:"caCertificate,omitempty"`
+	WorkingDirectory       string `json:"workingDirectory"`
+	MCPURL                 string `json:"mcpUrl,omitempty"`
+	MCPTokenFile           string `json:"mcpTokenFile,omitempty"`
+	AutoConnect            bool   `json:"autoConnect"`
+	WorkbenchID            string `json:"workbenchId,omitempty"`
+	WorkbenchAlias         string `json:"workbenchAlias,omitempty"`
+	CertificateFingerprint string `json:"certificateFingerprint,omitempty"`
 }
 
 type WorkbenchSharingConfig struct {
 	GladID      string            `json:"gladId"`
 	Alias       string            `json:"alias"`
+	PairingKey  string            `json:"pairingKey"`
 	Workbenches []WorkbenchTarget `json:"workbenches"`
 }
 
@@ -71,6 +73,13 @@ func OpenWorkbenchSharing(baseDir string, assets fs.FS) (*WorkbenchSharing, erro
 		return nil, err
 	}
 	changed := false
+	if sharing.config.PairingKey == "" {
+		sharing.config.PairingKey = pairingSecret()
+		changed = true
+	}
+	if !validPairingSecret(sharing.config.PairingKey) {
+		return nil, errors.New("Glad 配对身份密钥无效")
+	}
 	if sharing.config.GladID == "" {
 		sharing.config.GladID = newUUID()
 		changed = true
@@ -265,7 +274,7 @@ func (sharing *WorkbenchSharing) SetEnabled(id string, enabled bool) error {
 	}
 	err := sharing.commitLocked(next)
 	runtime := sharing.runtimes[id]
-	if err == nil && !enabled && runtime != nil && (runtime.state == "connected" || runtime.state == "connecting") {
+	if err == nil && !enabled && runtime != nil && (runtime.state == "connected" || runtime.state == "connecting" || runtime.state == "pending") {
 		runtime.state = "disconnecting"
 	}
 	sharing.mu.Unlock()
@@ -332,7 +341,7 @@ func (sharing *WorkbenchSharing) connect(id string) {
 			sharing.mu.Unlock()
 			return
 		}
-		if current.state == "connected" || current.state == "connecting" {
+		if current.state == "connected" || current.state == "connecting" || current.state == "pending" {
 			sharing.mu.Unlock()
 			return
 		}
@@ -352,7 +361,25 @@ func (sharing *WorkbenchSharing) connect(id string) {
 	runtime := &workbenchRuntime{cancel: cancel, done: make(chan struct{}), state: "connecting"}
 	sharing.runtimes[id] = runtime
 	options := workbenchConnectOptions{URL: target.URL, Token: target.Token, CACertificate: target.CACertificate, Directory: target.WorkingDirectory,
-		MCPURL: target.MCPURL, MCPTokenFile: target.MCPTokenFile, GladID: sharing.config.GladID, Alias: sharing.config.Alias, Config: sharing.globalConfig}
+		MCPURL: target.MCPURL, MCPTokenFile: target.MCPTokenFile, GladID: sharing.config.GladID, Alias: sharing.config.Alias, Config: sharing.globalConfig,
+		PairingKey: sharing.config.PairingKey, CertificateFingerprint: target.CertificateFingerprint, WorkbenchID: target.WorkbenchID}
+	options.OnPeerVerified = func(fingerprint, peerID, peerAlias string) error {
+		sharing.mu.Lock()
+		defer sharing.mu.Unlock()
+		if sharing.runtimes[id] != runtime || ctx.Err() != nil {
+			return errors.New("连接已关闭")
+		}
+		next := sharing.nextConfig()
+		for index := range next.Workbenches {
+			if next.Workbenches[index].ID == id {
+				next.Workbenches[index].CertificateFingerprint = fingerprint
+				next.Workbenches[index].WorkbenchID = peerID
+				next.Workbenches[index].WorkbenchAlias = peerAlias
+				return sharing.commitLocked(next)
+			}
+		}
+		return errors.New("工作台已删除")
+	}
 	sharing.mu.Unlock()
 	go func() {
 		defer close(runtime.done)
@@ -363,6 +390,9 @@ func (sharing *WorkbenchSharing) connect(id string) {
 				return
 			}
 			runtime.state, runtime.bridge = "connected", bridge
+			if bridge == nil {
+				runtime.state = "pending"
+			}
 			next := sharing.nextConfig()
 			for index := range next.Workbenches {
 				item := &next.Workbenches[index]

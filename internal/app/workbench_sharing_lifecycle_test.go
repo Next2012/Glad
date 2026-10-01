@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -105,7 +107,7 @@ func newLifecyclePeer(t *testing.T, reject bool) *lifecyclePeer {
 	ctx, cancel := context.WithCancel(context.Background())
 	peer.server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		peer.attempts.Add(1)
-		if reject || r.Header.Get("Authorization") != "Bearer "+lifecycleToken {
+		if reject {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -120,7 +122,19 @@ func newLifecyclePeer(t *testing.T, reject bool) *lifecyclePeer {
 		if err != nil || json.Unmarshal(data, &client.hello) != nil {
 			return
 		}
-		if err := writeWSJSON(ctx, connection, workbenchMessage{Type: "connected", ClientID: "test-client", WorkbenchID: "test-workbench", WorkbenchAlias: "工作台初始别名"}); err != nil {
+		if client.hello["protocol"] == "glad-pairing/v1" {
+			digest := sha256.Sum256(peer.server.Certificate().Raw)
+			fingerprint, nonce := hex.EncodeToString(digest[:]), pairingSecret()
+			fields := []string{stringValue(client.hello["glad_id"]), stringValue(client.hello["nonce"]), nonce, "b7034dfc-f278-476f-9610-0fa039cfbd45", fingerprint}
+			_ = writeWSJSON(ctx, connection, map[string]any{"type": "pair_challenge", "nonce": nonce, "certificate_fingerprint": fingerprint,
+				"workbench_id": fields[3], "workbench_alias": "工作台初始别名", "proof": pairingProof(lifecycleToken, "server", fields...)})
+			_, data, err = connection.Read(ctx)
+			var auth map[string]any
+			if err != nil || json.Unmarshal(data, &auth) != nil || auth["proof"] != pairingProof(lifecycleToken, "client", append(fields, stringValue(auth["key"]))...) {
+				return
+			}
+		}
+		if err := writeWSJSON(ctx, connection, workbenchMessage{Type: "connected", ClientID: "test-client", WorkbenchID: "b7034dfc-f278-476f-9610-0fa039cfbd45", WorkbenchAlias: "工作台初始别名"}); err != nil {
 			return
 		}
 		select {
@@ -518,7 +532,7 @@ func TestWorkbenchSharingPeerIdentityPongAndAliasPersist(t *testing.T) {
 	connection := peer.accept(t)
 	lifecycleWait(t, "连接身份保存", func() bool {
 		config := lifecycleConfig(t, home)
-		return config.Workbenches[0].WorkbenchID == "test-workbench" && config.Workbenches[0].WorkbenchAlias == "工作台初始别名"
+		return config.Workbenches[0].WorkbenchID == "b7034dfc-f278-476f-9610-0fa039cfbd45" && config.Workbenches[0].WorkbenchAlias == "工作台初始别名"
 	})
 	connection.send(t, workbenchMessage{Type: "pong", WorkbenchID: "updated-workbench", WorkbenchAlias: "改名后的工作台"})
 	lifecycleWait(t, "pong 身份更新保存", func() bool {

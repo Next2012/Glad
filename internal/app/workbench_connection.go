@@ -125,6 +125,8 @@ func runWorkbenchConnection(arguments []string, assets fs.FS) error {
 type workbenchConnectOptions struct {
 	URL, Token, CACertificate, Directory, MCPURL, MCPTokenFile, GladID, Alias string
 	Config                                                                    *ConfigStore
+	PairingKey, CertificateFingerprint, WorkbenchID                           string
+	OnPeerVerified                                                            func(string, string, string) error
 }
 
 func connectWorkbench(parent context.Context, options workbenchConnectOptions, assets fs.FS, observer func(*workbenchBridge, string, string)) error {
@@ -151,16 +153,33 @@ func connectWorkbench(parent context.Context, options workbenchConnectOptions, a
 	if err != nil {
 		return err
 	}
+	fingerprint := ""
+	headers := http.Header{"Authorization": []string{"Bearer " + token}}
+	if options.PairingKey != "" {
+		client = pairingTLSClient(options.CertificateFingerprint, &fingerprint)
+		headers = nil
+	}
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	connection, _, err := websocket.Dial(ctx, endpoint.String(), &websocket.DialOptions{
-		HTTPClient: client, HTTPHeader: http.Header{"Authorization": []string{"Bearer " + token}},
+		HTTPClient: client, HTTPHeader: headers,
 	})
 	if err != nil {
 		return fmt.Errorf("连接工作台: %w", err)
 	}
 	defer connection.CloseNow()
 	connection.SetReadLimit(32 << 20)
+	tools := []string{}
+	for _, tool := range detectTools(ctx) {
+		if tool.Installed {
+			tools = append(tools, tool.Key)
+		}
+	}
+	if options.PairingKey != "" {
+		if err := authenticateWorkbenchPairing(ctx, connection, options, fingerprint, tools); err != nil {
+			return err
+		}
+	}
 	server, err := newWorkbenchServer(baseDir, assets)
 	if err != nil {
 		return err
@@ -186,14 +205,10 @@ func connectWorkbench(parent context.Context, options workbenchConnectOptions, a
 		bridge.rememberAllThreads()
 		server.sessions.Close(context.Background())
 	}()
-	tools := []string{}
-	for _, tool := range detectTools(ctx) {
-		if tool.Installed {
-			tools = append(tools, tool.Key)
+	if options.PairingKey == "" {
+		if err := bridge.write(map[string]any{"type": "hello", "protocol": "glad-workbench/v1", "name": options.Alias, "glad_id": options.GladID, "tools": tools}); err != nil {
+			return err
 		}
-	}
-	if err := bridge.write(map[string]any{"type": "hello", "protocol": "glad-workbench/v1", "name": options.Alias, "glad_id": options.GladID, "tools": tools}); err != nil {
-		return err
 	}
 	go func() {
 		ticker := time.NewTicker(15 * time.Second)
@@ -212,6 +227,7 @@ func connectWorkbench(parent context.Context, options workbenchConnectOptions, a
 		}
 	}()
 	// 此命令只尝试一次连接；主动断开后不会自动重连，也没有网络监听端口。
+	authorized := false
 	for {
 		readCtx, readCancel := context.WithTimeout(ctx, 45*time.Second)
 		_, data, err := connection.Read(readCtx)
@@ -227,7 +243,17 @@ func connectWorkbench(parent context.Context, options workbenchConnectOptions, a
 			return errors.New("工作台消息格式无效")
 		}
 		switch message.Type {
+		case "pair_pending":
+			if authorized {
+				return errors.New("工作台配对状态无效")
+			}
+			if observer != nil {
+				observer(nil, message.WorkbenchID, message.WorkbenchAlias)
+			}
+		case "pair_rejected":
+			return errors.New("工作台已拒绝连接或撤销信任")
 		case "connected":
+			authorized = true
 			if err := bridge.loadThreads(endpoint.String(), message.ClientID); err != nil {
 				return err
 			}
@@ -235,13 +261,19 @@ func connectWorkbench(parent context.Context, options workbenchConnectOptions, a
 				observer(bridge, message.WorkbenchID, message.WorkbenchAlias)
 			}
 		case "pong":
-			if observer != nil && message.WorkbenchID != "" {
+			if observer != nil && authorized && message.WorkbenchID != "" {
 				observer(bridge, message.WorkbenchID, message.WorkbenchAlias)
 			}
 		case "http_request":
+			if !authorized {
+				return errors.New("工作台尚未确认连接")
+			}
 			bridge.tasks.Add(1)
 			go func() { defer bridge.tasks.Done(); bridge.httpRequest(message) }()
 		case "socket_open":
+			if !authorized {
+				return errors.New("工作台尚未确认连接")
+			}
 			bridge.openStream(message)
 		case "socket_data":
 			bridge.mu.Lock()

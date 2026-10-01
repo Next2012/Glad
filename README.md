@@ -140,9 +140,16 @@ glad tools detect
 
 Open **Settings → AgentWorkbench** to see this Glad installation's stable ID,
 edit its alias, and add workbenches. Enter the workbench WSS address and token,
-choose a local working directory, and upload a private CA certificate if needed.
+choose a local working directory. No CA upload is needed.
 Each workbench appears as a card with its own auto-connect switch and delete button.
 The connected workbench's ID and alias are synchronized on the card.
+
+The first connection shows **Waiting for confirmation**. In the workbench's
+**AI助理连接** page, choose **信任** for that Glad. Session operations are enabled
+only after approval. Trust persists across restarts and can be revoked in the
+workbench. Glad authenticates the workbench with the connection token and binds
+the proof to the TLS certificate and fresh challenges before sending its scoped
+identity key. A changed certificate requires deleting and pairing the target again.
 
 The switch is saved. Starting Glad attempts each enabled workbench once; a failed
 or closed connection stays disconnected until you explicitly connect again.
@@ -166,7 +173,8 @@ Turning the switch off saves that choice for subsequent starts. Settings use
 
 Omit `gladId` to generate a new installation ID. Keep the file private (`0600`)
 and preserve it across restarts. Optional `caCertificate` contains the private CA
-PEM; optional `mcpUrl` and `mcpTokenFile` select the CLI MCPHub for that connection.
+PEM for legacy CLI use; GUI connections use pairing. Optional `mcpUrl` and
+`mcpTokenFile` select the CLI MCPHub for that connection.
 All other Glad sessions keep their existing MCP configuration.
 
 Settings use a navigation panel on desktop and a list of configuration cards on

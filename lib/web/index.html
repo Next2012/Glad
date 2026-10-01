@@ -595,18 +595,18 @@
 <div class="form-field"><label for="workbench-glad-alias">Glad alias</label><div class="settings-inline"><input id="workbench-glad-alias" maxlength="128"><button class="small-btn primary" type="button" onclick="saveWorkbenchAlias()">Save alias</button></div></div>
 <div id="workbench-settings-status" class="serverchan-settings-status" role="status" aria-live="polite"></div>
 <div id="workbench-connection-cards" class="workbench-connection-cards"></div>
-<details class="workbench-add"><summary>Add AgentWorkbench</summary>
+<section class="workbench-add"><h3>Add AgentWorkbench</h3>
 <form id="workbench-add-form" onsubmit="addWorkbenchTarget(event)">
 <div class="form-field"><label for="workbench-url">Connection address</label><input id="workbench-url" type="url" required placeholder="wss://workbench:8443/api/assistant-connections/ws"></div>
 <div class="form-field"><label for="workbench-token">Connection token</label><input id="workbench-token" type="password" required autocomplete="off"></div>
 <div class="form-field"><label for="workbench-directory">Glad working directory</label><input id="workbench-directory" required></div>
-<div class="form-field"><label for="workbench-ca">Private CA certificate (optional)</label><input id="workbench-ca" type="file" accept=".pem,.crt,.cer"><p class="serverchan-help">Use the certificate provided by the workbench administrator.</p></div>
 <details><summary>MCPHub configuration (optional)</summary>
 <div class="form-field"><label for="workbench-mcp-url">MCPHub address</label><input id="workbench-mcp-url" type="url" placeholder="http://workbench:8082/mcp"></div>
 <div class="form-field"><label for="workbench-mcp-token-file">Local MCPHub token file</label><input id="workbench-mcp-token-file"><p class="serverchan-help">Leave both blank to use the CLI's existing MCP configuration.</p></div>
 </details>
 <button id="workbench-add-button" class="small-btn primary" type="submit">Add</button>
-</form></details>
+</form></section>
+<p class="serverchan-help">First connection waits for trust confirmation in the workbench. No CA file is required.</p>
 <p class="serverchan-help">Auto-connect is saved. At startup each enabled workbench is tried once; a failed connection stays disconnected.</p>
 <p id="workbench-config-path" class="serverchan-help"></p>
 </section></div></div>
