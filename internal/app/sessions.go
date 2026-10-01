@@ -681,8 +681,12 @@ func (manager *SessionManager) Delete(ctx context.Context, id string) bool {
 		session.mu.Unlock()
 		session.cancel()
 		_ = session.Provider.Close(ctx)
-		if session.dispose != nil {
-			session.dispose()
+		session.mu.Lock()
+		dispose := session.dispose
+		session.dispose = nil
+		session.mu.Unlock()
+		if dispose != nil {
+			dispose()
 		}
 	})
 	manager.events.Publish(sessioncore.Event{

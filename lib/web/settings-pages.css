@@ -23,6 +23,19 @@
 #settings-modal .workbench-connect-toggle input:focus-visible {outline:2px solid #0a84ff;outline-offset:3px}
 .workbench-card-error {color:#ff6961;font-size:12px;overflow-wrap:anywhere}.workbench-add {border-top:1px solid rgba(128,128,128,.18);padding-top:16px;margin-top:20px}.workbench-add h3 {font-size:15px;margin:0 0 14px}
 .workbench-status.pending {color:#b57800;background:rgba(255,187,0,.13)}
+.workbench-identity-panel {padding:16px 18px;border:1px solid rgba(128,128,128,.18);border-radius:14px;background:rgba(128,128,128,.04);margin:20px 0 24px}
+.workbench-identity-panel h3,.workbench-list-section h3 {font-size:15px;margin:0 0 12px}
+.workbench-id-row {display:flex;align-items:center;gap:10px;min-width:0;margin-bottom:16px;font-size:12px}
+.workbench-identity-id {font-family:ui-monospace,monospace;overflow-wrap:anywhere;flex:1;min-width:0;color:var(--text-dim)}
+.workbench-muted {font-weight:400;font-size:12px;color:var(--text-dim)}
+.workbench-text-button {border:0;background:transparent;color:var(--text-dim);font:inherit;font-size:12px;cursor:pointer;min-height:36px;padding:6px 8px;white-space:nowrap}
+.workbench-text-button:hover {color:var(--primary)}.workbench-delete:hover {color:#d92d20}
+.workbench-feedback {font-size:12px;line-height:1.5;margin:8px 0 0;color:var(--text-dim)}.workbench-feedback:empty {display:none}.workbench-feedback.error {color:#e55e57}
+.workbench-card-detail-row {display:flex;align-items:center;gap:8px;min-width:0}.workbench-card-detail-row p {flex:1;min-width:0;margin:4px 0}
+.workbench-mcp-fields {padding:14px 0 4px}.workbench-mcp-fields h4 {font-size:13px;margin:0 0 6px;display:flex;gap:8px;align-items:center}
+.workbench-field-grid {display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.workbench-add-actions {display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:14px}
+#settings-modal input[aria-invalid="true"] {border-color:#e55e57}
 html[data-theme="light"] .settings-nav-card {color:#172033}html[data-theme="light"] .settings-nav-card.active {color:#007aff}
 /* 覆盖旧浅色主题的通用输入框样式，保留开关状态和清晰的标签。 */
 html[data-theme="light"] #settings-modal .form-field label {color:var(--text)}
@@ -36,4 +49,7 @@ html[data-theme="light"] #settings-modal .workbench-connect-toggle input:checked
  #settings-modal[data-page=""] .settings-content {display:none}#settings-modal:not([data-page=""]) .settings-nav {display:none}
  #settings-modal:not([data-page=""]) .settings-back {display:inline-flex}.settings-content {padding:20px 16px;max-height:calc(100dvh - 75px);box-sizing:border-box;height:100%}
  .settings-modal-header h2 {font-size:17px}.settings-inline {align-items:stretch}.workbench-card-heading {align-items:flex-start}
+ .workbench-identity-panel {padding:14px}.workbench-id-row {flex-wrap:wrap;gap:6px}.workbench-identity-id {font-size:11px}
+ .workbench-field-grid {grid-template-columns:1fr;gap:0}.workbench-text-button {min-height:44px}.workbench-add-actions {align-items:flex-start;gap:8px}
+ .workbench-card-detail-row {flex-wrap:wrap}.workbench-card-detail-row .workbench-card-detail {font-size:11px}
 }

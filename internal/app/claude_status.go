@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"sort"
 	"strconv"
 	"strings"
@@ -9,10 +10,6 @@ import (
 func (provider *ClaudeProvider) appendLocalCommandMessage(command string, raw map[string]any) {
 	provider.mu.Lock()
 	statusPending := provider.statusPending
-	contextTurnID := provider.contextTurnID
-	if command == "/context" && contextTurnID != "" {
-		provider.contextTurnID = ""
-	}
 	provider.mu.Unlock()
 	if statusPending && command == "/usage" {
 		usage, err := claudeUsageFromCommand(raw)
@@ -45,12 +42,11 @@ func (provider *ClaudeProvider) appendLocalCommandMessage(command string, raw ma
 			contextValue = parsed
 		}
 		if statusPending {
-			provider.finishStatus(contextValue, nil)
-			return
-		}
-		if contextTurnID != "" {
-			provider.patchTurnContext(contextTurnID, contextValue)
-			provider.session.setState(map[string]any{"status": "idle", "canAbort": false})
+			var err error
+			if contextValue == nil {
+				err = errors.New("Claude 上下文统计返回内容无效")
+			}
+			provider.finishStatus(contextValue, err)
 			return
 		}
 		if contextValue != nil {
@@ -66,44 +62,6 @@ func (provider *ClaudeProvider) appendLocalCommandMessage(command string, raw ma
 		return
 	}
 	provider.appendLocalCommand(command, stringValue(raw["content"]), nil)
-}
-
-func (provider *ClaudeProvider) requestTurnContext(turnID string) bool {
-	provider.mu.Lock()
-	if provider.localCommand != "" || provider.stdin == nil {
-		provider.mu.Unlock()
-		return false
-	}
-	provider.contextTurnID = turnID
-	provider.mu.Unlock()
-	if err := provider.RunLocalCommand(provider.session.ctx, "/context"); err != nil {
-		provider.mu.Lock()
-		if provider.contextTurnID == turnID {
-			provider.contextTurnID = ""
-		}
-		provider.mu.Unlock()
-		return false
-	}
-	return true
-}
-
-func (provider *ClaudeProvider) patchTurnContext(turnID string, contextValue map[string]any) {
-	if len(contextValue) == 0 {
-		return
-	}
-	messageID := ""
-	provider.session.mu.RLock()
-	for index := len(provider.session.Messages) - 1; index >= 0; index-- {
-		message := provider.session.Messages[index]
-		if stringValue(message["kind"]) == "turn-end" && stringValue(message["turnId"]) == turnID {
-			messageID = stringValue(message["id"])
-			break
-		}
-	}
-	provider.session.mu.RUnlock()
-	if messageID != "" {
-		provider.session.patchMessage(messageID, map[string]any{"context": contextValue})
-	}
 }
 
 func claudeUsageFromCommand(raw map[string]any) (map[string]any, error) {
@@ -161,7 +119,6 @@ func (provider *ClaudeProvider) finishStatus(contextValue map[string]any, status
 		provider.mergeStatusLimitsLocked(usage)
 	}
 	messageID := provider.statusMessageID
-	provider.statusPending = false
 	provider.statusUsage = nil
 	provider.mu.Unlock()
 	message := map[string]any{
@@ -177,7 +134,14 @@ func (provider *ClaudeProvider) finishStatus(contextValue map[string]any, status
 		provider.statusMessageID = stringValue(created["id"])
 		provider.mu.Unlock()
 	}
-	provider.session.setState(map[string]any{"status": "idle", "canAbort": false})
+	provider.mu.Lock()
+	provider.statusPending = false
+	status := "idle"
+	if provider.cmd == nil && statusErr != nil {
+		status = "error"
+	}
+	provider.session.setState(map[string]any{"status": status, "canAbort": false, "statusReading": false})
+	provider.mu.Unlock()
 }
 
 func (provider *ClaudeProvider) mergeStatusLimitsLocked(usage map[string]any) {

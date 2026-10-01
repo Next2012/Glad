@@ -56,7 +56,6 @@ type ClaudeProvider struct {
 	statusUsage     map[string]any
 	statusMessageID string
 	statusLimits    map[string]map[string]any
-	contextTurnID   string
 }
 
 func NewClaudeProvider(session *Session, options map[string]any) *ClaudeProvider {
@@ -219,6 +218,10 @@ func (provider *ClaudeProvider) Send(ctx context.Context, input ProviderInput) e
 		provider.mu.Unlock()
 		return errors.New("Claude session is closed")
 	}
+	if provider.localCommand != "" || provider.statusPending {
+		provider.mu.Unlock()
+		return errors.New("Claude 正在读取手动统计，请等待完成后发送")
+	}
 	if provider.cmd == nil {
 		if err := provider.startLocked(ctx, false); err != nil {
 			provider.mu.Unlock()
@@ -339,18 +342,36 @@ func (provider *ClaudeProvider) handleProcessExit(command *exec.Cmd, err error) 
 	provider.mu.Lock()
 	_, expected := provider.expectedStops[command]
 	delete(provider.expectedStops, command)
-	if provider.cmd == command {
+	current := provider.cmd == command
+	reading := current && provider.statusPending
+	if current {
 		provider.cmd = nil
 		provider.stdin = nil
 		provider.initialized = false
+		provider.localCommand = ""
+		if !reading {
+			provider.statusPending = false
+			provider.statusUsage = nil
+		}
 	}
 	closed := provider.closed
 	provider.mu.Unlock()
-	if !closed && !expected && err != nil {
-		provider.session.appendMessage(
-			map[string]any{"kind": "event", "level": "error", "text": "Claude session error: " + err.Error()},
-		)
-		provider.session.setState(map[string]any{"status": "error", "canAbort": false})
+	if current && !closed && !expected {
+		if reading {
+			failure := err
+			if failure == nil {
+				failure = errors.New("Claude 进程已退出，统计读取未完成")
+			}
+			provider.finishStatus(nil, failure)
+		}
+		if err != nil {
+			provider.session.appendMessage(map[string]any{"kind": "event", "level": "error", "text": "Claude session error: " + err.Error()})
+		}
+		provider.mu.Lock()
+		if provider.cmd == nil {
+			provider.session.setState(map[string]any{"status": "error", "canAbort": false, "statusReading": false})
+		}
+		provider.mu.Unlock()
 	}
 }
 
@@ -631,15 +652,37 @@ func (provider *ClaudeProvider) handleMessage(message map[string]any) {
 		provider.mu.Unlock()
 		if localCommand != "" {
 			output := stringValue(message["result"])
+			if boolValue(message["is_error"]) || stringValue(message["subtype"]) != "success" {
+				if output == "" {
+					parts := []string{}
+					for _, value := range sliceValue(message["errors"]) {
+						if text := stringValue(value); text != "" {
+							parts = append(parts, text)
+						}
+					}
+					output = strings.Join(parts, "; ")
+				}
+				if output == "" {
+					output = "Claude 统计命令执行失败"
+				}
+				provider.mu.Lock()
+				reading := provider.statusPending
+				provider.mu.Unlock()
+				if reading {
+					provider.finishStatus(nil, errors.New(output))
+				} else {
+					provider.appendLocalCommand(localCommand, output, errors.New(output))
+				}
+				return
+			}
 			if output == "" {
 				output = "Claude command returned no output"
 			}
 			provider.appendLocalCommandMessage(localCommand, map[string]any{"content": output})
 			provider.mu.Lock()
 			followupCommand := provider.localCommand != ""
-			contextPending := provider.contextTurnID != ""
 			provider.mu.Unlock()
-			if !followupCommand && !contextPending {
+			if !followupCommand {
 				provider.session.setState(map[string]any{"status": "idle", "canAbort": false})
 			}
 			return
@@ -670,18 +713,8 @@ func (provider *ClaudeProvider) handleMessage(message map[string]any) {
 			provider.finishTaskPlan(turn.ID, status)
 		}
 		provider.session.markCompletionUnread()
-		if turn != nil {
-			provider.session.setState(map[string]any{"status": "thinking", "canAbort": false})
-			turnID := turn.ID
-			go func() {
-				time.Sleep(10 * time.Millisecond)
-				if !provider.requestTurnContext(turnID) {
-					provider.session.setState(map[string]any{"status": "idle", "canAbort": false})
-				}
-			}()
-		} else {
-			provider.session.setState(map[string]any{"status": "idle", "canAbort": false})
-		}
+		// 回合结束即恢复输入；上下文统计由用户点击状态按钮时读取。
+		provider.session.setState(map[string]any{"status": "idle", "canAbort": false})
 		return
 	}
 }
@@ -847,13 +880,19 @@ func (provider *ClaudeProvider) Status(ctx context.Context) error {
 		provider.mu.Unlock()
 		return errors.New("Claude status is already loading")
 	}
+	if len(provider.turns) > 0 || provider.localCommand != "" {
+		provider.mu.Unlock()
+		return errors.New("Claude 请在回合结束后读取统计")
+	}
 	provider.statusPending = true
 	provider.statusUsage = nil
 	provider.mu.Unlock()
+	provider.session.setState(map[string]any{"statusReading": true})
 	if err := provider.RunLocalCommand(ctx, "/usage"); err != nil {
 		provider.mu.Lock()
 		provider.statusPending = false
 		provider.mu.Unlock()
+		provider.session.setState(map[string]any{"statusReading": false})
 		return err
 	}
 	return nil
@@ -880,6 +919,9 @@ func (provider *ClaudeProvider) RunLocalCommand(ctx context.Context, command str
 			"message":            map[string]any{"role": "user", "content": command},
 		},
 	)
+	if err != nil {
+		provider.localCommand = ""
+	}
 	provider.mu.Unlock()
 	return err
 }
@@ -1076,7 +1118,6 @@ func (provider *ClaudeProvider) stopLocked() {
 	provider.readyAnnounced = false
 	provider.streams = map[string]*claudeTextStream{}
 	provider.streamAliases = map[string]string{}
-	provider.contextTurnID = ""
 	provider.statusPending = false
 	provider.statusUsage = nil
 }

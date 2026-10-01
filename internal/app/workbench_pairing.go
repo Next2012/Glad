@@ -67,7 +67,7 @@ func authenticateWorkbenchPairing(ctx context.Context, connection *websocket.Con
 	defer cancel()
 	nonce := pairingSecret()
 	if err := writeWSJSON(ctx, connection, map[string]any{"type": "hello", "protocol": "glad-pairing/v1",
-		"glad_id": options.GladID, "name": options.Alias, "tools": tools, "nonce": nonce}); err != nil {
+		"glad_id": options.GladID, "name": options.Alias, "tools": tools, "nonce": nonce, "workspace_management": true, "workspace_inventory_async": true}); err != nil {
 		return err
 	}
 	_, data, err := connection.Read(ctx)

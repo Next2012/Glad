@@ -139,12 +139,13 @@ glad tools detect
 ### Connect to an agent workbench
 
 Open **Settings → AgentWorkbench** to see this Glad installation's stable ID,
-edit its alias, and add workbenches. Enter the workbench WSS address and token,
-choose a local working directory. No CA upload is needed.
+edit its alias, and add workbenches. Enter the workbench WSS address and token.
+No CA upload or working-directory setup is needed. Workbench sessions get their
+own local directories automatically.
 Each workbench appears as a card with its own auto-connect switch and delete button.
 The connected workbench's ID and alias are synchronized on the card.
 
-The first connection shows **Waiting for confirmation**. In the workbench's
+The first connection shows **Waiting for trust**. In the workbench's
 **AI助理连接** page, choose **信任** for that Glad. Session operations are enabled
 only after approval. Trust persists across restarts and can be revoked in the
 workbench. Glad authenticates the workbench with the connection token and binds
@@ -164,7 +165,6 @@ Turning the switch off saves that choice for subsequent starts. Settings use
     {
       "url": "wss://workbench.example.com:8443/api/assistant-connections/ws",
       "token": "REPLACE_WITH_A_RANDOM_TOKEN_AT_LEAST_32_CHARACTERS",
-      "workingDirectory": "/workspace/project",
       "autoConnect": true
     }
   ]
@@ -173,9 +173,19 @@ Turning the switch off saves that choice for subsequent starts. Settings use
 
 Omit `gladId` to generate a new installation ID. Keep the file private (`0600`)
 and preserve it across restarts. Optional `caCertificate` contains the private CA
-PEM for legacy CLI use; GUI connections use pairing. Optional `mcpUrl` and
+PEM for legacy CLI use; GUI connections use pairing. `workingDirectory` is retained
+only to restore pre-existing sessions. Optional `mcpUrl` and
 `mcpTokenFile` select the CLI MCPHub for that connection.
 All other Glad sessions keep their existing MCP configuration.
+
+Workbench session directories are kept when stopped or disconnected, and are
+cleaned when the workbench session is deleted. Offline deletions are reconciled
+on a later trusted connection. Existing project directories remain outside
+automatic cleanup.
+
+Claude finishes each reply without requesting `/context` automatically. Use the
+Status button to read statistics; ordinary reply token usage, cost and duration
+remain available.
 
 Settings use a navigation panel on desktop and a list of configuration cards on
 mobile. Claude's default permission mode is `auto`; users can select another mode.

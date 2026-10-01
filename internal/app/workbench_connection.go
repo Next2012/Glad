@@ -27,21 +27,23 @@ import (
 )
 
 type workbenchMessage struct {
-	Type           string         `json:"type"`
-	ID             string         `json:"id,omitempty"`
-	Method         string         `json:"method,omitempty"`
-	Path           string         `json:"path,omitempty"`
-	Body           string         `json:"body,omitempty"`
-	ContentType    string         `json:"content_type,omitempty"`
-	Status         int            `json:"status,omitempty"`
-	SessionID      string         `json:"session_id,omitempty"`
-	Payload        map[string]any `json:"payload,omitempty"`
-	ClientID       string         `json:"client_id,omitempty"`
-	ThreadID       string         `json:"thread_id,omitempty"`
-	ToolKey        string         `json:"tool_key,omitempty"`
-	WorkbenchID    string         `json:"workbench_id,omitempty"`
-	WorkbenchAlias string         `json:"workbench_alias,omitempty"`
-	Settings       map[string]any `json:"settings,omitempty"`
+	Type                string         `json:"type"`
+	ID                  string         `json:"id,omitempty"`
+	Method              string         `json:"method,omitempty"`
+	Path                string         `json:"path,omitempty"`
+	Body                string         `json:"body,omitempty"`
+	ContentType         string         `json:"content_type,omitempty"`
+	Status              int            `json:"status,omitempty"`
+	SessionID           string         `json:"session_id,omitempty"`
+	Payload             map[string]any `json:"payload,omitempty"`
+	ClientID            string         `json:"client_id,omitempty"`
+	ThreadID            string         `json:"thread_id,omitempty"`
+	ToolKey             string         `json:"tool_key,omitempty"`
+	WorkbenchID         string         `json:"workbench_id,omitempty"`
+	WorkbenchAlias      string         `json:"workbench_alias,omitempty"`
+	Settings            map[string]any `json:"settings,omitempty"`
+	WorkspaceKeys       []string       `json:"workspace_keys"`
+	WorkspaceGeneration *uint64        `json:"workspace_generation,omitempty"`
 }
 
 type workbenchStream struct {
@@ -63,6 +65,7 @@ type workbenchBridge struct {
 	threads      map[string]bool
 	threadFile   string
 	threadsDirty bool
+	workspaces   *workbenchWorkspaces
 }
 
 // 连接只管理自己创建的会话，普通 Glad 的群聊和其他会话保持独立。
@@ -206,8 +209,53 @@ func connectWorkbench(parent context.Context, options workbenchConnectOptions, a
 		server.sessions.Close(context.Background())
 	}()
 	if options.PairingKey == "" {
-		if err := bridge.write(map[string]any{"type": "hello", "protocol": "glad-workbench/v1", "name": options.Alias, "glad_id": options.GladID, "tools": tools}); err != nil {
+		if err := bridge.write(map[string]any{"type": "hello", "protocol": "glad-workbench/v1", "name": options.Alias, "glad_id": options.GladID, "tools": tools, "workspace_management": true, "workspace_inventory_async": true}); err != nil {
 			return err
+		}
+	}
+	// 目录清理串行运行，读取连接不等待磁盘；缓存最新清单并核对本地版本。
+	workspaceUpdates := make(chan workbenchMessage, 1)
+	bridge.tasks.Add(1)
+	go func() {
+		defer bridge.tasks.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case update := <-workspaceUpdates:
+				bridge.mu.Lock()
+				store := bridge.workspaces
+				bridge.mu.Unlock()
+				if store == nil {
+					continue
+				}
+				var err error
+				if update.WorkspaceGeneration != nil {
+					err = store.reconcile(update.WorkspaceKeys, *update.WorkspaceGeneration)
+				} else {
+					err = store.reconcile(update.WorkspaceKeys)
+				}
+				if err != nil {
+					fmt.Fprintln(os.Stderr, "GLAD_WORKBENCH_WORKSPACE_CLEANUP_FAILED")
+				}
+			}
+		}
+	}()
+	queueInventory := func(message workbenchMessage) {
+		if message.WorkspaceKeys == nil {
+			return
+		}
+		select {
+		case workspaceUpdates <- message:
+		default:
+			select {
+			case <-workspaceUpdates:
+			default:
+			}
+			select {
+			case workspaceUpdates <- message:
+			default:
+			}
 		}
 	}
 	go func() {
@@ -219,7 +267,14 @@ func connectWorkbench(parent context.Context, options workbenchConnectOptions, a
 				_ = connection.Close(websocket.StatusNormalClosure, "client disconnected")
 				return
 			case <-ticker.C:
-				if bridge.write(map[string]any{"type": "ping"}) != nil {
+				bridge.mu.Lock()
+				store := bridge.workspaces
+				bridge.mu.Unlock()
+				generation := uint64(0)
+				if store != nil {
+					generation = store.generation.Load()
+				}
+				if bridge.write(map[string]any{"type": "ping", "workspace_generation": generation}) != nil {
 					_ = connection.CloseNow()
 					return
 				}
@@ -254,6 +309,17 @@ func connectWorkbench(parent context.Context, options workbenchConnectOptions, a
 			return errors.New("工作台已拒绝连接或撤销信任")
 		case "connected":
 			authorized = true
+			if bridge.workspaces == nil {
+				scope := firstNonEmpty(message.WorkbenchID, endpoint.String()) + "\n" + options.GladID
+				store, openErr := openWorkbenchWorkspaces(scope)
+				err = openErr
+				if err != nil {
+					return err
+				}
+				bridge.mu.Lock()
+				bridge.workspaces = store
+				bridge.mu.Unlock()
+			}
 			if err := bridge.loadThreads(endpoint.String(), message.ClientID); err != nil {
 				return err
 			}
@@ -261,9 +327,17 @@ func connectWorkbench(parent context.Context, options workbenchConnectOptions, a
 				observer(bridge, message.WorkbenchID, message.WorkbenchAlias)
 			}
 		case "pong":
+			if authorized {
+				queueInventory(message)
+			}
 			if observer != nil && authorized && message.WorkbenchID != "" {
 				observer(bridge, message.WorkbenchID, message.WorkbenchAlias)
 			}
+		case "workspace_inventory":
+			if !authorized {
+				return errors.New("工作台尚未确认连接")
+			}
+			queueInventory(message)
 		case "http_request":
 			if !authorized {
 				return errors.New("工作台尚未确认连接")
@@ -366,13 +440,78 @@ func (bridge *workbenchBridge) serveRequest(writer *httptest.ResponseRecorder, m
 		return errors.New("请求正文无效或过大")
 	}
 	path := parsed.Path
+	if strings.HasPrefix(path, "/api/workbench-workspaces/") && strings.HasSuffix(path, "/adopt") && message.Method == http.MethodPost {
+		if bridge.workspaces == nil {
+			return errors.New("会话目录管理尚未就绪")
+		}
+		var input struct {
+			SessionID string `json:"sessionId"`
+		}
+		if json.Unmarshal(body, &input) != nil || !bridge.owns(input.SessionID) {
+			return errors.New("关联会话未授权")
+		}
+		session := bridge.server.sessions.Get(input.SessionID)
+		if session == nil {
+			return errors.New("关联会话不存在")
+		}
+		key := strings.TrimSuffix(strings.TrimPrefix(path, "/api/workbench-workspaces/"), "/adopt")
+		session.mu.Lock()
+		defer session.mu.Unlock()
+		if session.closed {
+			return errors.New("关联会话已关闭")
+		}
+		if err := bridge.workspaces.adopt(key, session.WorkingDirectory, bridge.server.baseDir); err != nil {
+			return err
+		}
+		previous := session.dispose
+		session.dispose = func() {
+			if previous != nil {
+				previous()
+			}
+			bridge.workspaces.release(key)
+		}
+		respondJSON(writer, http.StatusOK, map[string]any{"success": true})
+		return nil
+	}
+	if strings.HasPrefix(path, "/api/workbench-workspaces/") && message.Method == http.MethodDelete {
+		if bridge.workspaces == nil {
+			return errors.New("会话目录管理尚未就绪")
+		}
+		if err := bridge.workspaces.remove(strings.TrimPrefix(path, "/api/workbench-workspaces/")); err != nil {
+			return err
+		}
+		respondJSON(writer, http.StatusOK, map[string]any{"success": true})
+		return nil
+	}
+	workspaceKey := ""
+	acquired := false
+	defer func() {
+		if acquired {
+			bridge.workspaces.release(workspaceKey)
+		}
+	}()
 	if path == "/api/sessions" && message.Method == http.MethodPost {
 		var value map[string]any
 		if json.Unmarshal(body, &value) != nil || value == nil {
 			return errors.New("创建对话参数无效")
 		}
-		// 会话目录由共享配置固定；模型和权限选项沿用 Glad 的同一套会话操作。
+		// 新工作台按稳定 Session 标识分配目录；旧调用继续使用原目录。
 		value["workingDirectory"] = bridge.server.baseDir
+		workspaceKey = stringValue(value["workspaceKey"])
+		if workspaceKey != "" {
+			if bridge.workspaces == nil {
+				return errors.New("会话目录管理尚未就绪")
+			}
+			dir, err := bridge.workspaces.acquire(workspaceKey, stringValue(value["previousThreadId"]), bridge.server.baseDir, stringValue(value["previousWorkingDirectory"]))
+			if err != nil {
+				return err
+			}
+			acquired = true
+			value["workingDirectory"] = dir
+		}
+		delete(value, "workspaceKey")
+		delete(value, "previousThreadId")
+		delete(value, "previousWorkingDirectory")
 		body, _ = json.Marshal(value)
 	} else if strings.HasPrefix(path, "/api/sessions/") {
 		parts := strings.Split(strings.TrimPrefix(path, "/api/sessions/"), "/")
@@ -410,6 +549,15 @@ func (bridge *workbenchBridge) serveRequest(writer *httptest.ResponseRecorder, m
 			bridge.owned[stringValue(value["id"])] = true
 			bridge.mu.Unlock()
 			if session := bridge.server.sessions.Get(stringValue(value["id"])); session != nil {
+				if acquired {
+					key := workspaceKey
+					session.mu.Lock()
+					if !session.closed {
+						session.dispose = func() { bridge.workspaces.release(key) }
+						acquired = false
+					}
+					session.mu.Unlock()
+				}
 				bridge.observeThread(session)
 			}
 		}

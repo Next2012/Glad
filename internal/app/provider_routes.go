@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 )
 
 func (server *Server) registerProviderRoutes(mux *http.ServeMux) {
@@ -401,7 +403,29 @@ var uuidJSONL = regexp.MustCompile(`^[0-9a-f-]{36}\.jsonl$`)
 
 func claudeProjectDir(cwd string) string {
 	home, _ := os.UserHomeDir()
-	encoded := regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(filepath.Clean(cwd), "-")
+	cwd = filepath.Clean(cwd)
+	if real, err := filepath.EvalSymlinks(cwd); err == nil {
+		cwd = real
+	}
+	// 与 CLI 的项目目录命名一致：UTF-16 字符编码，长名称前200字符加32位哈希。
+	var name strings.Builder
+	var hash int32
+	for _, unit := range utf16.Encode([]rune(cwd)) {
+		hash = hash*31 + int32(unit)
+		if (unit >= 'a' && unit <= 'z') || (unit >= 'A' && unit <= 'Z') || (unit >= '0' && unit <= '9') {
+			name.WriteByte(byte(unit))
+		} else {
+			name.WriteByte('-')
+		}
+	}
+	encoded := name.String()
+	if len(encoded) > 200 {
+		absolute := int64(hash)
+		if absolute < 0 {
+			absolute = -absolute
+		}
+		encoded = encoded[:200] + "-" + strconv.FormatInt(absolute, 36)
+	}
 	root := strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR"))
 	if root == "" {
 		root = filepath.Join(home, ".claude")

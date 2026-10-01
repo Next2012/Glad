@@ -609,7 +609,9 @@ func (server *Server) handleWebsocketMessage(
 		}
 	case "claude-status":
 		if provider, ok := session.Provider.(StatusProvider); ok {
-			_ = provider.Status(ctx)
+			if err := provider.Status(ctx); err != nil {
+				send(map[string]any{"type": "error", "message": err.Error()})
+			}
 		}
 	case "claude-usage":
 		if provider, ok := session.Provider.(*ClaudeProvider); ok {

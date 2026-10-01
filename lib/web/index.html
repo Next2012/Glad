@@ -590,25 +590,28 @@
             </section>
 <section class="settings-section settings-page" data-settings-page="agentworkbench" aria-labelledby="workbench-settings-title">
 <div class="settings-section-label" id="workbench-settings-title">AgentWorkbench</div>
-<p class="settings-theme-help">Share this Glad with agent workbenches through a connection started here.</p>
-<div class="form-field"><label for="workbench-glad-id">Glad ID</label><input id="workbench-glad-id" readonly><button class="small-btn" type="button" onclick="copyWorkbenchField('workbench-glad-id')">Copy ID</button></div>
-<div class="form-field"><label for="workbench-glad-alias">Glad alias</label><div class="settings-inline"><input id="workbench-glad-alias" maxlength="128"><button class="small-btn primary" type="button" onclick="saveWorkbenchAlias()">Save alias</button></div></div>
-<div id="workbench-settings-status" class="serverchan-settings-status" role="status" aria-live="polite"></div>
-<div id="workbench-connection-cards" class="workbench-connection-cards"></div>
-<section class="workbench-add"><h3>Add AgentWorkbench</h3>
+<p class="settings-theme-help">Connect this Glad to your agent workbenches.</p>
+<section class="workbench-identity-panel" aria-labelledby="workbench-identity-title">
+<h3 id="workbench-identity-title">This Glad</h3>
+<div class="workbench-id-row"><span class="workbench-muted">ID</span><span id="workbench-glad-id" class="workbench-identity-id"></span><button class="workbench-text-button" type="button" onclick="copyWorkbenchField('workbench-glad-id')">Copy ID</button></div>
+<div class="form-field"><label for="workbench-glad-alias">Alias</label><div class="settings-inline"><input id="workbench-glad-alias" maxlength="128" autocomplete="off"><button class="small-btn primary" type="button" onclick="saveWorkbenchAlias()">Save</button></div></div>
+<p id="workbench-alias-status" class="workbench-feedback" role="status"></p>
+</section>
+<section class="workbench-list-section" aria-labelledby="workbench-list-title"><h3 id="workbench-list-title">Workbenches</h3><p class="serverchan-help">Turning on connects now and once on startup.</p>
+<p id="workbench-settings-status" class="workbench-feedback" role="status"></p>
+<div id="workbench-connection-cards" class="workbench-connection-cards"></div></section>
+<section class="workbench-add" aria-labelledby="workbench-add-title"><h3 id="workbench-add-title">Add workbench</h3>
 <form id="workbench-add-form" onsubmit="addWorkbenchTarget(event)">
-<div class="form-field"><label for="workbench-url">Connection address</label><input id="workbench-url" type="url" required placeholder="wss://workbench:8443/api/assistant-connections/ws"></div>
-<div class="form-field"><label for="workbench-token">Connection token</label><input id="workbench-token" type="password" required autocomplete="off"></div>
-<div class="form-field"><label for="workbench-directory">Glad working directory</label><input id="workbench-directory" required></div>
-<details><summary>MCPHub configuration (optional)</summary>
-<div class="form-field"><label for="workbench-mcp-url">MCPHub address</label><input id="workbench-mcp-url" type="url" placeholder="http://workbench:8082/mcp"></div>
-<div class="form-field"><label for="workbench-mcp-token-file">Local MCPHub token file</label><input id="workbench-mcp-token-file"><p class="serverchan-help">Leave both blank to use the CLI's existing MCP configuration.</p></div>
-</details>
-<button id="workbench-add-button" class="small-btn primary" type="submit">Add</button>
+<div class="form-field"><label for="workbench-url">Connection address</label><input id="workbench-url" type="url" required placeholder="wss://workbench:8443" autocomplete="off"></div>
+<div class="form-field"><label for="workbench-token">Connection token</label><input id="workbench-token" type="password" required autocomplete="off"><p class="serverchan-help">Copy the token from the workbench's AI助理连接 page.</p></div>
+<section class="workbench-mcp-fields" aria-labelledby="workbench-mcp-title"><h4 id="workbench-mcp-title">MCPHub <span class="workbench-muted">Optional</span></h4><p class="serverchan-help">Leave blank to use the CLI's existing MCP configuration.</p>
+<div class="workbench-field-grid">
+<div class="form-field"><label for="workbench-mcp-url">MCPHub address</label><input id="workbench-mcp-url" type="url" placeholder="http://workbench:8082/mcp" autocomplete="off"></div>
+<div class="form-field"><label for="workbench-mcp-token-file">Local token file</label><input id="workbench-mcp-token-file" placeholder="/path/to/mcp.token" autocomplete="off"></div>
+</div></section>
+<p id="workbench-add-status" class="workbench-feedback" role="status"></p>
+<div class="workbench-add-actions"><button id="workbench-add-button" class="small-btn primary" type="submit">Add workbench</button><span class="serverchan-help">First connection requires trust in the workbench.</span></div>
 </form></section>
-<p class="serverchan-help">First connection waits for trust confirmation in the workbench. No CA file is required.</p>
-<p class="serverchan-help">Auto-connect is saved. At startup each enabled workbench is tried once; a failed connection stays disconnected.</p>
-<p id="workbench-config-path" class="serverchan-help"></p>
 </section></div></div>
         </div>
     </div>

@@ -186,44 +186,6 @@ func TestClaudeUsageParsesSubscriptionReport(t *testing.T) {
 	}
 }
 
-func TestClaudeAutomaticContextPatchesTurnEnd(t *testing.T) {
-	provider, session := claudeFeatureTestProvider()
-	turnEnd := session.appendMessage(map[string]any{"kind": "turn-end", "turnId": "turn-1", "turnStatus": "completed"})
-	provider.contextTurnID = "turn-1"
-	provider.localCommand = "/context"
-	provider.handleMessage(map[string]any{"type": "system", "subtype": "local_command", "contextUsage": map[string]any{
-		"model": "haiku", "total_tokens": float64(1200), "raw_max_tokens": float64(200000), "percentage": float64(1),
-	}})
-	var patched map[string]any
-	for _, message := range session.Messages {
-		if message["id"] == turnEnd["id"] {
-			patched = message
-		}
-	}
-	contextValue := mapValue(patched["context"])
-	if numberInt64(contextValue["remainingTokens"]) != 198800 || numberInt64(contextValue["remainingPercent"]) != 99 {
-		t.Fatalf("turn context was not patched: %#v", patched)
-	}
-	if session.StatusValue != "idle" || provider.contextTurnID != "" {
-		t.Fatalf("automatic context did not settle: state=%s pending=%q", session.StatusValue, provider.contextTurnID)
-	}
-}
-
-func TestClaudeLocalCommandResultPatchesTurnContext(t *testing.T) {
-	provider, session := claudeFeatureTestProvider()
-	provider.session.Tool.Version = "2.1.278 (Claude Code)"
-	turnEnd := session.appendMessage(map[string]any{"kind": "turn-end", "turnId": "turn-1", "turnStatus": "completed"})
-	provider.contextTurnID = "turn-1"
-	provider.localCommand = "/context"
-	provider.handleMessage(map[string]any{
-		"type": "result", "subtype": "success",
-		"result": "## Context Usage\n\n**Model:** haiku\n**Tokens:** 1.2k / 200k (1%)",
-	})
-	if numberInt64(mapValue(turnEnd["context"])["remainingTokens"]) != 198800 || provider.localCommand != "" {
-		t.Fatalf("local command result did not patch the turn: command=%q message=%#v", provider.localCommand, turnEnd)
-	}
-}
-
 func TestClaudeUsageParsesSubscriptionText(t *testing.T) {
 	usage, err := parseClaudeUsage("You are currently using your subscription to power your Claude Code usage\n\n" +
 		"Current session: 3% used · resets Sep 21, 1:20pm (Asia/Shanghai)\n" +
