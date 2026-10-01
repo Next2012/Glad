@@ -71,7 +71,8 @@ jobs:
         run: |
           mkdir -p dist
           find dist-artifacts -maxdepth 2 -type f -exec cp {} dist/ \;
-          sha256sum dist/* > dist/SHA256SUMS
+          # 校验文件只记录附件名，下载到同一目录后即可直接校验。
+          (cd dist && sha256sum glad-*) > dist/SHA256SUMS
       - name: Stage npm platform packages
         run: node scripts/stage-npm-packages.js "${GITHUB_REF_NAME#v}" dist staged-npm
       - name: Publish platform packages first
