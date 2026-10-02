@@ -10,6 +10,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.8.1] - 2026-10-02
+
+### Added
+
+- Automatically continue the original Codex conversation by sending `继续` after a final model capacity error. Wait 30 seconds after each failure and allow up to five retries. Stop, session close, or a new user request cancels a pending retry.
+
+### Fixed
+
+- Delay failure notifications and unread completion indicators while capacity recovery is pending; notify once after success or final failure.
+- Keep late turn-start responses from reviving completed or stopped turns, and handle uncertain retry startup timeouts without duplicate execution or notifications.
+- Record release attachment filenames in `SHA256SUMS` so downloaded binaries can be verified together in the same directory.
+
+## [2.8.0] - 2026-10-01
+
+### Added
+
+- Add persistent AgentWorkbench connections, certificate-bound pairing without CA uploads, scoped Glad identities, and saved trust with revocation controls.
+- Manage separate workbench session directories automatically, retaining them across disconnects and cleaning them when sessions are deleted.
+
+### Changed
+
+- Organize settings into desktop navigation and mobile configuration cards, and keep connection feedback beside the relevant workbench.
+- Read Claude context statistics on demand through Status, keeping ordinary reply completion available immediately.
+
 ## [2.7.0] - 2026-09-30
 
 ### Added
