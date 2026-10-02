@@ -55,6 +55,9 @@ func (manager *RoomManager) sessionEvent(event sessioncore.Event) {
 	defer manager.mu.Unlock()
 	message := mapValue(event.Payload["message"])
 	root := stringValue(event.Payload["type"]) == "message" && stringValue(message["kind"]) == "turn-end"
+	if boolValue(message["retryScheduled"]) {
+		root = false
+	}
 	if value, present := message["isRootTurn"]; present && !boolValue(value) {
 		root = false
 	}

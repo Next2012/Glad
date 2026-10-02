@@ -104,6 +104,13 @@ type CodexProvider struct {
 	abortSequence     uint64
 	abortGrace        time.Duration
 	closed            bool
+
+	sending                 bool
+	capacityRetryTimer      *time.Timer
+	capacityRetryGeneration uint64
+	capacityRetryAttempts   int
+	capacityRetryAt         int64
+	capacityRetryDelay      time.Duration
 }
 
 func NewCodexProvider(session *Session, options map[string]any) *CodexProvider {
@@ -211,20 +218,45 @@ func (provider *CodexProvider) startLocked(ctx context.Context) error {
 }
 
 func (provider *CodexProvider) Send(ctx context.Context, input ProviderInput) error {
+	return provider.send(ctx, input, 0)
+}
+
+func (provider *CodexProvider) send(ctx context.Context, input ProviderInput, retryGeneration uint64) error {
 	provider.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		provider.mu.Unlock()
+		return err
+	}
+	if retryGeneration != 0 && (retryGeneration != provider.capacityRetryGeneration || provider.capacityRetryTimer == nil) {
+		provider.mu.Unlock()
+		return context.Canceled
+	}
 	if provider.closed || provider.resumeInFlight || provider.aborting {
 		provider.mu.Unlock()
 		return errors.New("Codex session is unavailable")
 	}
+	if provider.turnID != "" || provider.sending {
+		provider.mu.Unlock()
+		return errors.New("Codex session is busy")
+	}
+	if retryGeneration == 0 {
+		// 用户的新请求取代等待中的自动重试，并重新开始计算次数。
+		provider.cancelCapacityRetryLocked()
+	} else {
+		provider.capacityRetryTimer = nil
+		provider.capacityRetryAt = 0
+	}
+	provider.sending = true
+	defer func() {
+		provider.mu.Lock()
+		provider.sending = false
+		provider.mu.Unlock()
+	}()
 	if provider.cmd == nil {
 		if err := provider.startLocked(ctx); err != nil {
 			provider.mu.Unlock()
 			return err
 		}
-	}
-	if provider.turnID != "" {
-		provider.mu.Unlock()
-		return errors.New("Codex session is busy")
 	}
 	if provider.threadID == "" {
 		params := map[string]any{"cwd": provider.session.WorkingDirectory}
@@ -299,14 +331,22 @@ func (provider *CodexProvider) Send(ctx context.Context, input ProviderInput) er
 			supersededInputs = append(supersededInputs, id)
 		}
 	}
+	sequence := provider.abortSequence
 	started, err := provider.requestLocked(ctx, "turn/start", params)
 	if err != nil {
 		provider.mu.Unlock()
 		provider.session.removeMessagesByClientMessageID(input.ClientMessageID)
-		provider.session.appendMessage(
-			map[string]any{"kind": "event", "level": "error", "text": "Unable to send message: " + err.Error()},
-		)
+		if retryGeneration == 0 {
+			provider.session.appendMessage(
+				map[string]any{"kind": "event", "level": "error", "text": "Unable to send message: " + err.Error()},
+			)
+		}
 		return err
+	}
+	// 快速结束或中止的通知可能先于此处被处理，不能让迟到的 RPC 响应恢复 running。
+	if sequence != provider.abortSequence {
+		provider.mu.Unlock()
+		return nil
 	}
 	provider.session.clearUnreadCompletion()
 	provider.turnID = firstNonEmpty(stringValue(mapValue(started["turn"])["id"]), stringValue(started["turnId"]))
@@ -584,6 +624,7 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 		provider.mu.Lock()
 		rootThread := threadID != "" && threadID == provider.threadID
 		rootTurn := rootThread && turnID != "" && turnID == provider.turnID
+		retryScheduled := false
 		started := timestampMillis(turn["startedAt"])
 		if tracked, ok := provider.activeTurns[threadID]; ok && tracked.ID == turnID {
 			if tracked.StartedAt > 0 {
@@ -592,6 +633,13 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 			delete(provider.activeTurns, threadID)
 		}
 		if rootTurn {
+			retryScheduled = provider.scheduleCapacityRetryLocked(turn)
+			if !retryScheduled {
+				if isCodexCapacityError(mapValue(turn["error"])) && provider.capacityRetryAttempts == codexCapacityRetryLimit && !provider.aborting {
+					provider.session.appendMessage(map[string]any{"kind": "event", "level": "error", "text": fmt.Sprintf("模型容量仍不足，自动重试 %d 次均失败。", codexCapacityRetryLimit)})
+				}
+				provider.cancelCapacityRetryLocked()
+			}
 			provider.cancelUserInputsLocked("", "", stringValue(turn["status"]) == "completed" && turn["error"] == nil)
 			if provider.turnStarted > 0 {
 				started = provider.turnStarted
@@ -627,13 +675,15 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 		}
 		message := map[string]any{
 			// 通知资格在事件产生时确定，子任务和旧轮次只保留历史展示。
-			"isRootTurn": rootTurn,
-			"kind":       "turn-end",
-			"threadId":   threadID,
-			"turnId":     turnID,
-			"status":     status,
-			"durationMs": duration,
-			"createdAt":  completed,
+			"isRootTurn":     rootTurn,
+			"kind":           "turn-end",
+			"threadId":       threadID,
+			"turnId":         turnID,
+			"status":         status,
+			"retryScheduled": retryScheduled,
+			"error":          turn["error"],
+			"durationMs":     duration,
+			"createdAt":      completed,
 		}
 		if rootTurn {
 			message["context"] = provider.contextStatus()
@@ -643,7 +693,9 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 			provider.session.mu.Lock()
 			provider.session.Permissions = map[string]Permission{}
 			provider.session.mu.Unlock()
-			provider.session.markCompletionUnread()
+			if !retryScheduled {
+				provider.session.markCompletionUnread()
+			}
 			provider.updatePublicState("idle")
 			provider.clearDeltaStreams()
 		} else {
@@ -688,11 +740,15 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 		provider.updatePublicState(provider.session.StatusValue)
 	case "error":
 		text := firstNonEmpty(stringValue(mapValue(params["error"])["message"]), "Codex reported an error.")
-		provider.session.appendMessage(map[string]any{"kind": "event", "level": "error", "text": text})
 		provider.mu.Lock()
 		rootThread := threadID != "" && threadID == provider.threadID
 		busy := provider.turnID != "" || provider.resumeInFlight || provider.aborting
+		level := "error"
+		if rootThread && isCodexCapacityError(mapValue(params["error"])) && !provider.aborting && provider.capacityRetryAttempts < codexCapacityRetryLimit {
+			level = "info"
+		}
 		provider.mu.Unlock()
+		provider.session.appendMessage(map[string]any{"kind": "event", "level": level, "text": text})
 		// Codex owns retry limits and HTTP fallback. Keep active turns running
 		// until turn/completed reports the final result.
 		if rootThread && !busy && !boolValue(params["willRetry"]) {
@@ -1156,6 +1212,14 @@ func (provider *CodexProvider) Interrupt(ctx context.Context) error {
 		provider.mu.Unlock()
 		return errors.New("Codex session is closed")
 	}
+	if provider.capacityRetryTimer != nil && !provider.sending && provider.turnID == "" {
+		provider.cancelCapacityRetryLocked()
+		provider.updatePublicStateLocked("idle")
+		provider.mu.Unlock()
+		provider.session.appendMessage(map[string]any{"kind": "event", "level": "info", "text": "已取消自动重试。"})
+		return nil
+	}
+	provider.cancelCapacityRetryLocked()
 	if provider.aborting {
 		provider.mu.Unlock()
 		return nil
@@ -1238,6 +1302,9 @@ func (provider *CodexProvider) stopRuntime(sequence uint64, reason, status strin
 		provider.mu.Unlock()
 		return false
 	}
+	// 计时器触发后请求可能仍在等待启动确认，此时也属于容量恢复过程。
+	retryPending := provider.capacityRetryTimer != nil || (provider.sending && provider.capacityRetryAttempts > 0)
+	provider.cancelCapacityRetryLocked()
 	command := provider.cmd
 	if command != nil {
 		provider.expectedStops[command] = struct{}{}
@@ -1246,6 +1313,10 @@ func (provider *CodexProvider) stopRuntime(sequence uint64, reason, status strin
 		_ = provider.stdin.Close()
 	}
 	threadID, turnID, started := provider.threadID, provider.turnID, provider.turnStarted
+	if retryPending && turnID == "" && status == "failed" {
+		// 等待或启动期间连接断开也要结束这次恢复，保留一个最终失败通知。
+		turnID = "glad-retry-" + newUUID()
+	}
 	provider.titles.reset()
 	if provider.resumeCancel != nil {
 		provider.resumeCancel()
@@ -1332,7 +1403,7 @@ func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
 	resumeCtx, cancelResume := context.WithTimeout(ctx, codexHistoryOperationTimeout)
 	defer cancelResume()
 	provider.mu.Lock()
-	if provider.closed || provider.resumeInFlight || provider.aborting || provider.turnID != "" {
+	if provider.closed || provider.resumeInFlight || provider.aborting || provider.turnID != "" || provider.sending || provider.capacityRetryTimer != nil {
 		provider.mu.Unlock()
 		return errors.New("Codex session is busy")
 	}
@@ -1413,7 +1484,7 @@ func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, err
 		provider.mu.Unlock()
 		return "", errors.New("Codex thread is unavailable")
 	}
-	if provider.closed || provider.resumeInFlight || provider.aborting || provider.turnID != "" {
+	if provider.closed || provider.resumeInFlight || provider.aborting || provider.turnID != "" || provider.sending || provider.capacityRetryTimer != nil {
 		provider.mu.Unlock()
 		return "", errors.New("Codex session is busy")
 	}
@@ -1699,6 +1770,10 @@ func codexHistoryItem(raw map[string]any) map[string]any {
 }
 func (provider *CodexProvider) Compact(ctx context.Context) error {
 	provider.mu.Lock()
+	if provider.capacityRetryTimer != nil || provider.sending {
+		provider.mu.Unlock()
+		return errors.New("Codex session is busy")
+	}
 	if provider.threadID == "" {
 		provider.mu.Unlock()
 		return errors.New("Codex thread is unavailable")
@@ -1750,6 +1825,7 @@ func (provider *CodexProvider) Close(context.Context) error {
 	provider.mu.Lock()
 	provider.titles.reset()
 	provider.closed = true
+	provider.cancelCapacityRetryLocked()
 	if provider.resumeCancel != nil {
 		provider.resumeCancel()
 	}
@@ -1923,6 +1999,9 @@ func (provider *CodexProvider) updatePublicState(status string) {
 
 func (provider *CodexProvider) updatePublicStateLocked(status string) {
 	resuming, forking, aborting := provider.resuming, provider.forking, provider.aborting
+	if provider.capacityRetryTimer != nil {
+		status = "running"
+	}
 	if status == "running" || status == "waiting_input" || status == "waiting_approval" {
 		status = "running"
 		for _, input := range provider.userInputs {
@@ -1978,6 +2057,8 @@ func (provider *CodexProvider) updatePublicStateLocked(status string) {
 		"activeSubagentCount":     len(activeSubagentThreadIDs),
 		"activeSubagentThreadIds": activeSubagentThreadIDs,
 		"models":                  provider.models,
+		"capacityRetryAttempt":    provider.capacityRetryAttempts,
+		"capacityRetryAt":         provider.capacityRetryAt,
 	}
 	provider.session.setState(state)
 }

@@ -17,6 +17,8 @@ if (process.argv[2] !== 'app-server') {
 const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 let turnSequence = 0;
 let outputLost = false;
+let capacityFailuresRemaining = 0;
+let capacityDisconnectOnRetry = false;
 const approvalRequests = new Map();
 let inputQuestion = null;
 let taskPlan = null;
@@ -301,6 +303,18 @@ input.on('line', line => {
       }, text.includes('__GLAD_E2E_TITLE_SLOW__') ? 1500 : 150);
       return;
     }
+    // 模拟模型服务容量错误，保留正常 app-server 协议和实际 30 秒重试间隔。
+    if (text.includes('__GLAD_E2E_CAPACITY_TWICE__')) capacityFailuresRemaining = 2;
+    if (text.includes('__GLAD_E2E_CAPACITY_EXHAUST__')) capacityFailuresRemaining = 6;
+    if (text.includes('__GLAD_E2E_CAPACITY_STOP__')) capacityFailuresRemaining = 1;
+    if (text.includes('__GLAD_E2E_CAPACITY_START_DISCONNECT__')) {
+      capacityFailuresRemaining = 1;
+      capacityDisconnectOnRetry = true;
+    }
+    if (text === '继续' && capacityDisconnectOnRetry) {
+      // 已接受续跑请求，但在响应和启动通知发出前断开 app-server。
+      process.exit(1);
+    }
     if (text.includes('__GLAD_E2E_FAIL_SEND__')) {
       setTimeout(() => write({ id: request.id, error: { message: 'forced send failure' } }), 25);
       return;
@@ -310,6 +324,13 @@ input.on('line', line => {
     write({ id: request.id, result: { turn: { id: turnId } } });
     setImmediate(() => {
       write({ method: 'turn/started', params: { threadId: 'thread-e2e', turn: { id: turnId } } });
+      if (capacityFailuresRemaining > 0) {
+        capacityFailuresRemaining -= 1;
+        const error = { codexErrorInfo: 'serverOverloaded', message: 'Selected model is at capacity. Please try a different model.' };
+        write({ method: 'error', params: { threadId: 'thread-e2e', turnId, error, willRetry: false } });
+        write({ method: 'turn/completed', params: { threadId: 'thread-e2e', turn: { id: turnId, status: 'failed', error } } });
+        return;
+      }
       if (text.includes('__GLAD_E2E_PLAN')) {
         write({ method: 'item/completed', params: { threadId: 'thread-e2e', turnId,
           item: { id: `plan-intro-${turnId}`, type: 'agentMessage', text: '我会先检查实现，再进行验证。' }

@@ -199,6 +199,10 @@ func classifyNotification(session *Session, event map[string]any) (classifiedNot
 		if stringValue(result.message["kind"]) != "turn-end" {
 			return classifiedNotification{}, false
 		}
+		// 等待自动续跑的中间失败保留历史，最终结果再通知。
+		if boolValue(result.message["retryScheduled"]) {
+			return classifiedNotification{}, false
+		}
 		// 主任务可能仍在运行，不能把子任务或旧轮次的结束当成整轮完成。
 		if session.Kind == "codex-structured" && !boolValue(result.message["isRootTurn"]) {
 			return classifiedNotification{}, false
