@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.8.2] - 2026-10-02
+
+### Fixed
+
+- Keep group chat reading positions stable when selecting multiple message references; update reference buttons and chips without rebuilding the conversation.
+- Preserve existing group message nodes, expanded replies, and scroll anchors during streamed updates, and skip redraws for transport revision changes alone.
+- Maintain group scroll positions while folding long replies, rendering diagrams, and resizing the keyboard viewport; keep bottom following available without repeated smooth-scroll jumps.
+
 ## [2.8.1] - 2026-10-02
 
 ### Added
