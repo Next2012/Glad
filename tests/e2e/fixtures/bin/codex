@@ -166,6 +166,10 @@ input.on('line', line => {
     }
     return;
   }
+  if (request.method === 'thread/settings/update') {
+    write({ id: request.id, error: { message: 'thread/settings/update is not a current Codex method' } });
+    return;
+  }
 
   let result = {};
   if (request.method === 'thread/read') {
@@ -301,6 +305,16 @@ input.on('line', line => {
         write({ method: 'item/completed', params: { threadId, turnId, item: { type: 'agentMessage', id: 'hidden-title-item', text: failed ? 'invalid JSON' : '{"title":"修复项目构建"}' } } });
         write({ method: 'turn/completed', params: { threadId, turn: { id: turnId, status: 'completed' } } });
       }, text.includes('__GLAD_E2E_TITLE_SLOW__') ? 1500 : 150);
+      return;
+    }
+    if (text.startsWith('__GLAD_E2E_SERVICE_TIER__')) {
+      const turnId = `tier-turn-${++turnSequence}`;
+      write({ id: request.id, result: { turn: { id: turnId } } });
+      setTimeout(() => {
+        write({ method: 'item/completed', params: { threadId: 'thread-e2e', turnId,
+          item: { type: 'agentMessage', id: turnId, text: `Service tier: ${request.params.serviceTier}; model: ${request.params.model}; effort: ${request.params.effort}` } } });
+        write({ method: 'turn/completed', params: { threadId: 'thread-e2e', turn: { id: turnId, status: 'completed' } } });
+      }, 25);
       return;
     }
     // 模拟模型服务容量错误，保留正常 app-server 协议和实际 30 秒重试间隔。
@@ -516,13 +530,13 @@ input.on('line', line => {
   } else if (request.method === 'config/read') {
     result = { config: {
       model: 'gpt-e2e', model_reasoning_effort: 'medium',
-      sandbox_mode: 'read-only', approval_policy: 'untrusted'
+      sandbox_mode: 'read-only', approval_policy: 'untrusted', service_tier: 'fast'
     } };
   } else if (request.method === 'config/batchWrite') {
     const edits = Array.isArray(request.params?.edits) ? request.params.edits : [];
     const values = Object.fromEntries(edits.map(edit => [edit.keyPath, edit.value]));
-    const expectedKeys = ['approval_policy', 'model', 'model_reasoning_effort', 'sandbox_mode'];
-    const valid = edits.length === 4
+    const expectedKeys = ['approval_policy', 'model', 'model_reasoning_effort', 'sandbox_mode', 'service_tier'];
+    const valid = edits.length === 5
       && edits.every(edit => edit.mergeStrategy === 'upsert')
       && Object.keys(values).sort().join(',') === expectedKeys.join(',')
       && Object.values(values).every(value => typeof value === 'string' && value.length > 0);
@@ -539,7 +553,8 @@ input.on('line', line => {
         isDefault: true,
         contextWindow: 128000,
         defaultReasoningEffort: 'medium',
-        supportedReasoningEfforts: ['low', 'medium', 'high']
+        supportedReasoningEfforts: ['low', 'medium', 'high'],
+        serviceTiers: [{ id: 'priority', name: 'Fast', description: 'Higher usage' }]
       }, { id: 'gpt-5.6-luna', model: 'gpt-5.6-luna', displayName: 'Luna', supportedReasoningEfforts: ['low'] }]
     };
   }

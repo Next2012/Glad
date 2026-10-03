@@ -651,6 +651,9 @@ func (manager *SessionManager) codexOptions(overrides map[string]any) map[string
 	options := map[string]any{}
 	if manager.config != nil {
 		for key, value := range mapValue(manager.config.Get("codexDefaults")) {
+			if key == "serviceTier" {
+				continue
+			}
 			if normalized, err := normalizeCodexSettings(map[string]any{key: value}); err == nil {
 				options[key] = normalized[key]
 			}

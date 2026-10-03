@@ -87,7 +87,8 @@ func TestCodexGlobalDefaultsUseAtomicAppServerBatchWrite(t *testing.T) {
 		values[stringValue(edit["keyPath"])] = edit["value"]
 	}
 	if values["model"] != "gpt-test" || values["model_reasoning_effort"] != "high" ||
-		values["sandbox_mode"] != "workspace-write" || values["approval_policy"] != "on-request" {
+		values["sandbox_mode"] != "workspace-write" || values["approval_policy"] != "on-request" ||
+		values["service_tier"] != "default" {
 		t.Fatalf("unexpected global config edits: %#v", values)
 	}
 	provider.handleRPC(map[string]any{"id": request["id"], "result": map[string]any{}})

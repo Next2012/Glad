@@ -8,45 +8,38 @@ import (
 )
 
 func (provider *CodexProvider) UpdateSettings(ctx context.Context, settings map[string]any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	normalized, err := normalizeCodexSettings(settings)
 	if err != nil {
 		return err
 	}
 
 	provider.mu.Lock()
-	if provider.threadID != "" {
-		params := map[string]any{"threadId": provider.threadID}
-		if value := normalized["permissionMode"]; value != nil {
-			if stringValue(value) == "default" {
-				value = provider.options["configPermissionMode"]
-			}
-			if value != nil {
-				params["approvalPolicy"] = value
-			}
+	model := firstNonEmpty(stringValue(normalized["model"]), stringValue(provider.options["model"]))
+	if normalized["serviceTier"] == "priority" && !provider.modelSupportsFastLocked(model) {
+		provider.mu.Unlock()
+		return errors.New("Fast mode is unavailable for the selected Codex model")
+	}
+	if normalized["model"] != nil && normalized["serviceTier"] == nil &&
+		(model != stringValue(provider.options["model"]) || !provider.modelSupportsFastLocked(model)) {
+		normalized["serviceTier"] = "default"
+	}
+	// Current app-server applies choices through thread/turn options. Save them
+	// for the next turn instead of calling the obsolete thread/settings/update.
+	if provider.defaultsStore != nil {
+		defaults := cloneMap(normalized)
+		delete(defaults, "serviceTier") // Fast is a per-session opt-in.
+		if len(defaults) > 0 {
+			err = provider.defaultsStore.UpdateMap("codexDefaults", defaults)
 		}
-		if value := normalized["sandboxMode"]; value != nil {
-			if stringValue(value) == "default" {
-				value = provider.options["configSandboxMode"]
-			}
-			if policy := codexSandboxPolicy(stringValue(value), provider.session.WorkingDirectory); policy != nil {
-				params["sandboxPolicy"] = policy
-			}
-		}
-		if value := normalized["model"]; value != nil {
-			params["model"] = value
-		}
-		if value := normalized["effort"]; value != nil {
-			params["effort"] = value
-		}
-		_, err = provider.requestLocked(ctx, "thread/settings/update", params)
 	}
 	if err == nil {
 		for key, value := range normalized {
 			provider.options[key] = value
 		}
-		if provider.defaultsStore != nil {
-			err = provider.defaultsStore.UpdateMap("codexDefaults", normalized)
-		}
+		provider.settingsRevision++
 	}
 	provider.mu.Unlock()
 	provider.updatePublicState(provider.session.StatusValue)
@@ -65,6 +58,13 @@ func normalizeCodexSettings(settings map[string]any) (map[string]any, error) {
 		case "model", "effort":
 			if value == "" || len(value) > 160 || strings.ContainsAny(value, "\r\n") {
 				return nil, fmt.Errorf("invalid Codex %s", key)
+			}
+		case "serviceTier":
+			if value == "fast" {
+				value = "priority"
+			}
+			if value != "default" && value != "priority" {
+				return nil, errors.New("invalid Codex service tier")
 			}
 		case "permissionMode":
 			if value != "default" && value != "untrusted" && value != "on-request" && value != "never" {
@@ -99,17 +99,23 @@ func (provider *CodexProvider) WriteGlobalDefaults(ctx context.Context) (map[str
 	}
 	settings, err := normalizeCodexSettings(map[string]any{
 		"model": model, "effort": effort, "permissionMode": permission, "sandboxMode": sandbox,
+		"serviceTier": provider.serviceTierLocked(),
 	})
 	if err != nil {
 		provider.mu.Unlock()
 		return nil, fmt.Errorf("current Codex settings cannot be saved as global defaults: %w", err)
 	}
 
+	tier := "default"
+	if settings["serviceTier"] == "priority" {
+		tier = "fast"
+	}
 	edits := []any{
 		map[string]any{"keyPath": "model", "value": settings["model"], "mergeStrategy": "upsert"},
 		map[string]any{"keyPath": "model_reasoning_effort", "value": settings["effort"], "mergeStrategy": "upsert"},
 		map[string]any{"keyPath": "sandbox_mode", "value": settings["sandboxMode"], "mergeStrategy": "upsert"},
 		map[string]any{"keyPath": "approval_policy", "value": settings["permissionMode"], "mergeStrategy": "upsert"},
+		map[string]any{"keyPath": "service_tier", "value": tier, "mergeStrategy": "upsert"},
 	}
 	_, err = provider.requestLocked(ctx, "config/batchWrite", map[string]any{"edits": edits})
 	if err == nil {
@@ -122,4 +128,21 @@ func (provider *CodexProvider) WriteGlobalDefaults(ctx context.Context) (map[str
 		return nil, fmt.Errorf("write Codex global defaults: %w", err)
 	}
 	return settings, nil
+}
+
+func (provider *CodexProvider) modelSupportsFastLocked(model string) bool {
+	for _, item := range provider.models {
+		if stringValue(item["id"]) == model {
+			return stringValue(item["fastServiceTier"]) == "priority"
+		}
+	}
+	return false
+}
+
+func (provider *CodexProvider) serviceTierLocked() string {
+	if tier := stringValue(provider.options["serviceTier"]); (tier == "priority" || tier == "fast") &&
+		provider.modelSupportsFastLocked(stringValue(provider.options["model"])) {
+		return "priority"
+	}
+	return "default"
 }

@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 
-async function mockSessions(page, count) {
+async function mockSessions(page, count, expectedCards = count) {
   let records = Array.from({ length: count }, (_, index) => ({
     id: `sort-${index}`, name: `Session ${index + 1}`, tool: 'Codex', toolKey: 'codex',
     status: 'idle', startTime: 1700000000000 + index, workingDirectory: '/workspace/reorder'
@@ -13,6 +13,10 @@ async function mockSessions(page, count) {
     window.WebSocket = class {
       static OPEN = 1;
       constructor(url) {
+        if (new URL(url).pathname === '/ws/rooms') {
+          this.readyState = 1;
+          return;
+        }
         window.__sortSocketsCreated++;
         this.readyState = 0;
         const id = new URL(url).searchParams.get('sessionId');
@@ -31,7 +35,7 @@ async function mockSessions(page, count) {
     };
   });
   await page.goto('/', { waitUntil: 'networkidle' });
-  await expect(page.locator('#sessions-list .session-card')).toHaveCount(count);
+  await expect(page.locator('#sessions-list .session-card')).toHaveCount(expectedCards);
   return { remove: id => { records = records.filter(record => record.id !== id); } };
 }
 
@@ -49,6 +53,37 @@ async function gesture(page, testInfo) {
 
 const lobbyIds = page => page.locator('#sessions-list .session-card').evaluateAll(cards => cards.map(card => card.dataset.sessionId));
 const tileIds = page => page.locator('#tile-grid .tile-session-window').evaluateAll(cards => cards.map(card => card.dataset.sessionId));
+
+test('grouped cards reorder within their group while shared cards and the bottom bar stay in place', async ({ page }, testInfo) => {
+  await page.route('**/api/rooms', route => route.fulfill({ json: [
+    { id: 'sort-group-one', name: 'First group', sessionIds: ['sort-0', 'sort-1'], status: 'idle' },
+    { id: 'sort-group-two', name: 'Second group', sessionIds: ['sort-0'], status: 'idle' }
+  ] }));
+  await mockSessions(page, 3, 4);
+  await page.locator('#session-groups-toggle').click();
+  const firstGroup = page.locator('.session-group[data-room-id="sort-group-one"]');
+  await firstGroup.locator('.session-group-toggle').click();
+  const drag = await gesture(page, testInfo);
+  const first = await firstGroup.locator('[data-session-id="sort-0"]').boundingBox();
+  await drag.start(first.x + 24, first.y + 28);
+  await expect(page.locator('body')).toHaveClass(/session-reordering/, { timeout: 4000 });
+  await page.evaluate(() => {
+    window.__heldGroupCard = document.querySelector('.reorder-source');
+    renderRooms(sessionListRooms.map(room => ({ ...room, status: 'running' })));
+  });
+  expect(await page.evaluate(() => window.__heldGroupCard === document.querySelector('.reorder-source'))).toBe(true);
+  const target = await firstGroup.locator('[data-session-id="sort-1"]').boundingBox();
+  await drag.move(target.x + 24, target.y + target.height - 6);
+  const ids = () => firstGroup.locator('.session-card').evaluateAll(cards => cards.map(card => card.dataset.sessionId));
+  await expect.poll(ids).toEqual(['sort-1', 'sort-0']);
+  await drag.end();
+  await expect.poll(ids).toEqual(['sort-1', 'sort-0']);
+  await expect(page.locator('.session-standalone-list .session-card')).toHaveAttribute('data-session-id', 'sort-2');
+  await expect(page.locator('.session-group[data-room-id="sort-group-two"] .session-card')).toHaveAttribute('data-session-id', 'sort-0');
+  expect(await page.locator('#session-groups-bar').evaluate(element => element === element.parentElement.lastElementChild)).toBe(true);
+  await page.evaluate(() => loadSessions());
+  await expect.poll(ids).toEqual(['sort-1', 'sort-0']);
+});
 
 test('lobby requires a three-second hold, then saves order across refresh and views', async ({ page }, testInfo) => {
   await mockSessions(page, 5);

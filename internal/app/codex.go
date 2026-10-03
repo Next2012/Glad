@@ -105,6 +105,9 @@ type CodexProvider struct {
 	abortGrace        time.Duration
 	closed            bool
 
+	settingsRevision        uint64
+	appliedSettingsRevision uint64
+
 	sending                 bool
 	capacityRetryTimer      *time.Timer
 	capacityRetryGeneration uint64
@@ -116,6 +119,9 @@ type CodexProvider struct {
 func NewCodexProvider(session *Session, options map[string]any) *CodexProvider {
 	if options == nil {
 		options = map[string]any{}
+	}
+	if options["serviceTier"] == nil {
+		options["serviceTier"] = "default"
 	}
 	provider := &CodexProvider{
 		session:       session,
@@ -323,6 +329,7 @@ func (provider *CodexProvider) send(ctx context.Context, input ProviderInput, re
 		"summary":  "auto",
 	}
 	provider.applyTurnOptions(params)
+	settingsRevision := provider.settingsRevision
 	// Notifications can arrive while turn/start releases provider.mu. Only
 	// supersede async questions that already existed before this request.
 	supersededInputs := []string{}
@@ -343,6 +350,7 @@ func (provider *CodexProvider) send(ctx context.Context, input ProviderInput, re
 		}
 		return err
 	}
+	provider.appliedSettingsRevision = settingsRevision
 	// 快速结束或中止的通知可能先于此处被处理，不能让迟到的 RPC 响应恢复 running。
 	if sequence != provider.abortSequence {
 		provider.mu.Unlock()
@@ -731,10 +739,17 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 	case "thread/settings/updated":
 		settings := mapValue(params["threadSettings"])
 		provider.mu.Lock()
+		if threadID != provider.threadID || provider.settingsRevision > provider.appliedSettingsRevision {
+			provider.mu.Unlock()
+			return
+		}
 		for _, key := range []string{"model", "effort", "approvalPolicy", "sandboxPolicy"} {
 			if settings[key] != nil {
 				provider.options[key] = settings[key]
 			}
+		}
+		if tier, present := settings["serviceTier"]; present {
+			provider.options["serviceTier"] = firstNonEmpty(stringValue(tier), "default")
 		}
 		provider.mu.Unlock()
 		provider.updatePublicState(provider.session.StatusValue)
@@ -1869,10 +1884,11 @@ func (provider *CodexProvider) refreshModelsLocked(ctx context.Context) error {
 				stringValue(item["model"]),
 				stringValue(item["id"]),
 			),
-			"isDefault":     boolValue(item["isDefault"]),
-			"contextWindow": item["contextWindow"],
-			"efforts":       codexReasoningEfforts(item["supportedReasoningEfforts"]),
-			"defaultEffort": stringValue(item["defaultReasoningEffort"]),
+			"isDefault":       boolValue(item["isDefault"]),
+			"contextWindow":   item["contextWindow"],
+			"efforts":         codexReasoningEfforts(item["supportedReasoningEfforts"]),
+			"defaultEffort":   stringValue(item["defaultReasoningEffort"]),
+			"fastServiceTier": codexFastServiceTier(item),
 		})
 	}
 	if provider.options["model"] == nil {
@@ -1884,6 +1900,25 @@ func (provider *CodexProvider) refreshModelsLocked(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func codexFastServiceTier(model map[string]any) string {
+	if tiers, present := model["serviceTiers"]; present {
+		for _, raw := range sliceValue(tiers) {
+			switch stringValue(mapValue(raw)["id"]) {
+			case "priority", "fast":
+				return "priority"
+			}
+		}
+		return ""
+	}
+	// Older app-server versions expose only the speed-tier names.
+	for _, raw := range sliceValue(model["additionalSpeedTiers"]) {
+		if stringValue(raw) == "fast" {
+			return "priority"
+		}
+	}
+	return ""
 }
 
 func codexReasoningEfforts(value any) []string {
@@ -1918,6 +1953,7 @@ func (provider *CodexProvider) applyConfig(config map[string]any) {
 }
 func (provider *CodexProvider) applyThreadOptions(params map[string]any) {
 	params["config"] = codexPlanConfig()
+	params["serviceTier"] = provider.serviceTierLocked()
 	provider.applyDeveloperInstructions(params)
 	if value := stringValue(provider.options["model"]); value != "" {
 		params["model"] = value
@@ -1959,14 +1995,23 @@ func (provider *CodexProvider) UpdateInstructions(ctx context.Context, instructi
 	return nil
 }
 func (provider *CodexProvider) applyTurnOptions(params map[string]any) {
+	params["serviceTier"] = provider.serviceTierLocked()
 	if value := stringValue(provider.options["model"]); value != "" {
 		params["model"] = value
 	}
-	if value := stringValue(provider.options["permissionMode"]); value != "" && value != "default" {
-		params["approvalPolicy"] = value
+	permission := stringValue(provider.options["permissionMode"])
+	if permission == "default" {
+		permission = stringValue(provider.options["configPermissionMode"])
 	}
-	if value := stringValue(provider.options["sandboxMode"]); value != "" && value != "default" {
-		params["sandboxPolicy"] = codexSandboxPolicy(value, provider.session.WorkingDirectory)
+	if permission != "" {
+		params["approvalPolicy"] = permission
+	}
+	sandbox := stringValue(provider.options["sandboxMode"])
+	if sandbox == "default" {
+		sandbox = stringValue(provider.options["configSandboxMode"])
+	}
+	if policy := codexSandboxPolicy(sandbox, provider.session.WorkingDirectory); policy != nil {
+		params["sandboxPolicy"] = policy
 	}
 	if value := stringValue(provider.options["effort"]); value != "" {
 		params["effort"] = value
@@ -2044,6 +2089,7 @@ func (provider *CodexProvider) updatePublicStateLocked(status string) {
 		"effectiveSandboxMode":    firstNonNil(provider.options["sandboxMode"], provider.options["configSandboxMode"]),
 		"model":                   provider.options["model"],
 		"effort":                  provider.options["effort"],
+		"serviceTier":             provider.serviceTierLocked(),
 		"status":                  status,
 		"threadId":                nilIfEmpty(provider.threadID),
 		"aborting":                aborting,

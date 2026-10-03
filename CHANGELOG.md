@@ -10,6 +10,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.8.3] - 2026-10-03
+
+### Added
+
+- Offer a Fast switch for Codex models that advertise the tier. Keep Fast off for new Glad sessions and apply each session's choice to its next turn.
+- Move sessions belonging to live groups into a collapsed section at the bottom of the Sessions list, with expandable groups, shared session entries, and running, attention, and unread indicators.
+
+### Changed
+
+- Order group composer actions as mentions, attachments, scheduled send, Stop, Resume, and Fork.
+
+### Fixed
+
+- Apply Codex settings through supported thread and turn options instead of the obsolete settings-update RPC, and prevent old or child-thread settings from overwriting pending choices.
+- Preserve session-group expansion during live updates and keep dragging scoped to each list; return sessions to the main list when they leave their last live group.
+
 ## [2.8.2] - 2026-10-02
 
 ### Fixed

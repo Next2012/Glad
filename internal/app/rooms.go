@@ -323,9 +323,13 @@ func (manager *RoomManager) list(activeOnly bool) ([]map[string]any, error) {
 			}
 		}
 		activeMembers := 0
+		liveSessionIDs := []string{}
 		for _, member := range room.Members {
 			if member.LeftAt == 0 {
 				activeMembers++
+				if activeOnly && manager.sessions.Get(member.RuntimeSessionID) != nil {
+					liveSessionIDs = append(liveSessionIDs, member.RuntimeSessionID)
+				}
 			}
 		}
 		messageCount := len(manager.projectRoomEntriesLocked(room))
@@ -337,6 +341,9 @@ func (manager *RoomManager) list(activeOnly bool) ([]map[string]any, error) {
 				"updatedAt": room.UpdatedAt, "memberCount": activeMembers,
 				"messageCount": messageCount, "draft": room.Draft,
 				"serverChanNotificationEnabled": room.ServerChanNotificationEnabled,
+			}
+			if activeOnly {
+				metadata["sessionIds"] = liveSessionIDs
 			}
 			for key, value := range metadata {
 				item[key] = value
