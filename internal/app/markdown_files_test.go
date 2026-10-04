@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -21,6 +22,9 @@ func TestMarkdownWorkspaceResources(t *testing.T) {
 		{"中文 notes.md", "# Notes", "text/plain; charset=utf-8"},
 		{"page.html", "<script>alert(1)</script>", "text/plain; charset=utf-8"},
 		{"diagram.svg", `<svg xmlns="http://www.w3.org/2000/svg"><circle r="2"/></svg>`, "image/svg+xml"},
+		{"中文报告.pdf", "%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n", "application/pdf"},
+		{"download.bin", "%PDF-1.7\n%%EOF\n", "application/pdf"},
+		{"fake.pdf", "<script>alert(1)</script>", "text/plain; charset=utf-8"},
 	} {
 		if err := os.WriteFile(filepath.Join(root, item.name), []byte(item.content), 0o600); err != nil {
 			t.Fatal(err)
@@ -33,6 +37,10 @@ func TestMarkdownWorkspaceResources(t *testing.T) {
 			}
 			if recorder.Header().Get("Content-Security-Policy") != "default-src 'none'; sandbox" || recorder.Header().Get("X-Content-Type-Options") != "nosniff" {
 				t.Fatal("resource is missing content isolation headers")
+			}
+			kind, parameters, err := mime.ParseMediaType(recorder.Header().Get("Content-Disposition"))
+			if err != nil || kind != "inline" || parameters["filename"] != item.name {
+				t.Fatalf("resource filename is not preserved: %q", recorder.Header().Get("Content-Disposition"))
 			}
 		}
 	}

@@ -10,7 +10,7 @@ import (
 )
 
 // Markdown links are relative to their session's working directory. Files are
-// served as plain text or images, never as executable same-origin HTML.
+// served as plain text, images or PDF, never as executable same-origin HTML.
 func (server *Server) markdownWorkspaceResource(writer http.ResponseWriter, request *http.Request) {
 	session, ok := server.sessionForRoute(writer, request)
 	if !ok {
@@ -53,7 +53,8 @@ func (server *Server) markdownWorkspaceResource(writer http.ResponseWriter, requ
 	contentType := http.DetectContentType(content)
 	if strings.EqualFold(filepath.Ext(resolved), ".svg") {
 		contentType = "image/svg+xml"
-	} else if !strings.HasPrefix(contentType, "image/") {
+	} else if !strings.HasPrefix(contentType, "image/") && contentType != "application/pdf" {
+		// PDF 按真实文件头交给阅读器；HTML 等内容继续以纯文本返回。
 		contentType = "text/plain; charset=utf-8"
 	}
 	writer.Header().Set("Content-Type", contentType)
