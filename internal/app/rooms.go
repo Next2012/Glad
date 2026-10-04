@@ -89,6 +89,8 @@ func (resolver sessionRoomTurnResolver) Resolve(member RoomMemberRecord, entry R
 }
 
 type RoomMessageInput struct {
+	Source             *SupervisorSource                `json:"-"`
+	SenderMemberID     string                           `json:"-"`
 	ClientMessageID    string                           `json:"clientMessageId,omitempty"`
 	Text               string                           `json:"text"`
 	MentionedMemberIDs []string                         `json:"mentionedMemberIds"`
@@ -401,6 +403,9 @@ func (manager *RoomManager) Busy(id string) bool {
 			continue
 		}
 		if session := manager.sessions.Get(member.RuntimeSessionID); session != nil {
+			if ready, _ := sessionCanAccept(session); !ready {
+				return true
+			}
 			session.mu.RLock()
 			status := session.StatusValue
 			session.mu.RUnlock()
@@ -711,6 +716,13 @@ func (manager *RoomManager) getPublic(id string, history bool) (map[string]any, 
 			"joinedAt":             member.JoinedAt, "leftAt": member.LeftAt,
 			"available": available, "status": status,
 			"pendingPermissionCount": pendingPermissions, "pendingQuestionCount": pendingQuestions,
+			"canAccept": func() bool {
+				if session == nil || member.LeftAt != 0 {
+					return false
+				}
+				ready, _ := sessionCanAccept(session)
+				return ready
+			}(),
 		})
 	}
 	projected := manager.projectRoomEntriesLocked(room)
@@ -738,6 +750,7 @@ func (manager *RoomManager) getPublic(id string, history bool) (map[string]any, 
 
 type roomProjectedTurn struct {
 	turnID, conversationID, originRoomID, clientID, userText, assistantText, status string
+	hidden                                                                          bool
 	userAt, assistantAt                                                             int64
 }
 
@@ -822,6 +835,16 @@ func (manager *RoomManager) projectRoomEntriesLocked(room RoomRecord) []RoomEntr
 			case "user":
 				text := strings.TrimSpace(stringValue(message["text"]))
 				clientID := stringValue(message["clientMessageId"])
+				source := sourceValue(message["supervisorSource"])
+				if source == nil {
+					source, _ = supervisorEnvelope(stringValue(message["agentText"]))
+				}
+				if historicalSource, visible := supervisorEnvelope(text); historicalSource != nil {
+					source, text = historicalSource, visible
+				}
+				if source != nil && source.Kind == "trigger" {
+					turn.hidden = true
+				}
 				if origin, roomClient := roomClientOrigin(clientID); roomClient && origin != "" {
 					turn.originRoomID = origin
 				}
@@ -856,7 +879,7 @@ func (manager *RoomManager) projectRoomEntriesLocked(room RoomRecord) []RoomEntr
 		}
 		for _, turnID := range order {
 			turn := turns[turnID]
-			if turn.userText == "" || seenTurns[member.ID+"\x00"+turnID] ||
+			if turn.hidden || turn.userText == "" || seenTurns[member.ID+"\x00"+turnID] ||
 				(turn.clientID != "" && seenClients[member.ID+"\x00"+turn.clientID]) {
 				continue
 			}
@@ -1239,6 +1262,13 @@ func (manager *RoomManager) PostMessage(ctx context.Context, roomID string, inpu
 			manager.mu.Unlock()
 			return nil, fmt.Errorf("room member is unavailable: %s", id)
 		}
+		if session := manager.sessions.Get(member.RuntimeSessionID); session == nil {
+			manager.mu.Unlock()
+			return nil, fmt.Errorf("room member is unavailable: %s", member.DisplayName)
+		} else if ready, reason := sessionCanAccept(session); !ready {
+			manager.mu.Unlock()
+			return nil, fmt.Errorf("%s: %s", member.DisplayName, reason)
+		}
 		targets = append(targets, member)
 	}
 	projected := manager.projectRoomEntriesLocked(room)
@@ -1247,7 +1277,7 @@ func (manager *RoomManager) PostMessage(ctx context.Context, roomID string, inpu
 	userEntry := RoomEntryRecord{
 		ID: newUUID(), Sequence: room.NextSequence, Type: "user", UserText: input.Text,
 		MentionedMemberIDs: input.MentionedMemberIDs, QuotedEntryIDs: input.QuotedEntryIDs,
-		Status: "completed", CreatedAt: now, ClientMessageID: input.ClientMessageID, RequestHash: requestHash,
+		Status: "completed", CreatedAt: now, ClientMessageID: input.ClientMessageID, RequestHash: requestHash, SenderMemberID: input.SenderMemberID,
 	}
 	room.NextSequence++
 	room.Entries = append(room.Entries, userEntry)
@@ -1280,7 +1310,7 @@ func (manager *RoomManager) PostMessage(ctx context.Context, roomID string, inpu
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			manager.dispatch(ctx, room.ID, replyIDs[target.ID], target, input.Text, agentText, input.Attachments[target.ID])
+			manager.dispatch(ctx, room.ID, replyIDs[target.ID], target, input.Text, agentText, input.Attachments[target.ID], input.Source)
 		}()
 	}
 	wait.Wait()
@@ -1293,6 +1323,7 @@ func (manager *RoomManager) dispatch(
 	member RoomMemberRecord,
 	displayText, agentText string,
 	attachmentIDs RoomTargetAttachments,
+	source *SupervisorSource,
 ) {
 	session := manager.sessions.Get(member.RuntimeSessionID)
 	if session == nil {
@@ -1326,8 +1357,8 @@ func (manager *RoomManager) dispatch(
 		return
 	}
 	session.commandMu.Lock()
-	err = session.Provider.Send(ctx, ProviderInput{
-		ClientMessageID: clientID, Text: displayText, AgentText: providerText,
+	err = sendSessionControlledLocked(ctx, session, ProviderInput{
+		ClientMessageID: clientID, Text: displayText, AgentText: supervisorAgentText(source, providerText), Source: source,
 		Images: images, Files: files,
 	})
 	session.commandMu.Unlock()
@@ -1416,6 +1447,7 @@ func (manager *RoomManager) publicEntryLocked(
 		"quotedEntryIds": entry.QuotedEntryIDs, "status": entry.Status,
 		"createdAt":            entry.CreatedAt,
 		"historical":           entry.Historical,
+		"senderMemberId":       nilIfEmpty(entry.SenderMemberID),
 		"hasContext":           entry.NativeTurnID != "" && entry.MemberID != "",
 		"sourceTurnId":         nilIfEmpty(entry.NativeTurnID),
 		"sourceConversationId": nilIfEmpty(entry.NativeConversationID),

@@ -113,6 +113,9 @@
     <!-- Lightweight group chat. Session responses remain sourced from their native histories. -->
     <section id="room-view" class="view" aria-label="Group chat">
         <header class="room-header">
+            <button id="room-selection-cancel" class="small-btn room-selection-action" type="button" onclick="cancelRoomSelection()">Cancel</button>
+            <span id="room-selection-count" class="room-selection-action" aria-live="polite">0 selected</span>
+            <button id="room-selection-preview" class="small-btn primary room-selection-action" type="button" onclick="openSelectedRoomQuotesPreview()" disabled>Preview 0</button>
             <button class="room-back-button" type="button" onclick="closeRoom()" aria-label="Back to groups">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
             </button>
@@ -149,6 +152,7 @@
             <div class="room-toolbar-row">
                 <div class="room-action-rail" aria-label="Group actions">
                     <button id="room-mention-button" class="composer-action-btn" type="button" onclick="toggleRoomMentionPicker()" title="Choose sessions" aria-label="Choose sessions"><svg class="action-icon" aria-hidden="true"><use href="#icon-at"></use></svg></button>
+                    <button id="room-supervisor-button" class="composer-action-btn" type="button" onclick="openSupervisorPanel()" title="Supervisor" aria-label="Supervisor"><svg class="action-icon" aria-hidden="true"><use href="#icon-group"></use></svg></button>
                     <button id="room-attachment-button" class="composer-action-btn" type="button" onclick="document.getElementById('room-file-input').click()" title="Attachments are delivered to mentioned sessions only"><svg class="action-icon" aria-hidden="true"><use href="#icon-file"></use></svg></button>
                     <button id="room-schedule-send-btn" class="composer-action-btn" type="button" onclick="toggleRoomTimerPanel()" title="Schedule group message" aria-label="Schedule group message"><svg class="action-icon" aria-hidden="true"><use href="#icon-schedule"></use></svg></button>
                     <button id="room-abort-button" class="composer-action-btn danger" type="button" onclick="abortRoom()" title="Stop running group sessions" aria-label="Stop group" disabled><svg class="action-icon" aria-hidden="true"><use href="#icon-stop"></use></svg></button>
@@ -668,12 +672,35 @@
         </div>
     </div>
 
+    <div id="room-supervisor-overlay" class="room-modal-overlay" onclick="closeSupervisorPanel(event)">
+        <section class="room-supervisor-modal" role="dialog" aria-modal="true" aria-labelledby="room-supervisor-title" onclick="event.stopPropagation()">
+            <header><button id="supervisor-back" class="room-modal-back" type="button" onclick="supervisorBack()" aria-label="Back to supervisors" hidden>←</button><h2 id="room-supervisor-title">Supervisors</h2><button id="supervisor-new" class="small-btn primary" type="button" onclick="editSupervisorTask()">＋ New</button><button class="icon-btn" type="button" onclick="closeSupervisorPanel()" aria-label="Close supervisors">×</button></header>
+            <p id="supervisor-load-warning" class="supervisor-notice" role="status" hidden></p>
+            <p id="supervisor-error" class="supervisor-task-error" role="alert" hidden></p>
+            <div id="supervisor-list-view"><div id="room-supervisor-list"></div></div>
+            <div id="supervisor-editor-view" hidden><form id="room-supervisor-form" onsubmit="event.preventDefault();saveSupervisorTask()">
+                <label>Supervisor session<select id="supervisor-executor" required></select></label>
+                <fieldset><legend>Monitored sessions</legend><div id="supervisor-targets"></div></fieldset>
+                <fieldset><legend>Delay after each check</legend><div class="supervisor-interval-presets"><button type="button" data-supervisor-interval="60">1m</button><button type="button" data-supervisor-interval="120" aria-pressed="true">2m</button><button type="button" data-supervisor-interval="300">5m</button><button type="button" data-supervisor-interval="900">15m</button><button type="button" data-supervisor-interval="custom">Custom</button></div><label id="supervisor-custom-interval" hidden>Minutes<input id="supervisor-custom-minutes" type="number" min="1" max="1440" step="any" value="2"></label><input id="supervisor-interval" type="hidden" value="120"></fieldset>
+                <label>Prompt for each check<textarea id="supervisor-prompt" rows="4" required placeholder="Describe what to check and when to send the next instruction…"></textarea></label>
+                <details class="supervisor-advanced"><summary>Advanced</summary><label class="supervisor-check"><input id="supervisor-skip" type="checkbox"> Skip unchanged idle sessions</label></details>
+                <div class="supervisor-form-actions"><button id="supervisor-save" class="small-btn primary" type="submit">Save &amp; start</button></div>
+            </form></div>
+            <div id="supervisor-detail-view" hidden><section id="supervisor-detail-summary"></section><h3>Check history</h3><section id="supervisor-history"></section><button id="supervisor-history-more" class="small-btn" type="button" onclick="loadSupervisorHistory(true)" hidden>Load older checks</button></div>
+        </section>
+    </div>
     <div id="room-members-overlay" class="room-modal-overlay" onclick="closeRoomMembers(event)">
         <section class="room-members-modal" role="dialog" aria-modal="true" aria-labelledby="room-members-title" onclick="event.stopPropagation()">
-            <header><button class="room-modal-back" type="button" onclick="closeRoomMembers()" aria-label="Back"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg></button><div><h2 id="room-members-title">Group members</h2><p>Sessions keep their own independent context.</p></div><span class="room-modal-header-spacer" aria-hidden="true"></span></header>
-            <div class="room-member-actions"><button class="small-btn primary" type="button" onclick="showRoomExistingSessions()">Add running session</button><button class="small-btn" type="button" onclick="createSessionForRoom()">Create session</button></div>
+            <header><button class="room-modal-back" type="button" onclick="backRoomMembers()" aria-label="Back"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg></button><div><h2 id="room-members-title">Group members</h2><p>Sessions keep their own independent context.</p></div><span class="room-modal-header-spacer" aria-hidden="true"></span></header>
+            <div id="room-members-home">            <div class="room-member-actions"><button class="small-btn primary" type="button" onclick="showRoomExistingSessions()">Add running session</button><button class="small-btn" type="button" onclick="createSessionForRoom()">Create session</button></div>
             <div id="room-members-list"></div>
             <div id="room-session-picker"></div>
+            </div>
+            <div id="room-member-controls" hidden>
+                <div class="member-control-toolbar"><button type="button" class="small-btn" onclick="readMemberOutput(false,0)">Live output</button><button type="button" class="small-btn" onclick="readMemberOutput(true,0)">History</button><button id="member-stop" type="button" class="small-btn" onclick="stopMemberRun()">Stop session</button></div>
+                <p id="member-control-status" role="status"></p><pre id="member-control-output"></pre><button id="member-history-next" class="small-btn" type="button" onclick="readMemberOutput(true,memberControlOffset+30)" hidden>Next history page</button>
+                <label class="member-command-label">Command<textarea id="member-command" rows="3" placeholder="Send the next instruction…"></textarea></label><button id="member-start" class="small-btn primary" type="button" onclick="sendMemberCommand()" disabled>Send command / Start</button><p id="member-control-error" role="alert"></p>
+            </div>
         </section>
     </div>
 
@@ -726,6 +753,8 @@
     <script src="workspace.js"></script>
     <script src="rooms.js"></script>
     <script src="room-controls.js"></script>
+    <script src="room-supervisors.js"></script>
+    <script src="room-member-controls.js"></script>
     <script src="terminal-scroll.js"></script>
     <script src="git.js"></script>
     <script src="usage.js"></script>

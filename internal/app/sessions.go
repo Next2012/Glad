@@ -72,6 +72,7 @@ type ProviderInput struct {
 	Files           []Attachment
 	Skills          []map[string]any
 	Internal        bool
+	Source          *SupervisorSource
 }
 
 type Attachment struct {
@@ -118,35 +119,42 @@ type sendResult struct {
 }
 
 type Session struct {
-	mu                            sync.RWMutex
-	commandMu                     sync.Mutex
-	ctx                           context.Context
-	cancel                        context.CancelFunc
-	closeOnce                     sync.Once
-	closed                        bool
-	ID                            string
-	Name                          string
-	NameManual                    bool
-	Kind                          string
-	Tool                          ToolInfo
-	WorkingDirectory              string
-	environment                   []string
-	StartTime                     int64
-	StatusValue                   string
-	State                         map[string]any
-	Messages                      []map[string]any
-	Permissions                   map[string]Permission
-	CompletedPermissions          []Permission
-	HasUnreadCompletion           bool
-	CompletionRevision            uint64
-	ServerChanNotificationEnabled bool
-	TimedInputs                   map[string]*TimedInput
-	Attachments                   map[string]Attachment
-	Uploads                       map[string]*ChunkUpload
-	Provider                      Provider
-	dispose                       func()
-	events                        *sessioncore.EventHub
-	sendResults                   map[string]sendResult
+	mu                              sync.RWMutex
+	commandMu                       sync.Mutex
+	ctx                             context.Context
+	cancel                          context.CancelFunc
+	closeOnce                       sync.Once
+	closed                          bool
+	ID                              string
+	Name                            string
+	NameManual                      bool
+	Kind                            string
+	Tool                            ToolInfo
+	WorkingDirectory                string
+	environment                     []string
+	StartTime                       int64
+	StatusValue                     string
+	State                           map[string]any
+	Messages                        []map[string]any
+	Permissions                     map[string]Permission
+	CompletedPermissions            []Permission
+	HasUnreadCompletion             bool
+	CompletionRevision              uint64
+	ServerChanNotificationEnabled   bool
+	TimedInputs                     map[string]*TimedInput
+	Attachments                     map[string]Attachment
+	Uploads                         map[string]*ChunkUpload
+	Provider                        Provider
+	dispose                         func()
+	events                          *sessioncore.EventHub
+	sendResults                     map[string]sendResult
+	controlHashes                   map[string]string
+	outputRevision                  uint64
+	outputResetRevision             uint64
+	currentSource                   *SupervisorSource
+	sourceTurns                     map[string]*SupervisorSource
+	supervisorLease                 string
+	mcpURL, mcpExecutable, mcpToken string
 }
 
 func newSession(id, name, kind string, tool ToolInfo, workingDirectory string) *Session {
@@ -159,7 +167,7 @@ func newSession(id, name, kind string, tool ToolInfo, workingDirectory string) *
 		CompletedPermissions: []Permission{}, TimedInputs: map[string]*TimedInput{},
 		Attachments: map[string]Attachment{}, Uploads: map[string]*ChunkUpload{},
 		events:      sessioncore.NewEventHub(),
-		sendResults: map[string]sendResult{},
+		sendResults: map[string]sendResult{}, controlHashes: map[string]string{}, sourceTurns: map[string]*SupervisorSource{},
 	}
 }
 
@@ -225,6 +233,17 @@ func (session *Session) markCompletionUnread() uint64 {
 	defer session.mu.Unlock()
 	if session.closed {
 		return session.CompletionRevision
+	}
+	if session.currentSource != nil {
+		for index := len(session.Messages) - 1; index >= 0; index-- {
+			message := session.Messages[index]
+			if stringValue(message["kind"]) == "turn-end" {
+				if firstNonEmpty(stringValue(message["status"]), stringValue(message["turnStatus"]), "completed") == "completed" {
+					return session.CompletionRevision
+				}
+				break
+			}
+		}
 	}
 	session.CompletionRevision++
 	session.HasUnreadCompletion = true
@@ -468,6 +487,26 @@ func (session *Session) finishPermission(id, status, decision string) (Permissio
 }
 
 func (session *Session) publishLocked(event map[string]any) {
+	session.outputRevision++
+	if stringValue(event["type"]) == "history-reset" {
+		session.outputResetRevision = session.outputRevision
+		for _, message := range session.Messages {
+			message["revision"] = session.outputRevision
+		}
+	}
+	if message := mapValue(event["message"]); len(message) != 0 {
+		message["revision"] = session.outputRevision
+		for _, item := range session.Messages {
+			if item["id"] == message["id"] {
+				item["revision"] = session.outputRevision
+				break
+			}
+		}
+	}
+	// Completion acknowledgements use their own revision; never replace it
+	// with the unrelated output cursor.
+	event["outputRevision"] = session.outputRevision
+	session.tagSourceLocked(event)
 	session.events.Publish(sessioncore.Event{SessionID: session.ID, Kind: session.Kind, Payload: event})
 }
 
@@ -498,13 +537,14 @@ func (session *Session) detail(ids []string, threadID string) map[string]any {
 }
 
 type SessionManager struct {
-	mu          sync.RWMutex
-	baseDir     string
-	environment []string
-	config      *ConfigStore
-	sessions    map[string]*Session
-	creating    map[string]struct{}
-	events      *sessioncore.EventHub
+	mu                    sync.RWMutex
+	baseDir               string
+	environment           []string
+	config                *ConfigStore
+	sessions              map[string]*Session
+	creating              map[string]struct{}
+	events                *sessioncore.EventHub
+	mcpURL, mcpExecutable string
 }
 
 func NewSessionManager(baseDir string) *SessionManager {
@@ -593,6 +633,7 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 	}
 	session := newSession(id, name, kind, tool, directory)
 	session.environment = append([]string(nil), manager.environment...)
+	session.mcpURL, session.mcpExecutable, session.mcpToken = manager.mcpURL, manager.mcpExecutable, newUUID()
 	session.NameManual = strings.TrimSpace(request.Name) != ""
 	session.events = manager.events
 	if request.ToolKey == "codex" {
@@ -620,13 +661,13 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 	manager.mu.Unlock()
 	if request.AutoStart {
 		// 空输入会启动首轮 Codex 回复，聊天记录中不产生一条用户消息。
-		if err := session.Provider.Send(ctx, sessionBootstrapInput(session)); err != nil {
+		if err := sendSessionControlled(ctx, session, sessionBootstrapInput(session)); err != nil {
 			manager.Delete(context.Background(), id)
 			return nil, err
 		}
 	} else if strings.TrimSpace(request.InitialMessage) != "" {
 		// 首轮由服务端发起，页面打开后可以直接看到助理的开场回复。
-		if err := session.Provider.Send(ctx, ProviderInput{
+		if err := sendSessionControlled(ctx, session, ProviderInput{
 			ClientMessageID: newUUID(), Text: request.InitialMessage,
 			AgentText: request.InitialMessage,
 		}); err != nil {

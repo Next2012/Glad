@@ -50,6 +50,7 @@ type RoomMemberRecord struct {
 }
 
 type RoomEntryRecord struct {
+	SenderMemberID       string   `json:"senderMemberId,omitempty"`
 	ID                   string   `json:"id"`
 	Sequence             int64    `json:"sequence"`
 	Type                 string   `json:"type"`

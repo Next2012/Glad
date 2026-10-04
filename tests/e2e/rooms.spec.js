@@ -70,17 +70,14 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
   await page.locator('#room-history-panel > header .icon-btn').click();
 
   const quotedReply = page.locator('.room-entry.session').first();
-  await expect(quotedReply.locator(':scope > .room-quote-button')).toHaveCount(0);
-  await expect(quotedReply.locator('.room-entry-author .room-quote-button .room-quote-icon-plus')).toBeVisible();
-  await expect(quotedReply.getByRole('button', { name: 'Add to references' })).toBeVisible();
-  await quotedReply.getByRole('button', { name: 'Add to references' }).click();
-  await expect(page.locator('.room-context-chip.quote')).toBeVisible();
-  await quotedReply.getByRole('button', { name: 'Remove from references' }).click();
-  await expect(page.locator('.room-context-chip.quote')).toHaveCount(0);
+  await expect(page.locator('.room-quote-button')).toHaveCount(0);
+  await expect(quotedReply.locator('.room-selection-circle')).toBeHidden();
   await quotedReply.dispatchEvent('pointerdown', { pointerType: 'touch', clientX: 20, clientY: 20 });
   await page.waitForTimeout(650);
   await quotedReply.dispatchEvent('pointerup', { pointerType: 'touch', clientX: 20, clientY: 20 });
   await expect(page.locator('.room-context-chip.quote')).toBeVisible();
+  await expect(page.locator('#room-selection-cancel')).toBeVisible();
+  await expect(page.locator('.room-selected-preview-button')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Preview 1/ })).toBeVisible();
   await page.getByRole('button', { name: /Preview 1/ }).click();
   await expect(page.locator('#room-quotes-overlay')).toBeVisible();
@@ -89,16 +86,14 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
   await expect(page.locator('.room-selection-preview-item .room-entry-reference')).toHaveCount(0);
   await page.locator('#room-quotes-overlay .icon-btn').click();
   const firstUserMessage = page.locator('.room-entry.user').first();
-  await expect(firstUserMessage.locator(':scope > .room-quote-button')).toHaveCount(0);
-  await expect(firstUserMessage.locator('.room-entry-author .room-quote-button')).toBeVisible();
+  await expect(firstUserMessage.locator('.room-selection-circle')).toBeVisible();
   const userLayout = await firstUserMessage.evaluate(entry => {
     const column = entry.querySelector('.room-entry-column').getBoundingClientRect();
-    const quote = entry.querySelector('.room-quote-button').getBoundingClientRect();
-    const author = entry.querySelector('.room-entry-author').getBoundingClientRect();
-    return { columnRatio: column.width / entry.getBoundingClientRect().width, quoteOnHeader: quote.top >= author.top && quote.bottom <= author.bottom + 1 };
+    const circle = entry.querySelector('.room-selection-circle').getBoundingClientRect();
+    return { gutter: column.left - entry.getBoundingClientRect().left, circleBeforeMessage: circle.right < column.left };
   });
-  expect(userLayout.columnRatio).toBeGreaterThan(.98);
-  expect(userLayout.quoteOnHeader).toBe(true);
+  expect(userLayout.gutter).toBe(40);
+  expect(userLayout.circleBeforeMessage).toBe(true);
   await page.locator('#room-mention-button').click();
   await page.locator('.room-mention-option').click();
   await page.locator('.room-mention-picker-title button').click();

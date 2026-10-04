@@ -83,9 +83,10 @@ test('configures ServerChan separately from the per-session notification toggle'
   await expect(card.locator('.serverchan-settings-trigger')).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Settings' }).click();
+  await page.locator('[data-settings-nav="serverchan"]').click();
   await expect(page.locator('#settings-modal-overlay')).toBeVisible();
-  await expect(page.getByText('Notifications', { exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'ServerChan' })).toBeVisible();
+  await expect(page.locator('[data-settings-page="serverchan"]')).toBeVisible();
+  await expect(page.locator('#notifications-settings-title')).toBeVisible();
   await page.locator('#serverchan-client-type').selectOption('pushdeer');
   await page.locator('#serverchan-send-key').fill('SCT_E2E_TEST_1234');
 
@@ -129,6 +130,7 @@ test('saves and sends one live ServerChan test message when explicitly enabled',
   const card = page.locator('.session-card').filter({ hasText: 'Server酱体验' });
   await expect(card).toBeVisible();
   await page.getByRole('button', { name: 'Settings' }).click();
+  await page.locator('[data-settings-nav="serverchan"]').click();
   await page.locator('#serverchan-client-type').selectOption('wechat');
   await page.locator('#serverchan-send-key').fill(sendKey);
 

@@ -141,11 +141,10 @@ test('group stops all running members and acknowledges completion only while vis
     await page.locator('#room-input').fill('__GLAD_E2E_PLAN_HOLD__ stop both members');
     await page.locator('#room-send-button').click();
     await expect(page.getByRole('button', { name: 'Stop group', exact: true })).toBeEnabled();
-    page.once('dialog', dialog => dialog.accept());
-    await page.locator('#room-input').fill('Keep the next draft while running');
+    await page.locator('#room-input').fill('Save a note while members are running');
     await page.locator('#room-input').press('Shift+Enter');
-    await expect(page.locator('#room-input')).toHaveValue('Keep the next draft while running');
-    await expect(page.locator('.room-entry.user')).toHaveCount(1);
+    await expect(page.locator('#room-input')).toHaveValue('');
+    await expect(page.locator('.room-entry.user')).toHaveCount(2);
     await page.getByRole('button', { name: 'Stop group', exact: true }).click();
     await expect(page.locator('#room-send-button')).toBeEnabled();
     const first = await (await page.request.get(`/api/rooms/${group.room.id}`)).json();

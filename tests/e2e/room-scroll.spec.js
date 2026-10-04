@@ -68,19 +68,46 @@ test('multiple references preserve message nodes, focus, expansion and reading p
   await entry.locator('.room-entry-bubble').click();
   await expect(entry).toHaveClass(/expanded/);
   const before = await readingPosition(page);
-  await entry.locator('.room-quote-button').click();
+  await entry.dispatchEvent('pointerdown', { pointerType: 'touch', clientX: 20, clientY: 20 });
+  await page.waitForTimeout(650);
+  await entry.dispatchEvent('pointerup', { pointerType: 'touch', clientX: 20, clientY: 20 });
   await expectSamePosition(page, before);
   await expect(page.locator('.room-context-chip.quote')).toHaveCount(1);
-  expect(await page.evaluate(() => scrollProbeEntry.isConnected && scrollProbeEntry.contains(document.activeElement))).toBe(true);
+  expect(await page.evaluate(() => scrollProbeEntry.isConnected && scrollProbeEntry.querySelector('.room-entry-bubble').isConnected)).toBe(true);
   await expect(entry).toHaveClass(/expanded/);
 
   // Use the next visible message without asking Playwright to scroll it into view.
-  await page.evaluate(() => scrollProbeEntry.nextElementSibling.querySelector('.room-quote-button').click());
+  await page.evaluate(() => scrollProbeEntry.nextElementSibling.querySelector('.room-selection-circle').click());
   await expectSamePosition(page, before);
   await expect(page.locator('.room-context-chip.quote')).toHaveCount(2);
   await page.locator('.room-context-chip.quote').first().click();
   await expectSamePosition(page, before);
   await expect(page.locator('.room-context-chip.quote')).toHaveCount(1);
+});
+
+test('selection captures author clicks, keeps zero selections, and cancel preserves the draft', async ({ page }) => {
+  const stream = await openScrollingRoom(page);
+  await readMiddle(page);
+  const entryId = await page.evaluate(() => scrollProbeEntry.dataset.roomEntryId);
+  const entry = page.locator(`[data-room-entry-id="${entryId}"]`);
+  await page.locator('#room-input').fill('Keep this draft');
+  await entry.dispatchEvent('pointerdown', { pointerType: 'touch', clientX: 20, clientY: 20 });
+  await page.waitForTimeout(650);
+  await entry.dispatchEvent('pointerup', { pointerType: 'touch', clientX: 20, clientY: 20 });
+  await expect(entry).toHaveClass(/selected/);
+  await entry.locator('.room-entry-author').click();
+  await expect(entry).not.toHaveClass(/selected/);
+  await expect(page.locator('#room-selection-count')).toHaveText('0 selected');
+  await expect(page.locator('#room-selection-preview')).toBeDisabled();
+  await expect(page.locator('#room-selection-cancel')).toBeVisible();
+  await entry.locator('.room-entry-author').click();
+  await expect(entry).toHaveClass(/selected/);
+  await stream.update(room => { room.entries.push({ id: 'new-live-message', type: 'user', status: 'completed', text: 'A new message', createdAt: Date.now() }); });
+  await expect(page.locator('[data-room-entry-id="new-live-message"] .room-selection-circle')).toBeVisible();
+  await page.locator('#room-selection-cancel').click();
+  await expect(page.locator('#room-view')).not.toHaveClass(/room-selecting/);
+  await expect(page.locator('#room-input')).toHaveValue('Keep this draft');
+  await expect(page.locator('.room-context-chip.quote')).toHaveCount(0);
 });
 
 test('streamed snapshots keep history still and preserve anchors when earlier content changes', async ({ page }) => {

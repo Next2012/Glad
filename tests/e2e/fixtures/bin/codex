@@ -338,6 +338,36 @@ input.on('line', line => {
     write({ id: request.id, result: { turn: { id: turnId } } });
     setImmediate(() => {
       write({ method: 'turn/started', params: { threadId: 'thread-e2e', turn: { id: turnId } } });
+      if (text.includes('__GLAD_E2E_SUPERVISOR__')) {
+        const { spawn } = require('node:child_process');
+        const config = process.argv.slice(3).filter(value => value.startsWith('mcp_servers.glad.'));
+        const command = JSON.parse(config.find(value => value.startsWith('mcp_servers.glad.command=')).split('=').slice(1).join('='));
+        const envText = config.find(value => value.startsWith('mcp_servers.glad.env='));
+        const environment = { ...process.env };
+        for (const match of envText.matchAll(/(GLAD_SUPERVISOR_\w+) = ("(?:[^"\\]|\\.)*")/g)) environment[match[1]] = JSON.parse(match[2]);
+        const child = spawn(command, ['mcp'], { env: environment, stdio: ['pipe', 'pipe', 'pipe'] });
+        const lines = readline.createInterface({ input: child.stdout });
+        const invocationId = text.match(/Current invocationId: ([a-z0-9-]+)/i)[1];
+        let target;
+        const call = (id, name, arguments_) => child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: { invocationId, ...arguments_ } } }) + '\n');
+        const timeout = setTimeout(() => { child.kill(); }, 15000);
+        lines.on('line', line => {
+          const response = JSON.parse(line);
+          if (response.id === 1) call(2, 'list_targets', {});
+          if (response.id === 2) {
+            target = JSON.parse(response.result.content[0].text).targets[0];
+            call(3, 'read_session', { memberId: target.memberId });
+          }
+          if (response.id === 3) call(4, 'send_to_session', { memberId: target.memberId, text: 'Supervisor requested worker implementation' });
+          if (response.id === 4) {
+            clearTimeout(timeout); child.stdin.end();
+            write({ method: 'item/completed', params: { threadId: 'thread-e2e', turnId, item: { id: `supervisor-answer-${turnId}`, type: 'agentMessage', text: response.result.isError ? 'Worker command was denied' : 'Worker output checked and next command dispatched' } } });
+            write({ method: 'turn/completed', params: { threadId: 'thread-e2e', turn: { id: turnId, status: 'completed' } } });
+          }
+        });
+        child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } } }) + '\n');
+        return;
+      }
       if (capacityFailuresRemaining > 0) {
         capacityFailuresRemaining -= 1;
         const error = { codexErrorInfo: 'serverOverloaded', message: 'Selected model is at capacity. Please try a different model.' };

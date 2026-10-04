@@ -10,6 +10,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.9.0] - 2026-10-04
+
+### Added
+
+- Add group Supervisors that periodically wake a selected Codex or Claude session to inspect and direct monitored sessions through Glad MCP tools, with separate read, stop, and send permissions.
+- Provide Supervisor task creation, editing, monitoring switches, single checks, Stop run, and paginated check history with tool calls loaded on demand.
+- Add live and incremental session output/history APIs plus individual Stop and Send controls inside Members.
+- Persist Supervisor configuration independently from bounded, append-only JSONL audit logs; recover incomplete log tails and report unreadable task files without blocking startup.
+
+### Changed
+
+- Allow group messages to target idle members while other sessions run, and retain text-only group notes during active work.
+- Replace message reference plus buttons with long-press selection, a left selection gutter, and top Cancel/Preview actions while preserving reading positions.
+- Hide internal Supervisor checks from group timelines and silence ordinary automated completions while retaining actionable failures and permission requests.
+
+### Fixed
+
+- Reject additional input to busy Claude sessions and settle interrupted turns when a Claude process exits unexpectedly.
+- Preserve Supervisor invocation identity across Codex capacity retries and reject tool calls from ordinary or expired turns.
+- Keep Pause, Stop run, and Run once independent; preserve monitoring switches and existing countdowns when editing prompts.
+
 ## [2.8.3] - 2026-10-03
 
 ### Added

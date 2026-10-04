@@ -1,6 +1,6 @@
 # Glad architecture
 
-Glad is a local Go daemon with an embedded browser UI. The daemon does not implement an AI model or agent loop; it coordinates the official Codex and Claude CLIs already installed and authenticated on the host.
+Glad is a local Go daemon with an embedded browser UI. The daemon coordinates the official Codex and Claude CLIs already installed and authenticated on the host. Provider CLIs own model execution; optional group Supervisors schedule checks and authorize inter-session operations through Glad MCP tools.
 
 ## Runtime layers
 
@@ -13,6 +13,8 @@ Go application (internal/app)
   ├─ HTTP and WebSocket adapters
   ├─ session state and provider event normalization
   ├─ attachments, workspace and Git
+  ├─ SessionControl readiness, output revisions and input deduplication
+  ├─ group Supervisor scheduling, invocation provenance and JSONL audits
   ├─ schedules, notifications and usage
   ├─ SkillHub session preparation
   ├─ Codex provider ── codex app-server --stdio

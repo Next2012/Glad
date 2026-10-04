@@ -52,7 +52,10 @@ func (provider *CodexProvider) runCapacityRetry(generation uint64) {
 	ctx, cancel := context.WithTimeout(provider.session.ctx, 30*time.Second)
 	defer cancel()
 	// 续跑消息保持简短，次数和通知由 Glad 管理。
-	err := provider.send(ctx, ProviderInput{ClientMessageID: newUUID(), Text: "继续", AgentText: "继续"}, generation)
+	provider.session.mu.RLock()
+	source := provider.session.currentSource
+	provider.session.mu.RUnlock()
+	err := provider.send(ctx, ProviderInput{ClientMessageID: newUUID(), Text: "继续", AgentText: supervisorAgentText(source, "继续"), Source: source}, generation)
 	if err == nil {
 		return
 	}

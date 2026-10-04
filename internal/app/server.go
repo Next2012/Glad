@@ -31,6 +31,7 @@ type Server struct {
 	notifications *NotificationService
 	usage         *UsageService
 	skillhub      *SkillHubService
+	supervisors   *SupervisorManager
 	rooms         *RoomManager
 	assets        fs.FS
 	sharing       *WorkbenchSharing
@@ -55,6 +56,14 @@ func NewServer(baseDir string, port int, assets fs.FS) (*Server, error) {
 		assets: assets,
 	}
 	server.rooms = NewRoomManager(roomStore, sessions, attachments)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	server.supervisors, err = OpenSupervisorManager(filepath.Join(home, ".glad", "supervisors"), server.rooms, sessions)
+	if err != nil {
+		return nil, err
+	}
 	server.notifications = NewNotificationService(config, server.sessions, server.rooms)
 	server.skillhub = NewSkillHubService(config, server.sessions)
 	server.sharing, err = OpenWorkbenchSharing(baseDir, assets)
@@ -78,6 +87,9 @@ func (server *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	server.sessions.mcpExecutable, _ = os.Executable()
+	server.sessions.mcpURL = fmt.Sprintf("http://127.0.0.1:%d", listener.Addr().(*net.TCPAddr).Port)
+	server.supervisors.Start(runCtx)
 	server.notifications.Start(runCtx)
 	server.rooms.Start(runCtx)
 	server.sharing.Start(runCtx)
@@ -88,6 +100,7 @@ func (server *Server) Run(ctx context.Context) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = server.http.Shutdown(shutdownCtx)
+		server.supervisors.Stop()
 		server.schedules.Stop()
 		server.sharing.Stop(shutdownCtx)
 		server.rooms.Stop()
@@ -129,6 +142,8 @@ func (server *Server) registerRoutes(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("POST /api/sessions", server.createSession)
 	mux.HandleFunc("GET /api/sessions/{id}", server.getSession)
+	mux.HandleFunc("GET /api/sessions/{id}/output", server.sessionOutputRoute)
+	mux.HandleFunc("POST /api/sessions/{id}/abort", server.abortSessionRoute)
 	mux.HandleFunc("GET /api/sessions/{id}/metadata", server.sessionMetadata)
 	mux.HandleFunc("POST /api/sessions/{id}/instructions", server.updateSessionInstructions)
 	mux.HandleFunc("POST /api/sessions/{id}/input", server.sendSessionInput)
@@ -156,6 +171,7 @@ func (server *Server) registerRoutes(mux *http.ServeMux) {
 	server.registerUsageRoutes(mux)
 	server.registerSkillHubRoutes(mux)
 	server.registerRoomRoutes(mux)
+	server.registerSupervisorRoutes(mux)
 	server.registerWorkbenchSharingRoutes(mux)
 	server.registerStaticRoutes(mux)
 }
@@ -234,8 +250,9 @@ func (server *Server) sendSessionInput(writer http.ResponseWriter, request *http
 		return
 	}
 	var input struct {
-		Text      string `json:"text"`
-		AutoStart bool   `json:"autoStart"`
+		Text            string `json:"text"`
+		AutoStart       bool   `json:"autoStart"`
+		ClientMessageID string `json:"clientMessageId"`
 	}
 	if err := decodeJSON(request, &input); err != nil {
 		respondError(writer, http.StatusBadRequest, err)
@@ -252,11 +269,11 @@ func (server *Server) sendSessionInput(writer http.ResponseWriter, request *http
 	}
 	session.commandMu.Lock()
 	defer session.commandMu.Unlock()
-	message := ProviderInput{ClientMessageID: newUUID(), Text: input.Text, AgentText: input.Text}
+	message := ProviderInput{ClientMessageID: firstNonEmpty(input.ClientMessageID, newUUID()), Text: input.Text, AgentText: input.Text}
 	if input.AutoStart {
 		message = sessionBootstrapInput(session)
 	}
-	if err := session.Provider.Send(request.Context(), message); err != nil {
+	if err := sendSessionControlledLocked(request.Context(), session, message); err != nil {
 		respondError(writer, http.StatusConflict, err)
 		return
 	}
@@ -547,8 +564,8 @@ func (server *Server) handleWebsocketMessage(
 				agentText = strings.TrimSpace(command + " " + agentText)
 			}
 		}
-		err := session.Provider.Send(
-			ctx,
+		err := sendSessionControlledLocked(
+			ctx, session,
 			ProviderInput{
 				ClientMessageID: clientMessageID,
 				Text:            text,
@@ -593,8 +610,8 @@ func (server *Server) handleWebsocketMessage(
 			}
 		}
 	case "claude-abort", "codex-abort":
-		if provider, ok := session.Provider.(InterruptProvider); ok {
-			_ = provider.Interrupt(ctx)
+		if _, ok := session.Provider.(InterruptProvider); ok {
+			_ = stopSessionControlledLocked(ctx, session, "")
 		}
 	case "claude-resume":
 		err := server.resumeClaudeConversation(ctx, session, stringValue(payload["resumeSessionId"]))

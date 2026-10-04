@@ -86,12 +86,12 @@ func (server *Server) providerAbort(writer http.ResponseWriter, request *http.Re
 		notFound(writer, "Session not found")
 		return
 	}
-	provider, ok := session.Provider.(InterruptProvider)
+	_, ok := session.Provider.(InterruptProvider)
 	if !ok {
 		respondError(writer, http.StatusConflict, errors.New("Provider interruption is not supported"))
 		return
 	}
-	if err := provider.Interrupt(request.Context()); err != nil {
+	if err := stopSessionControlled(request.Context(), session, ""); err != nil {
 		respondError(writer, 409, err)
 		return
 	}

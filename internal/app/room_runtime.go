@@ -71,7 +71,7 @@ func (manager *RoomManager) sessionEvent(event sessioncore.Event) {
 				continue
 			}
 			runtime := manager.runtimeLocked(id)
-			if root {
+			if root && !quietSupervisorCompletion(event.Payload) {
 				key := event.SessionID + "/" + stringValue(message["turnId"])
 				if !runtime.completedTurns[key] {
 					runtime.completedTurns[key] = true

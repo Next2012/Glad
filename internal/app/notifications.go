@@ -247,6 +247,9 @@ func (service *NotificationService) enqueue(scope, key string, delivery notifica
 }
 
 func (service *NotificationService) HandleEvent(session *Session, event map[string]any) {
+	if quietSupervisorCompletion(event) {
+		return
+	}
 	session.mu.RLock()
 	enabled := session.ServerChanNotificationEnabled
 	session.mu.RUnlock()
@@ -266,6 +269,9 @@ func (service *NotificationService) HandleEvent(session *Session, event map[stri
 }
 
 func (service *NotificationService) HandleRoomEvent(session *Session, event map[string]any) {
+	if quietSupervisorCompletion(event) {
+		return
+	}
 	classified, ok := classifyNotification(session, event)
 	if service.rooms == nil || !ok {
 		return

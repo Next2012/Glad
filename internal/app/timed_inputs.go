@@ -122,8 +122,8 @@ func scheduleTimed(session *Session, id string, input map[string]any) (*TimedInp
 	item.Timer = time.AfterFunc(delay, func() {
 		sendCtx, cancel := context.WithTimeout(session.ctx, 60*time.Second)
 		defer cancel()
-		err := session.Provider.Send(
-			sendCtx,
+		err := sendSessionControlled(
+			sendCtx, session,
 			ProviderInput{ClientMessageID: "timed-" + item.ID + "-" + revision, Text: text, AgentText: text},
 		)
 		session.mu.Lock()

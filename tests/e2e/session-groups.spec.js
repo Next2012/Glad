@@ -75,7 +75,7 @@ test('session groups collapse, share cards, update live, and return ungrouped se
     await groupSection(first.id).getByRole('button', { name: 'Connect', exact: true }).first().click();
     await expect(page.locator('#room-view')).toBeVisible();
     expect(await page.locator('.room-action-rail > button').evaluateAll(buttons => buttons.map(button => button.id))).toEqual([
-      'room-mention-button', 'room-attachment-button', 'room-schedule-send-btn',
+      'room-mention-button', 'room-supervisor-button', 'room-attachment-button', 'room-schedule-send-btn',
       'room-abort-button', 'room-history-resume', 'room-history-fork'
     ]);
     await page.screenshot({ path: testInfo.outputPath('group-toolbar.png') });

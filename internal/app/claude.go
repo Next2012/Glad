@@ -159,6 +159,7 @@ func (provider *ClaudeProvider) startLocked(ctx context.Context, fork bool) erro
 			args = append(args, "--fork-session")
 		}
 	}
+	args = append(args, claudeSupervisorArgs(provider.session)...)
 	command := exec.Command(provider.session.Tool.Command, args...)
 	configureProcess(command)
 	command.Dir = provider.session.WorkingDirectory
@@ -218,6 +219,10 @@ func (provider *ClaudeProvider) Send(ctx context.Context, input ProviderInput) e
 		provider.mu.Unlock()
 		return errors.New("Claude session is closed")
 	}
+	if len(provider.turns) > 0 || len(provider.permissions) > 0 || len(provider.questions) > 0 {
+		provider.mu.Unlock()
+		return errors.New("Claude session is busy or stopping")
+	}
 	if provider.localCommand != "" || provider.statusPending {
 		provider.mu.Unlock()
 		return errors.New("Claude 正在读取手动统计，请等待完成后发送")
@@ -228,6 +233,7 @@ func (provider *ClaudeProvider) Send(ctx context.Context, input ProviderInput) e
 			return err
 		}
 	}
+	provider.session.beginInput(input)
 	turn := claudeTurn{ID: newUUID(), Started: millis()}
 	blocks := []any{}
 	if strings.TrimSpace(input.AgentText) != "" {
@@ -355,8 +361,23 @@ func (provider *ClaudeProvider) handleProcessExit(command *exec.Cmd, err error) 
 		}
 	}
 	closed := provider.closed
+	interrupted := []claudeTurn{}
+	if current && !closed && !expected {
+		interrupted = append(interrupted, provider.turns...)
+		provider.turns = nil
+		provider.permissions = map[string]claudePending{}
+		provider.questions = map[string]claudePendingQuestion{}
+		provider.resumeID = firstNonEmpty(provider.claudeSessionID, provider.resumeID)
+	}
 	provider.mu.Unlock()
 	if current && !closed && !expected {
+		for _, turn := range interrupted {
+			provider.session.appendMessage(map[string]any{"kind": "turn-end", "turnId": turn.ID, "turnStatus": "failed", "isRootTurn": true, "error": "Claude process exited before completing the turn"})
+			provider.session.markCompletionUnread()
+		}
+		provider.session.mu.Lock()
+		provider.session.Permissions = map[string]Permission{}
+		provider.session.mu.Unlock()
 		if reading {
 			failure := err
 			if failure == nil {
@@ -1210,6 +1231,8 @@ func numberInt64(value any) int64 {
 		return int64(n)
 	case int64:
 		return n
+	case uint64:
+		return int64(n)
 	case int:
 		return int64(n)
 	}

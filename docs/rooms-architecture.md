@@ -104,7 +104,7 @@ explicit `Message unavailable` placeholder.
 
 ## Compatibility invariants
 
-- Entry ordering uses persisted sequence numbers, never timestamps.
+- Persisted entries retain monotonic sequence numbers. The dynamic timeline merges native and room entries by timestamp, using sequence to break ties.
 - Member display names are not unique; member IDs are.
 - Removing a member is a soft delete so historical authorship survives.
 - Runtime session IDs are replaceable hints. Native conversation IDs are the
@@ -169,3 +169,37 @@ Group controls follow single-session behavior while membership stays independent
 - Desktop groups share the tiled workspace with sessions, including live,
   read-only previews and a focused group editor. Group tiles do not participate
   in drag reordering.
+
+## Supervisors and selection
+
+SessionControl checks readiness per target and serializes accepted inputs. Other
+members running do not block sends to an idle member; plain group notes can be
+saved without dispatch. Members → Controls provides current output, paginated
+history, interruption, and the next prompt.
+
+Supervisors bind a saved room and stable members to a scheduled executor. A
+persisted runOnce flag queues a single check without enabling recurring work.
+Pause cancels future checks; Stop run preserves the monitoring switch and waits
+for provider settlement. The interval starts after the supervisor's own invocation
+settles. Updating a prompt preserves nextAt; changing the interval recalculates it.
+
+The daemon injects Glad MCP into provider processes. Session credentials and the
+current invocation authorize each call against current membership and per-target
+permissions. Versioned top-level envelopes preserve invocation provenance in native
+history and Codex capacity retries. Internal checks are hidden from group
+projection; commands remain visible with their supervisor author. Successful
+automated completions do not mark session or group unread or send routine
+completion notifications. These permissions constrain the Supervisor channel,
+not a session's pre-existing shell or network access.
+
+Supervisor schema 2 configurations reside in ~/.glad/supervisors/<task-id>.json.
+Audit events append to task-specific JSONL logs with bounded rotation. Startup
+pauses tasks, repairs incomplete audit tails, and reports unreadable or future
+configuration files while retaining their originals. List, configuration, history,
+and invocation-detail HTTP endpoints are separate; list responses include serverNow
+for browser countdown calibration.
+
+Message references use long-press selection and a left gutter in the focused group.
+Cancel and Preview replace the header controls while selecting. Empty selection
+keeps the mode open; running replies cannot be selected. Reference IDs and native
+history ownership are unchanged; read-only tiles do not expose selection controls.

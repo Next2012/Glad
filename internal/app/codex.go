@@ -92,6 +92,7 @@ type CodexProvider struct {
 	activeTurns       map[string]codexActiveTurn
 	models            []map[string]any
 	tokenUsage        map[string]any
+	tokenUsageTurnID  string
 	streams           map[string]*codexDeltaStream
 	expectedStops     map[*exec.Cmd]struct{}
 	resumeCancel      context.CancelFunc
@@ -160,7 +161,8 @@ func (provider *CodexProvider) startLocked(ctx context.Context) error {
 	if provider.cmd != nil {
 		return nil
 	}
-	command := exec.Command(provider.session.Tool.Command, "app-server", "--stdio")
+	args := append([]string{"app-server", "--stdio"}, codexSupervisorArgs(provider.session)...)
+	command := exec.Command(provider.session.Tool.Command, args...)
 	configureProcess(command)
 	command.Dir = provider.session.WorkingDirectory
 	command.Env = append(os.Environ(), provider.session.environment...)
@@ -253,6 +255,7 @@ func (provider *CodexProvider) send(ctx context.Context, input ProviderInput, re
 		provider.capacityRetryAt = 0
 	}
 	provider.sending = true
+	provider.session.beginInput(input)
 	defer func() {
 		provider.mu.Lock()
 		provider.sending = false
@@ -598,6 +601,7 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 		}
 	case "thread/tokenUsage/updated":
 		provider.mu.Lock()
+		provider.tokenUsageTurnID = firstNonEmpty(stringValue(params["turnId"]), provider.turnID)
 		provider.tokenUsage = mapValue(params["tokenUsage"])
 		if len(provider.tokenUsage) == 0 {
 			provider.tokenUsage = mapValue(params["usage"])
@@ -619,7 +623,7 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 		}
 		provider.mu.Unlock()
 		provider.session.appendMessage(
-			map[string]any{"kind": "turn-start", "threadId": threadID, "turnId": turnID, "createdAt": started},
+			map[string]any{"kind": "turn-start", "threadId": threadID, "turnId": turnID, "createdAt": started, "isRootTurn": rootTurn},
 		)
 		if rootTurn {
 			provider.updatePublicState("running")
@@ -695,6 +699,11 @@ func (provider *CodexProvider) handleNotification(method string, params map[stri
 		}
 		if rootTurn {
 			message["context"] = provider.contextStatus()
+			provider.mu.Lock()
+			if provider.tokenUsageTurnID == turnID {
+				message["usage"] = cloneMap(mapValue(firstNonNil(provider.tokenUsage["last"], provider.tokenUsage["lastTokenUsage"])))
+			}
+			provider.mu.Unlock()
 		}
 		provider.session.appendMessage(message)
 		if rootTurn {
@@ -1685,7 +1694,7 @@ func buildCodexHistoryMessages(ctx context.Context, threadID string, turns []any
 			started = millis()
 		}
 		messages = append(messages, codexHistoryMessage(map[string]any{
-			"kind": "turn-start", "threadId": threadID, "turnId": turnID, "createdAt": started,
+			"kind": "turn-start", "threadId": threadID, "turnId": turnID, "createdAt": started, "isRootTurn": true,
 		}))
 		status := "completed"
 		if stringValue(turn["status"]) == "failed" {

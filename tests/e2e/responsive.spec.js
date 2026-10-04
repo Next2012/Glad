@@ -90,7 +90,7 @@ test('structured sessions connect through the canonical WebSocket route', async 
   await page.evaluate(() => initClaudeSession('claude route/id'));
 
   const host = await page.evaluate(() => window.location.host);
-  await expect.poll(() => page.evaluate(() => window.__webSocketUrls.map(value => {
+  await expect.poll(() => page.evaluate(() => window.__webSocketUrls.filter(value => new URL(value).pathname === '/ws').map(value => {
     const url = new URL(value);
     return {
       protocol: url.protocol,
@@ -1871,7 +1871,7 @@ test('Claude shows one Working bubble and keeps controls in one freely scrolling
   await expect(page.locator('#claude-status-btn')).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath('claude-primary-controls.png'), fullPage: true });
   await page.locator('.claude-control-rail').evaluate(element => { element.scrollLeft = element.scrollWidth; });
-  await expect(page.getByRole('button', { name: 'Permission mode' })).toBeInViewport();
+  await expect(page.getByRole('button', { name: 'Permission mode', exact: true })).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath('claude-secondary-controls.png'), fullPage: true });
 });
 
@@ -1882,7 +1882,9 @@ test('responsive shell, bottom composer, and themes follow the new layout', asyn
 
   await page.evaluate(() => localStorage.removeItem('glad-theme'));
   await page.getByRole('button', { name: 'Settings' }).click();
-  await page.getByRole('button', { name: 'Dark' }).click();
+  const appearance = page.locator('[data-settings-nav="appearance"]');
+  if (await appearance.isVisible()) await appearance.click();
+  await page.getByRole('button', { name: 'Dark', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect.poll(() => page.evaluate(() => localStorage.getItem('glad-theme'))).toBe('dark');
   await page.locator('#settings-modal-overlay').click({ position: { x: 5, y: 5 } });
