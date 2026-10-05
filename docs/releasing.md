@@ -59,13 +59,18 @@ Confirm that:
 - Unix binaries retain execute permission;
 - the launcher works with directory-before-option syntax such as `glad . --port 3001`.
 
-## Tagging
+## Candidate validation and tagging
 
-Update `package.json` and the changelog, run all checks, then create a semantic version tag:
+Freeze the version, changelog, dependencies, and source in a clean commit before building a candidate. The Release workflow uses pinned Go, Node, and npm versions and checks binary VCS identity. A `workflow_dispatch` build only produces candidate artifacts; it does not publish npm packages or create a GitHub release.
 
-```bash
-git tag vX.Y.Z
-git push origin vX.Y.Z
-```
+1. Push the candidate branch and dispatch **Release** with its exact version and `verify_approved=false`.
+2. Download `release-assets` and `candidate-checksums` from that run. Validate those artifacts, including native builds and all six npm packages, and record the accepted run ID in `APPROVED_CANDIDATE_RUN_ID`.
+3. Dispatch **Release** again on the same frozen commit with `verify_approved=true`. Wait for the entire run to succeed; this rebuild checks the complete asset set against the accepted candidate without publishing.
+4. Download the fresh preflight artifacts. In a clean checkout of the same commit, run `scripts/release_gate.py check-tag` with the accepted checksums and the full required asset list.
+5. Only after these checks succeed, create and push the formal `vX.Y.Z` tag. The tag workflow repeats the approved-byte comparison before npm or GitHub publication.
 
-Do not run `npm publish` from the private repository-root package. The release workflow publishes only staged packages under `npm/`.
+A source change invalidates candidate acceptance and requires a new candidate. Do not push the local version tag created inside a candidate checkout, and do not change approval metadata to bypass a failed check.
+
+See [the full release gate procedure](../scripts/RELEASE_GATE.md) for the exact asset list and `check-tag` command. Local cross-compilation and `npm pack --dry-run` are useful preparation checks; they do not replace CI candidate acceptance.
+
+Do not run `npm publish` from the private repository-root package. The release workflow publishes only approved staged package archives.

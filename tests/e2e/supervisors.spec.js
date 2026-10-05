@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test');
+const { mockVisualViewport } = require('./helpers/visual-viewport');
 
 async function setup(page) {
   const room = await (await page.request.post('/api/rooms', { data: { name: 'Supervisor integration' } })).json();
@@ -29,7 +30,8 @@ test('supervisor UI creates, invokes real MCP tools, records history, edits and 
     await expect(page.locator('#supervisor-editor-view')).toBeHidden();
     await expect(page.locator('#supervisor-session-control')).toHaveCount(0);
     await page.getByRole('button', { name: '＋ New', exact: true }).click();
-    await page.locator('#supervisor-executor').selectOption(group.members[0].id);
+    await page.locator('#supervisor-editor-view').getByRole('button', { name: /Session/ }).click();
+    await page.locator(`[data-choose-executor="${group.members[0].id}"]`).click();
     await expect(page.locator(`.supervisor-target[data-member-id="${group.members[0].id}"]`)).toBeHidden();
     const target = page.locator(`.supervisor-target[data-member-id="${group.members[1].id}"]`);
     await target.locator('.supervisor-target-enabled').check();
@@ -45,6 +47,11 @@ test('supervisor UI creates, invokes real MCP tools, records history, edits and 
     await page.getByRole('checkbox', { name: 'Enable monitoring' }).uncheck();
     await expect(page.locator('.supervisor-task')).toContainText('Paused');
     await page.getByLabel('More supervisor actions').click();
+    // Visible actions must be clickable without scrolling a clipped popup.
+    expect(await page.getByRole('button', { name: 'Delete', exact: true }).evaluate(button => {
+      const box = button.getBoundingClientRect();
+      return button.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2));
+    })).toBe(true);
     await page.getByRole('button', { name: 'Run once now', exact: true }).click();
     await expect.poll(async () => {
       const data = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors`)).json();
@@ -68,8 +75,9 @@ test('supervisor UI creates, invokes real MCP tools, records history, edits and 
     await page.locator('.supervisor-history-row > summary').click();
     await expect(page.locator('#supervisor-history')).toContainText('read_session');
     await page.getByRole('button', { name: 'Edit configuration', exact: true }).click();
-    await target.locator('.supervisor-permission-settings > summary').click();
-    await target.locator('[data-permission="send"]').uncheck();
+    await target.locator('.supervisor-permission-open').click();
+    await page.locator('#supervisor-permission-send').uncheck();
+    await page.getByRole('button', { name: 'Back to editor', exact: true }).click();
     await page.locator('[data-supervisor-interval="60"]').click();
     await page.getByRole('button', { name: 'Save changes', exact: true }).click();
     const edited = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors/${taskId}`)).json();
@@ -114,6 +122,7 @@ test('Members controls navigate in the same panel and supervisor editor keeps it
     await page.waitForTimeout(2500);
     await expect(page.locator('#supervisor-prompt')).toHaveValue('An unfinished editor draft');
     await expect(page.locator('#supervisor-list-view')).toBeHidden();
+    await page.getByRole('button', { name: 'Back to supervisors', exact: true }).click();
     await page.getByRole('button', { name: 'Close supervisors' }).click();
     await page.getByRole('button', { name: 'Members', exact: true }).click();
     await page.getByRole('button', { name: 'Controls', exact: true }).last().click();
@@ -132,4 +141,73 @@ test('Members controls navigate in the same panel and supervisor editor keeps it
     await expect(page.locator('#room-members-title')).toHaveText('Group members');
     await expect(page.locator('.room-modal-overlay.active')).toHaveCount(1);
   } finally { await group.cleanup(); }
+});
+
+
+test('grouped editor preserves drafts and independent permissions, with Stop requiring Read', async ({ page }) => {
+  const group = await setup(page);
+  try {
+    await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
+    await page.getByRole('button', { name: '＋ New', exact: true }).click();
+    await page.locator('#supervisor-prompt').fill('Keep this draft while navigating permissions');
+    const target = page.locator(`.supervisor-target[data-member-id="${group.members[1].id}"]`);
+    await target.locator('.supervisor-target-enabled').check();
+    await target.locator('.supervisor-permission-open').click();
+    await expect(page.locator('.room-modal-overlay.active')).toHaveCount(1);
+    await expect(page.locator('#supervisor-editor-view')).toBeHidden();
+    await page.locator('#supervisor-permission-read').uncheck();
+    await expect(page.locator('#supervisor-permission-stop')).not.toBeChecked();
+    await expect(page.locator('#supervisor-permission-help')).toContainText('Stop disabled');
+    await page.locator('#supervisor-permission-stop').check();
+    await expect(page.locator('#supervisor-permission-read')).toBeChecked();
+    await expect(page.locator('#supervisor-permission-help')).toContainText('Read enabled');
+    await page.locator('#supervisor-permission-send').uncheck();
+    await page.waitForTimeout(2200);
+    await page.getByRole('button', { name: 'Back to editor', exact: true }).click();
+    await expect(target.locator('.supervisor-permission-summary')).toHaveText('Read + Stop');
+    await expect(page.locator('#supervisor-prompt')).toHaveValue('Keep this draft while navigating permissions');
+    await expect(page.locator('.supervisor-advanced')).toHaveCount(0);
+    const metrics = await page.locator('#supervisor-save').evaluate(button => {
+      const box = button.getBoundingClientRect(), panel = document.querySelector('.room-supervisor-modal').getBoundingClientRect();
+      return { height:box.height, width:box.width, panelWidth:panel.width, bottom:box.bottom, panelBottom:panel.bottom, inputFont:parseFloat(getComputedStyle(document.querySelector('#supervisor-prompt')).fontSize) };
+    });
+    expect(metrics.height).toBeGreaterThanOrEqual(52);
+    expect(metrics.width).toBeGreaterThan(metrics.panelWidth - 50);
+    expect(metrics.bottom).toBeLessThanOrEqual(metrics.panelBottom);
+    expect(metrics.inputFont).toBeGreaterThanOrEqual(16);
+    await page.getByRole('button', { name: 'Save & start', exact: true }).click();
+    const summary = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors`)).json();
+    const taskId = summary.tasks[0].id;
+    const config = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors/${taskId}`)).json();
+    expect(config.task.targets[0]).toMatchObject({ read:true, stop:true, send:false });
+    const invalid = await page.request.patch(`/api/rooms/${group.room.id}/supervisors/${taskId}`, { data: { ...config.task, targets:[{memberId:group.members[1].id, read:false, stop:true, send:false}] } });
+    expect(invalid.ok()).toBe(false);
+    expect((await invalid.json()).error).toContain('Stop permission requires Read');
+    await page.locator('.supervisor-menu > summary').click();
+    await page.getByRole('button', {name:'Edit', exact:true}).click();
+    await target.locator('.supervisor-permission-open').click();
+    await expect(page.locator('#supervisor-permission-send')).not.toBeChecked();
+    await expect(page.locator('#supervisor-permission-stop')).toBeChecked();
+  } finally { await group.cleanup(); }
+});
+
+
+test('supervisor editor keeps its save action and focused field above a panned keyboard viewport', async ({ page }) => {
+  await mockVisualViewport(page);
+  const group = await setup(page);
+  try {
+    await page.getByRole('button', {name:'Supervisor', exact:true}).click();
+    await page.getByRole('button', {name:'＋ New', exact:true}).click();
+    await page.locator('#supervisor-prompt').fill('A long prompt. '.repeat(150));
+    await page.evaluate(() => window.setTestVisualViewport({height:420, offsetTop:60, scale:1}));
+    await expect.poll(() => page.locator('#supervisor-save').evaluate(button => button.getBoundingClientRect().bottom)).toBeLessThanOrEqual(480);
+    await expect.poll(() => page.locator('#supervisor-prompt').evaluate(field => {
+      const rect=field.getBoundingClientRect(), header=document.querySelector('.room-supervisor-modal > header').getBoundingClientRect();
+      const footer=document.querySelector('.supervisor-form-actions').getBoundingClientRect();
+      return rect.top >= header.bottom - 1 && rect.bottom <= footer.top + 1;
+    })).toBe(true);
+    await expect(page.locator('#supervisor-prompt')).toHaveValue('A long prompt. '.repeat(150));
+    await page.evaluate(() => window.setTestVisualViewport({height:innerHeight, offsetTop:0, scale:1}));
+    await expect(page.locator('#supervisor-save')).toBeVisible();
+  } finally {await group.cleanup();}
 });

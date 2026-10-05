@@ -283,3 +283,28 @@ func TestSupervisorAuditRotationRetainsCurrentRun(t *testing.T) {
 		t.Fatal("rotation lost invocation or ignored call bound")
 	}
 }
+
+func TestSupervisorStopPermissionRequiresRead(t *testing.T) {
+	manager, _, task, roomID := supervisorControlFixture(t)
+	input := task
+	input.Targets = append([]SupervisorTarget(nil), task.Targets...)
+	input.Targets[0].Read = false
+	input.Targets[0].Stop = true
+	for _, id := range []string{"", task.ID} {
+		if _, err := manager.Save(roomID, id, input); err == nil || !strings.Contains(err.Error(), "Stop permission requires Read") {
+			t.Fatalf("accepted stop without read: %v", err)
+		}
+	}
+	if !manager.tasks[task.ID].Targets[0].Read || manager.tasks[task.ID].Targets[0].Stop {
+		t.Fatal("invalid edit mutated saved permissions")
+	}
+	input.Targets[0].Read = true
+	input.Targets[0].Send = false
+	if _, err := manager.Save(roomID, task.ID, input); err != nil {
+		t.Fatalf("rejected read + stop without send: %v", err)
+	}
+	input.Targets[0].Read, input.Targets[0].Stop, input.Targets[0].Send = false, false, true
+	if _, err := manager.Save(roomID, task.ID, input); err != nil {
+		t.Fatalf("rejected independent send permission: %v", err)
+	}
+}

@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.9.1] - 2026-10-05
+
+### Fixed
+
+- Deliver PDF and MCP/workbench resources with their correct content types and explicit resource access settings.
+- Preserve recovered Codex conversations when a transient resume response contains no turns.
+- Accept `message` as an explicit alias for Supervisor send commands, distinguish missing content from the UTF-8 byte limit, and audit rejected command parameters.
+- Keep MCP tool schemas portable and reject unknown fields, invalid types, and out-of-range read arguments instead of silently ignoring them.
+- Preapprove only Glad’s five local Codex MCP tools so authorized automatic checks can run under a non-interactive approval policy.
+- Prevent native text selection during touch/pen message holds and consume the release click once, while keeping mouse dragging available for text selection.
+- Require Read permission when enabling Supervisor Stop operations, with an explanation in the permission editor and validation on create/update.
+
+### Changed
+
+- Add a hover and keyboard-focus selection entry point for mouse devices without shifting message content.
+- Present Supervisor settings as grouped mobile-sized rows, with session and independent permission pickers in the same panel, visible skip controls, and a full-width save action.
+
 ## [2.9.0] - 2026-10-04
 
 ### Added

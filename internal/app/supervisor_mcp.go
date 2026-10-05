@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -33,6 +35,12 @@ func codexSupervisorArgs(session *Session) []string {
 			value = []byte("{" + strings.Join(entries, ", ") + "}")
 		}
 		args = append(args, "-c", "mcp_servers.glad."+key+"="+string(value))
+	}
+	// These local tools enforce the current invocation and target permissions in
+	// the daemon. Permit them without an interactive prompt, including when the
+	// user's shell approval policy is never; other servers and tools keep theirs.
+	for _, tool := range supervisorTools() {
+		args = append(args, "-c", "mcp_servers.glad.tools."+stringValue(tool["name"])+".approval_mode=\"approve\"")
 	}
 	return args
 }
@@ -68,12 +76,73 @@ func supervisorTools() []map[string]any {
 			properties["expectedTurnId"] = map[string]any{"type": "string"}
 			required = append(required, "expectedTurnId")
 		case "send_to_session":
-			properties["text"] = map[string]any{"type": "string", "minLength": 1, "maxLength": 16384}
-			required = append(required, "text")
+			properties["text"] = map[string]any{"type": "string", "description": "Command to send; preferred field. Supply text or message. Must be non-empty and at most 16 KiB in UTF-8 bytes."}
+			properties["message"] = map[string]any{"type": "string", "description": "Alias for text. Must be non-empty and at most 16 KiB in UTF-8 bytes. If both are supplied, they must match."}
 		}
-		tools = append(tools, map[string]any{"name": item.name, "description": item.description, "inputSchema": map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}})
+		schema := map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}
+		tools = append(tools, map[string]any{"name": item.name, "description": item.description, "inputSchema": schema})
 	}
 	return tools
+}
+
+// Reuse the tool definitions as the argument contract. MCP clients may not
+// enforce additionalProperties or types before forwarding calls to the daemon.
+func validateSupervisorArguments(name string, args map[string]any) error {
+	for _, tool := range supervisorTools() {
+		if tool["name"] != name {
+			continue
+		}
+		schema := mapValue(tool["inputSchema"])
+		properties := mapValue(schema["properties"])
+		allowed := make([]string, 0, len(properties))
+		for key := range properties {
+			allowed = append(allowed, key)
+		}
+		sort.Strings(allowed)
+		keys := make([]string, 0, len(args))
+		for key := range args {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			if _, exists := properties[key]; !exists {
+				return fmt.Errorf("Unknown argument %q; allowed: %s", key, strings.Join(allowed, ", "))
+			}
+		}
+		for _, key := range schema["required"].([]string) {
+			value, exists := args[key]
+			if !exists || value == nil {
+				return fmt.Errorf("Argument %q is required", key)
+			}
+		}
+		for _, key := range keys {
+			definition := mapValue(properties[key])
+			switch definition["type"] {
+			case "string":
+				if _, ok := args[key].(string); !ok {
+					return fmt.Errorf("Argument %q must be a string", key)
+				}
+			case "boolean":
+				if _, ok := args[key].(bool); !ok {
+					return fmt.Errorf("Argument %q must be a boolean", key)
+				}
+			case "integer":
+				data, err := json.Marshal(args[key])
+				var number float64
+				if args[key] == nil || err != nil || json.Unmarshal(data, &number) != nil || math.IsNaN(number) || math.IsInf(number, 0) || math.Trunc(number) != number || number >= float64(math.MaxInt64) || number < math.MinInt64 {
+					return fmt.Errorf("Argument %q must be an integer within the supported range", key)
+				}
+				if minimum, exists := definition["minimum"]; exists && number < float64(numberInt64(minimum)) {
+					return fmt.Errorf("Argument %q must be at least %v", key, minimum)
+				}
+				if maximum, exists := definition["maximum"]; exists && number > float64(numberInt64(maximum)) {
+					return fmt.Errorf("Argument %q must be at most %v", key, maximum)
+				}
+			}
+		}
+		return nil
+	}
+	return errors.New("Unknown supervisor tool")
 }
 
 // MCP uses newline-delimited stdio. Diagnostics never go to protocol stdout.
