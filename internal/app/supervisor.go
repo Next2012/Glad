@@ -193,6 +193,9 @@ func (manager *SupervisorManager) Save(runtimeID, id string, input SupervisorTas
 	targetSessions := map[string]bool{}
 	executorMember, _ := supervisorMember(room, input.ExecutorMemberID)
 	for _, target := range input.Targets {
+		if target.Stop && !target.Read {
+			return SupervisorTask{}, errors.New("Stop permission requires Read output and history permission")
+		}
 		if _, ok := supervisorMember(room, target.MemberID); !ok || target.MemberID == input.ExecutorMemberID || seen[target.MemberID] {
 			return SupervisorTask{}, errors.New("Monitored members must be distinct and cannot include the supervisor")
 		}
@@ -768,6 +771,14 @@ func (manager *SupervisorManager) Call(ctx context.Context, caller *Session, too
 		manager.mu.Unlock()
 		return nil, errors.New("Executor membership changed")
 	}
+	if err := validateSupervisorArguments(tool, args); err != nil {
+		if len(inv.Calls) < 200 {
+			inv.Calls = append(inv.Calls, SupervisorCall{ID: callID, Tool: tool, MemberID: stringValue(args["memberId"]), CreatedAt: millis(), Success: false, Summary: err.Error()})
+			_ = manager.appendAuditLocked(task, "call", inv, &inv.Calls[len(inv.Calls)-1])
+		}
+		manager.mu.Unlock()
+		return nil, err
+	}
 	memberID := stringValue(args["memberId"])
 	var permissions SupervisorTarget
 	allowed := false
@@ -791,6 +802,18 @@ func (manager *SupervisorManager) Call(ctx context.Context, caller *Session, too
 	if tool != "list_targets" && tool != "end_supervision" && (!exists || targetSession == nil) {
 		manager.mu.Unlock()
 		return nil, errors.New("Target session is unavailable")
+	}
+	commandText := ""
+	if tool == "send_to_session" {
+		commandText, err = supervisorCommandText(args)
+		if err != nil {
+			if len(inv.Calls) < 200 {
+				inv.Calls = append(inv.Calls, SupervisorCall{ID: callID, Tool: tool, MemberID: memberID, CreatedAt: millis(), Success: false, Summary: err.Error()})
+				_ = manager.appendAuditLocked(task, "call", inv, &inv.Calls[len(inv.Calls)-1])
+			}
+			manager.mu.Unlock()
+			return nil, err
+		}
 	}
 	encoded, _ := json.Marshal(map[string]any{"tool": tool, "args": args})
 	digest := sha256.Sum256(encoded)
@@ -831,10 +854,6 @@ func (manager *SupervisorManager) Call(ctx context.Context, caller *Session, too
 		}
 	case "stop_session", "send_to_session":
 		// Release the manager lock before provider I/O; callbacks may call MCP.
-		if tool == "send_to_session" && (strings.TrimSpace(stringValue(args["text"])) == "" || len(stringValue(args["text"])) > 16<<10) {
-			manager.mu.Unlock()
-			return nil, errors.New("Command text must fit 16 KiB")
-		}
 		if tool == "stop_session" && stringValue(args["expectedTurnId"]) == "" {
 			manager.mu.Unlock()
 			return nil, errors.New("Read the target and supply expectedTurnId before stopping")
@@ -845,7 +864,7 @@ func (manager *SupervisorManager) Call(ctx context.Context, caller *Session, too
 		if tool == "stop_session" {
 			err = stopSessionControlled(ctx, targetSession, stringValue(args["expectedTurnId"]))
 		} else {
-			_, err = manager.rooms.PostMessage(ctx, runtimeID, RoomMessageInput{ClientMessageID: commandID, Text: stringValue(args["text"]), MentionedMemberIDs: []string{memberID}, Source: source, SenderMemberID: sender})
+			_, err = manager.rooms.PostMessage(ctx, runtimeID, RoomMessageInput{ClientMessageID: commandID, Text: commandText, MentionedMemberIDs: []string{memberID}, Source: source, SenderMemberID: sender})
 			if err == nil {
 				errText := manager.rooms.RequestDispatchFailure(runtimeID, commandID)
 				if errText != "" {
@@ -886,4 +905,35 @@ func (manager *SupervisorManager) Call(ctx context.Context, caller *Session, too
 	}
 	manager.mu.Unlock()
 	return result, err
+}
+
+// Some clients/models use message for a send operation. Treat it as an
+// explicit alias, keeping ambiguous or non-string values out of the dispatch.
+func supervisorCommandText(args map[string]any) (string, error) {
+	value, hasText := args["text"]
+	message, hasMessage := args["message"]
+	if !hasText && !hasMessage {
+		return "", errors.New("Command content is required: provide text (or message)")
+	}
+	if !hasText {
+		value = message
+	}
+	text, ok := value.(string)
+	if !ok {
+		return "", errors.New("Command content must be a string: provide text (or message)")
+	}
+	if hasText && hasMessage {
+		alias, ok := message.(string)
+		if !ok || alias != text {
+			return "", errors.New("Provide one command: text and message must match when both are supplied")
+		}
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", errors.New("Command content is empty: provide non-empty text (or message)")
+	}
+	if len(text) > maxRoomMessageBytes {
+		return "", fmt.Errorf("Command text exceeds 16 KiB (%d bytes); shorten text or message", len(text))
+	}
+	return text, nil
 }
