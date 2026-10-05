@@ -155,6 +155,7 @@ type Session struct {
 	sourceTurns                     map[string]*SupervisorSource
 	supervisorLease                 string
 	mcpURL, mcpExecutable, mcpToken string
+	speed                           *SpeedTracker
 }
 
 func newSession(id, name, kind string, tool ToolInfo, workingDirectory string) *Session {
@@ -193,7 +194,7 @@ func (session *Session) listItem() map[string]any {
 	return map[string]any{
 		"id": session.ID, "name": session.Name, "tool": session.Tool.DisplayName,
 		"startTime": session.StartTime, "toolKey": session.Tool.Key, "status": session.StatusValue,
-		"workingDirectory": session.WorkingDirectory, "mode": "structured",
+		"workingDirectory": session.WorkingDirectory, "mode": "structured", "speed": session.speedLastLocked(),
 		"hasUnreadCompletion":           session.HasUnreadCompletion,
 		"completionRevision":            session.CompletionRevision,
 		"serverChanNotificationEnabled": session.ServerChanNotificationEnabled,
@@ -222,7 +223,7 @@ func (session *Session) snapshotLocked() map[string]any {
 	return map[string]any{
 		"id": session.ID, "name": session.Name, "tool": session.Tool.DisplayName,
 		"toolKey": session.Tool.Key, "status": session.StatusValue,
-		"state": cloneMap(session.State), "messages": messages,
+		"state": session.speedStateLocked(), "messages": messages,
 		"pendingPermissions": permissions, "hasUnreadCompletion": session.HasUnreadCompletion,
 		"completionRevision": session.CompletionRevision,
 	}
@@ -427,6 +428,7 @@ func (session *Session) setState(patch map[string]any) {
 	}
 	if status := stringValue(patch["status"]); status != "" {
 		session.StatusValue = status
+		session.speed.state(status)
 	}
 	state := cloneMap(session.State)
 	session.publishLocked(map[string]any{"type": "state", "state": state})
@@ -545,6 +547,7 @@ type SessionManager struct {
 	creating              map[string]struct{}
 	events                *sessioncore.EventHub
 	mcpURL, mcpExecutable string
+	speeds                *SpeedStore
 }
 
 func NewSessionManager(baseDir string) *SessionManager {
@@ -633,6 +636,9 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 	}
 	session := newSession(id, name, kind, tool, directory)
 	session.environment = append([]string(nil), manager.environment...)
+	if manager.speeds != nil {
+		session.speed = &SpeedTracker{session: session, store: manager.speeds}
+	}
 	session.mcpURL, session.mcpExecutable, session.mcpToken = manager.mcpURL, manager.mcpExecutable, newUUID()
 	session.NameManual = strings.TrimSpace(request.Name) != ""
 	session.events = manager.events
