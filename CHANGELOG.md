@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Deliver PDF and MCP/workbench resources with their correct content types and explicit resource access settings.
+- Preserve recovered Codex conversations when a transient resume response contains no turns.
 - Accept `message` as an explicit alias for Supervisor send commands, distinguish missing content from the UTF-8 byte limit, and audit rejected command parameters.
 - Keep MCP tool schemas portable and reject unknown fields, invalid types, and out-of-range read arguments instead of silently ignoring them.
 - Preapprove only Glad’s five local Codex MCP tools so authorized automatic checks can run under a non-interactive approval policy.
