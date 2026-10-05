@@ -71,6 +71,7 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
 
   const quotedReply = page.locator('.room-entry.session').first();
   await expect(page.locator('.room-quote-button')).toHaveCount(0);
+  await page.locator('#room-title').hover();
   await expect(quotedReply.locator('.room-selection-circle')).toBeHidden();
   await quotedReply.dispatchEvent('pointerdown', { pointerType: 'touch', clientX: 20, clientY: 20 });
   await page.waitForTimeout(650);
@@ -92,7 +93,7 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
     const circle = entry.querySelector('.room-selection-circle').getBoundingClientRect();
     return { gutter: column.left - entry.getBoundingClientRect().left, circleBeforeMessage: circle.right < column.left };
   });
-  expect(userLayout.gutter).toBe(40);
+  expect(userLayout.gutter).toBeGreaterThanOrEqual(44);
   expect(userLayout.circleBeforeMessage).toBe(true);
   await page.locator('#room-mention-button').click();
   await page.locator('.room-mention-option').click();

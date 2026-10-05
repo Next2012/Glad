@@ -174,3 +174,58 @@ test('keyboard viewport changes preserve history and bottom following', async ({
   });
   await expect.poll(() => page.locator('#room-message-list').evaluate(list => list.scrollHeight - list.clientHeight - list.scrollTop)).toBeLessThan(2);
 });
+
+
+test('touch holds suppress text selection, cancel cleanly, and consume only one click', async ({ page }) => {
+  await openScrollingRoom(page);
+  await readMiddle(page);
+  const entryId = await page.evaluate(() => scrollProbeEntry.dataset.roomEntryId);
+  const entry = page.locator(`[data-room-entry-id="${entryId}"]`);
+  await entry.dispatchEvent('pointerdown', {pointerType:'touch', clientX:20, clientY:20});
+  expect(await entry.locator('.room-entry-text').evaluate(el => {
+    const style = getComputedStyle(el);
+    return style.getPropertyValue('user-select') || style.getPropertyValue('-webkit-user-select');
+  })).toBe('none');
+  await entry.dispatchEvent('pointermove', {pointerType:'touch', clientX:20, clientY:40});
+  await expect(entry).not.toHaveClass(/room-entry-holding/);
+  await page.waitForTimeout(600);
+  await expect(page.locator('#room-view')).not.toHaveClass(/room-selecting/);
+  await entry.evaluate(el => { const range = document.createRange(); range.selectNodeContents(el.querySelector('.room-entry-text')); const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range); });
+  await entry.dispatchEvent('pointerdown', {pointerType:'pen', clientX:20, clientY:20});
+  await page.waitForTimeout(600);
+  expect(await page.evaluate(() => getSelection().toString())).toBe('');
+  await entry.dispatchEvent('pointerup', {pointerType:'pen'});
+  await entry.dispatchEvent('click');
+  await expect(page.locator('.room-context-chip.quote')).toHaveCount(1);
+  await entry.dispatchEvent('click');
+  await expect(page.locator('.room-context-chip.quote')).toHaveCount(0);
+});
+
+test('desktop hover provides selection without moving text; mouse drag remains text selection', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.use.hasTouch, 'Mouse-specific entry point');
+  await openScrollingRoom(page);
+  await readMiddle(page);
+  const entryId = await page.evaluate(() => scrollProbeEntry.dataset.roomEntryId);
+  const entry = page.locator(`[data-room-entry-id="${entryId}"]`);
+  await page.locator('#room-title').hover();
+  const before = await entry.locator('.room-entry-column').boundingBox();
+  await entry.hover();
+  await expect(entry.locator('.room-selection-circle')).toBeVisible();
+  expect(await entry.locator('.room-entry-column').boundingBox()).toEqual(before);
+  await entry.dispatchEvent('pointerdown', {pointerType:'mouse', clientX:20, clientY:20});
+  await page.waitForTimeout(600);
+  await expect(entry).not.toHaveClass(/room-entry-holding/);
+  await expect(page.locator('#room-view')).not.toHaveClass(/room-selecting/);
+  await entry.dispatchEvent('pointerup', {pointerType:'mouse'});
+  const text = await entry.locator('.room-entry-text p').first().boundingBox();
+  await page.mouse.move(text.x + 2, text.y + text.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(text.x + 70, text.y + text.height / 2, { steps:10 });
+  await page.mouse.up();
+  expect(await page.evaluate(() => getSelection().toString().length)).toBeGreaterThan(0);
+  await entry.locator('.room-selection-circle').click();
+  await expect(entry).toHaveClass(/selected/);
+  expect(await entry.locator('.room-entry-column').boundingBox()).toEqual(before);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#room-view')).not.toHaveClass(/room-selecting/);
+});
