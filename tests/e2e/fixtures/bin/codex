@@ -3,6 +3,8 @@
 'use strict';
 
 const readline = require('node:readline');
+const fs = require('node:fs');
+const path = require('node:path');
 
 if (process.argv.includes('--version')) {
   process.stdout.write('codex-cli 0.0.0-e2e\n');
@@ -49,6 +51,49 @@ function finishInputQuestion(text, status = 'completed') {
 const threadNames = new Map();
 const hiddenThreads = new Set();
 let titleSequence = 0;
+let activeThreadId = 'thread-e2e';
+let savedTurns = [];
+function mockHistoryPath(id, suffix) {
+  return path.join(process.env.CODEX_HOME, 'e2e-history', encodeURIComponent(id) + suffix);
+}
+function saveMockHistory() {
+  if (!process.env.CODEX_HOME) return;
+  fs.mkdirSync(path.dirname(mockHistoryPath(activeThreadId, '.json')), { recursive: true });
+  fs.writeFileSync(mockHistoryPath(activeThreadId, '.json'), JSON.stringify(savedTurns));
+  const records = [{ type: 'session_meta', payload: { id: activeThreadId } }];
+  for (const turn of savedTurns) {
+    records.push({ type: 'turn_context', payload: { turn_id: turn.id } });
+    for (const item of turn.items) {
+      if (item.type === 'userMessage') records.push({ type: 'response_item', payload: { type: 'message', role: 'user', content: (item.content || []).filter(value => value.type === 'text').map(value => ({ type: 'input_text', text: value.text })) } });
+      if (item.type === 'agentMessage') records.push({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: item.text }] } });
+    }
+  }
+  fs.writeFileSync(mockHistoryPath(activeThreadId, '.jsonl'), records.map(record => JSON.stringify(record)).join('\n') + '\n');
+}
+function restoreMockHistory(id, parent = id) {
+  const current = parent === activeThreadId ? savedTurns : null;
+  let history = [];
+  if (current) history = current;
+  else if (process.env.CODEX_HOME && fs.existsSync(mockHistoryPath(parent, '.json'))) history = JSON.parse(fs.readFileSync(mockHistoryPath(parent, '.json'), 'utf8'));
+  activeThreadId = id;
+  savedTurns = JSON.parse(JSON.stringify(history));
+  saveMockHistory();
+  return { thread: { id, path: mockHistoryPath(id, '.jsonl'), turns: [] }, initialTurnsPage: { data: [...savedTurns].reverse(), nextCursor: null } };
+}
+function rememberMockEvent(message) {
+  const params = message.params;
+  if (!params || params.threadId !== 'thread-e2e' || !params.turnId && !params.turn?.id) return;
+  if (!['turn/started', 'turn/completed', 'item/started', 'item/completed'].includes(message.method)) return;
+  const id = params.turnId || params.turn.id;
+  let turn = savedTurns.find(turn => turn.id === id);
+  if (!turn) { turn = { id, status: 'inProgress', createdAt: Math.floor(Date.now() / 1000), items: [] }; savedTurns.push(turn); }
+  if (params.item?.id && params.item?.type) {
+    const index = turn.items.findIndex(item => item.id === params.item.id);
+    if (index < 0) turn.items.push(params.item); else turn.items[index] = params.item;
+  }
+  if (message.method === 'turn/completed') { turn.status = params.turn.status; turn.completedAt = Math.floor(Date.now() / 1000); }
+  saveMockHistory();
+}
 function savedThreadName(id) {
   if (threadNames.has(id)) return threadNames.get(id);
   const match = /^picker-thread-(\d+)$/.exec(id || '');
@@ -114,6 +159,7 @@ function historicalPlanThread(threadId) {
 
 function write(message) {
   if (outputLost) return;
+  rememberMockEvent(message);
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
@@ -200,7 +246,7 @@ input.on('line', line => {
     result = { data: threads.slice(offset, offset + limit), nextCursor: offset + limit < threads.length ? String(offset + limit) : null };
   } else if (request.method === 'thread/fork') {
     threadNames.set(`fork-of-${request.params?.threadId}`, savedThreadName(request.params?.threadId));
-    result = { thread: { id: `fork-of-${request.params?.threadId}`, turns: [] }, initialTurnsPage: { data: [], nextCursor: null } };
+    result = restoreMockHistory(`fork-of-${request.params?.threadId}`, request.params?.threadId);
     if (request.params?.threadId === 'plan-history-e2e') result = historicalPlanThread('fork-of-plan-history-e2e');
   } else if (request.method === 'thread/resume') {
     const threadId = request.params?.threadId || 'thread-e2e';
@@ -219,7 +265,7 @@ input.on('line', line => {
         initialTurnsPage: { data: turns.slice(0, 50), nextCursor: 'large-history-page-2' }
       };
     } else {
-      result = { thread: { id: threadId, turns: [] }, initialTurnsPage: { data: [], nextCursor: null } };
+      result = restoreMockHistory(threadId);
     }
   } else if (request.method === 'thread/turns/list') {
     if (request.params?.threadId?.includes('untitled-history-e2e') && request.params?.itemsView === 'summary') {
@@ -285,6 +331,7 @@ input.on('line', line => {
       write({ method: 'thread/started', params: { thread: { id, ephemeral: true } } });
       result = { thread: { id, ephemeral: true }, sandbox: { type: 'readOnly' } };
     } else {
+      activeThreadId = 'thread-e2e'; savedTurns = []; saveMockHistory();
       result = { thread: { id: 'thread-e2e' } };
     }
   } else if (request.method === 'turn/start') {
