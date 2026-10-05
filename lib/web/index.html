@@ -268,7 +268,7 @@
                 </button>
                 <div id="session-title">Terminal</div>
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <button id="session-speed-button" class="session-speed-badge" type="button" onclick="openSessionSpeed(activeSessionId)" aria-label="Generation speed" title="Last completed turn · observed tokens per second"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 15v2M7 11v6M12 7v10M17 3v14"/></svg><span>—</span></button>
+                    <button id="session-speed-button" class="session-speed-badge" type="button" onclick="openSessionSpeed(activeSessionId)" aria-label="Effective output speed" title="Last completed turn · effective output tokens per second · includes first output waiting"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 15v2M7 11v6M12 7v10M17 3v14"/></svg><span>—</span></button>
                     <button class="icon-btn" onclick="showHistory()" title="History" style="color: var(--primary); font-size: 12px; font-weight: 700; background: rgba(0, 122, 255, 0.1); padding: 5px 9px; border-radius: 15px; gap: 4px;">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"></path><polyline points="3 3 3 9 9 9"></polyline><path d="M12 7v5l3 2"></path></svg>
                         HIS
@@ -675,10 +675,11 @@
 
     <div id="session-speed-overlay" class="room-modal-overlay" onclick="closeSessionSpeed(event)">
         <section class="session-speed-panel" role="dialog" aria-modal="true" aria-labelledby="session-speed-title" onclick="event.stopPropagation()">
-            <header><h2 id="session-speed-title">Generation speed</h2><button type="button" onclick="closeSessionSpeed()" aria-label="Close speed statistics">×</button></header>
-            <p class="speed-method-note">Observed estimate: reported output tokens ÷ turn time after observed tool and human waits. Includes thinking and service overhead; this is not a pure decoding benchmark.</p>
+            <header><h2 id="session-speed-title">Effective output speed</h2><button type="button" onclick="closeSessionSpeed()" aria-label="Close speed statistics">×</button></header>
+            <p class="speed-method-note">Observed estimate: reported output tokens ÷ turn time after observed tool and human waits. Includes waiting for the first output and thinking; observed tool and human waits are removed. This is not a pure decoding benchmark.</p>
             <div class="speed-scopes"><button type="button" data-speed-scope="session" aria-pressed="true" onclick="selectSpeedScope('session')">This session</button><button id="speed-model-scope" type="button" data-speed-scope="model" aria-pressed="false" onclick="selectSpeedScope('model')">Same model</button></div>
-            <div class="speed-tabs" role="tablist" aria-label="Speed statistics"><button type="button" role="tab" data-speed-view="turns" aria-selected="true" onclick="selectSpeedView('turns')">Turns</button><button type="button" role="tab" data-speed-view="hourly" aria-selected="false" onclick="selectSpeedView('hourly')">Hourly</button><label id="speed-limit-row">Recent <select id="speed-limit" aria-label="Recent turns" onchange="loadSessionSpeed()"><option value="10">10</option><option value="50" selected>50</option><option value="100">100</option></select></label></div>
+            <div class="speed-tabs" role="tablist" aria-label="Speed statistics"><button type="button" role="tab" data-speed-view="turns" aria-selected="true" onclick="selectSpeedView('turns')">Turns</button><button type="button" role="tab" data-speed-view="hourly" aria-selected="false" onclick="selectSpeedView('hourly')">Hourly</button><label id="speed-limit-row">Recent <select id="speed-limit" aria-label="Recent turns" onchange="reloadSpeedStatistics()"><option value="10">10</option><option value="50" selected>50</option><option value="100">100</option></select></label></div>
+            <label class="speed-filter"><span>Exclude samples under 50 tokens</span><input id="speed-exclude-short" type="checkbox" role="switch" onchange="reloadSpeedStatistics()"></label>
             <div id="speed-content" aria-live="polite"></div>
         </section>
     </div>

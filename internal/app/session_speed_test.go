@@ -229,3 +229,130 @@ func TestSpeedModelScopeIsolatedByServiceEffortAndTier(t *testing.T) {
 		}
 	}
 }
+
+func TestSpeedCollaborationMeasuresOnlyRootInvocationAndKeepsOverlap(t *testing.T) {
+	for _, tc := range []struct {
+		name, tool string
+		spans      []speedSpan
+		model      *speedReply
+		want       int64
+	}{
+		{"wait", "wait", []speedSpan{{100, 500}}, nil, 400},
+		{"spawn then generate", "spawnAgent", []speedSpan{{100, 120}}, &speedReply{first: 120, last: 900}, 20},
+		{"overlapping waits", "wait", []speedSpan{{100, 500}, {300, 700}}, nil, 600},
+		{"wait while model active", "wait", []speedSpan{{100, 500}}, &speedReply{first: 400, last: 700}, 300},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			session, store := speedFixture(t, "codex")
+			tracker := session.speed
+			tracker.begin("root", "turn", "model", "profile", "", false)
+			tracker.mu.Lock()
+			tracker.run.started = time.Now().Add(-time.Second)
+			tracker.run.known = true
+			tracker.run.tokens = 100
+			tracker.mu.Unlock()
+			for i, span := range tc.spans {
+				id := string(rune('a' + i))
+				tracker.codex("item/started", map[string]any{"threadId": "root", "turnId": "turn", "item": map[string]any{"type": "collabAgentToolCall", "id": id, "tool": tc.tool}}, "root", "model", "profile", "", false)
+				tracker.mu.Lock()
+				if _, ok := tracker.run.blocks["tool:"+id]; !ok {
+					t.Fatal("root collaboration invocation was not tracked")
+				}
+				tracker.run.blocks["tool:"+id] = span.start
+				tracker.mu.Unlock()
+				tracker.codex("item/completed", map[string]any{"threadId": "root", "turnId": "turn", "item": map[string]any{"type": "collabAgentToolCall", "id": id, "tool": tc.tool}}, "root", "model", "profile", "", false)
+				tracker.mu.Lock()
+				tracker.run.intervals[len(tracker.run.intervals)-1].end = span.end
+				tracker.mu.Unlock()
+			}
+			tracker.codex("item/started", map[string]any{"threadId": "child", "turnId": "child-turn", "item": map[string]any{"type": "commandExecution", "id": "child-work"}}, "root", "model", "profile", "", false)
+			tracker.mu.Lock()
+			if tc.model != nil {
+				tracker.run.replies["model"] = tc.model
+			}
+			tracker.mu.Unlock()
+			tracker.finish("completed", 0)
+			sample := store.last("codex", "root")
+			if sample.BlockedMs != tc.want || sample.Quality != "estimated" {
+				t.Fatalf("wrong waiting scope: %#v", sample)
+			}
+		})
+	}
+}
+func TestSpeedClaudeTokenMaximumAndResultMismatchIsDiagnostic(t *testing.T) {
+	session, store := speedFixture(t, "claude-code")
+	tracker := session.speed
+	tracker.begin("native", "turn", "model", "profile", "", false)
+	tracker.mu.Lock()
+	tracker.run.started = time.Now().Add(-time.Second)
+	tracker.mu.Unlock()
+	tracker.claude(map[string]any{"type": "stream_event", "event": map[string]any{"type": "message_start", "message": map[string]any{"id": "reply"}}})
+	for _, n := range []int64{20, 100, 60} {
+		tracker.claude(map[string]any{"type": "stream_event", "event": map[string]any{"type": "message_delta", "usage": map[string]any{"output_tokens": n}}})
+	}
+	tracker.claude(map[string]any{"type": "stream_event", "event": map[string]any{"type": "message_start", "message": map[string]any{"id": "reply"}}})
+	tracker.claude(map[string]any{"type": "assistant", "message": map[string]any{"id": "reply", "usage": map[string]any{"output_tokens": int64(80)}}})
+	tracker.claude(map[string]any{"type": "result", "usage": map[string]any{"output_tokens": int64(120)}})
+	tracker.claude(map[string]any{"type": "system", "subtype": "compact_boundary"})
+	tracker.finish("completed", 0)
+	row := store.last("claude-code", "native")
+	if row.OutputTokens == nil || *row.OutputTokens != 100 || row.ResultTokensMatch == nil || *row.ResultTokensMatch || row.Quality != "estimated" || !row.Compacted {
+		t.Fatalf("token decrease or mismatched scope invalidated sample: %#v", row)
+	}
+}
+func TestSpeedShortFilterAffectsBothMeansButNotLastOrRows(t *testing.T) {
+	session, store := speedFixture(t, "codex")
+	session.State["threadId"] = "root"
+	now := millis()
+	small, boundary := int64(10), int64(50)
+	low, high := 3.0, 80.0
+	for _, row := range []SpeedSample{
+		{ID: "small", Provider: "codex", ConversationID: "root", Model: "model", Method: speedMethod, Status: "completed", EndedAt: now, OutputTokens: &small, Short: true, Rate: &low},
+		{ID: "long", Provider: "codex", ConversationID: "root", Model: "model", Method: speedMethod, Status: "completed", EndedAt: now - 1, OutputTokens: &boundary, Rate: &high},
+	} {
+		if err := store.add(row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manager := NewSessionManager(t.TempDir())
+	manager.sessions[session.ID] = session
+	manager.speeds = store
+	server := &Server{sessions: manager}
+	for _, scope := range []string{"session", "model"} {
+		for _, filter := range []string{"false", "true"} {
+			req := httptest.NewRequest("GET", "/speed?scope="+scope+"&excludeShort="+filter+"&timezone=UTC", nil)
+			req.SetPathValue("id", session.ID)
+			w := httptest.NewRecorder()
+			server.sessionSpeed(w, req)
+			var data map[string]any
+			json.Unmarshal(w.Body.Bytes(), &data)
+			wantMean, wantCount, wantExcluded := 41.5, float64(2), float64(0)
+			if filter == "true" {
+				wantMean, wantCount, wantExcluded = 80, 1, 1
+			}
+			if data["mean"] != wantMean || data["validCount"] != wantCount || data["excludedCount"] != wantExcluded || len(sliceValue(data["items"])) != 2 || mapValue(data["last"])["id"] != "small" {
+				t.Fatalf("filter changed history/latest/window: %s", w.Body.String())
+			}
+			found := false
+			for _, raw := range sliceValue(data["hours"]) {
+				hour := mapValue(raw)
+				if numberInt64(hour["sampleCount"]) > 0 {
+					found = true
+					if hour["mean"] != wantMean || hour["count"] != wantCount || hour["excludedCount"] != wantExcluded {
+						t.Fatal("hour filter differs from turn filter")
+					}
+				}
+			}
+			if !found {
+				t.Fatal("no hourly samples")
+			}
+		}
+	}
+	req := httptest.NewRequest("GET", "/speed?excludeShort=maybe", nil)
+	req.SetPathValue("id", session.ID)
+	w := httptest.NewRecorder()
+	server.sessionSpeed(w, req)
+	if w.Code != 400 {
+		t.Fatal("invalid filter accepted")
+	}
+}

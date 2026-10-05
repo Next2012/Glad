@@ -1601,3 +1601,9 @@ body.tile-focus-open #room-view .room-composer { padding-left:14px; padding-righ
 .speed-hours :is(th,td) { text-align:left; padding:10px 4px; border-bottom:1px solid var(--line); }
 .session-speed-panel button:disabled { opacity:.5; cursor:default; }
 @media(max-width:600px) { #session-speed-overlay { padding:0; align-items:stretch; } .session-speed-panel { height:var(--app-viewport-height,100dvh); max-height:var(--app-viewport-height,100dvh); border:0; border-radius:0; padding-top:env(safe-area-inset-top); } #nav-bar > div:last-child { gap:4px !important; } }
+
+.session-speed-badge.short-sample { color:var(--text-dim); }
+.speed-filter { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:44px; margin:0 16px 12px; font-size:14px; cursor:pointer; }
+.speed-filter input { flex:none; width:24px; height:24px; accent-color:var(--primary); }
+.speed-latest-note { padding:12px; border:1px solid var(--line); border-radius:10px; color:var(--text-dim); font-size:13px; line-height:1.5; }
+.speed-counts { font-size:13px; color:var(--text-dim); }

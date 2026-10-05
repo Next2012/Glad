@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Align effective output speed timing across providers by tracking root collaboration tool invocations and retaining overlapping model activity.
+- Keep the maximum Claude output count for duplicate reply IDs; use result totals only for diagnostics and annotate automatic compaction.
+
+### Changed
+
+- Rename the metric to Effective output speed and explain first-output waiting. Dim short latest replies while keeping their value, and add an optional short-sample filter for turn/hourly averages with exclusion counts.
+
 ### Added
 
 - Show the last completed turn’s observed generation speed beside History and in session tiles, with per-turn and hourly arithmetic averages for the current session or matching model/service/effort/Fast profile.
