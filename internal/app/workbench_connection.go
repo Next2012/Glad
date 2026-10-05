@@ -27,23 +27,24 @@ import (
 )
 
 type workbenchMessage struct {
-	Type                string         `json:"type"`
-	ID                  string         `json:"id,omitempty"`
-	Method              string         `json:"method,omitempty"`
-	Path                string         `json:"path,omitempty"`
-	Body                string         `json:"body,omitempty"`
-	ContentType         string         `json:"content_type,omitempty"`
-	Status              int            `json:"status,omitempty"`
-	SessionID           string         `json:"session_id,omitempty"`
-	Payload             map[string]any `json:"payload,omitempty"`
-	ClientID            string         `json:"client_id,omitempty"`
-	ThreadID            string         `json:"thread_id,omitempty"`
-	ToolKey             string         `json:"tool_key,omitempty"`
-	WorkbenchID         string         `json:"workbench_id,omitempty"`
-	WorkbenchAlias      string         `json:"workbench_alias,omitempty"`
-	Settings            map[string]any `json:"settings,omitempty"`
-	WorkspaceKeys       []string       `json:"workspace_keys"`
-	WorkspaceGeneration *uint64        `json:"workspace_generation,omitempty"`
+	Type                string            `json:"type"`
+	ID                  string            `json:"id,omitempty"`
+	Method              string            `json:"method,omitempty"`
+	Path                string            `json:"path,omitempty"`
+	Body                string            `json:"body,omitempty"`
+	ContentType         string            `json:"content_type,omitempty"`
+	ResponseHeaders     map[string]string `json:"response_headers,omitempty"`
+	Status              int               `json:"status,omitempty"`
+	SessionID           string            `json:"session_id,omitempty"`
+	Payload             map[string]any    `json:"payload,omitempty"`
+	ClientID            string            `json:"client_id,omitempty"`
+	ThreadID            string            `json:"thread_id,omitempty"`
+	ToolKey             string            `json:"tool_key,omitempty"`
+	WorkbenchID         string            `json:"workbench_id,omitempty"`
+	WorkbenchAlias      string            `json:"workbench_alias,omitempty"`
+	Settings            map[string]any    `json:"settings,omitempty"`
+	WorkspaceKeys       []string          `json:"workspace_keys"`
+	WorkspaceGeneration *uint64           `json:"workspace_generation,omitempty"`
 }
 
 type workbenchStream struct {
@@ -71,6 +72,8 @@ type workbenchBridge struct {
 // 连接只管理自己创建的会话，普通 Glad 的群聊和其他会话保持独立。
 func newWorkbenchServer(baseDir string, assets fs.FS) (*Server, error) {
 	server := &Server{baseDir: baseDir, assets: assets, sessions: NewSessionManager(baseDir), attachments: NewAttachmentStore()}
+	// 未配置的 WSS 目标清除普通页面的路由元数据，子进程也不能继承其他连接身份。
+	server.sessions.environment = []string{"GLAD_WORKBENCH_MCP_URL=", "GLAD_WORKBENCH_MCP_TOKEN_FILE="}
 	empty := &ConfigStore{data: map[string]any{}}
 	server.notifications = NewNotificationService(empty, server.sessions, nil)
 	server.skillhub = NewSkillHubService(empty, server.sessions)
@@ -424,7 +427,18 @@ func (bridge *workbenchBridge) httpRequest(message workbenchMessage) {
 		respondError(response, http.StatusRequestEntityTooLarge, errors.New("响应超过连接大小限制"))
 	}
 	_ = bridge.write(workbenchMessage{Type: "http_response", ID: message.ID, Status: response.Code,
-		Body: base64.StdEncoding.EncodeToString(response.Body.Bytes()), ContentType: response.Header().Get("Content-Type")})
+		Body: base64.StdEncoding.EncodeToString(response.Body.Bytes()), ContentType: response.Header().Get("Content-Type"), ResponseHeaders: workbenchResourceResponseHeaders(response.Header())})
+}
+
+// 浏览器资源的隔离和下载信息需要穿过连接，仅允许这三项响应头。
+func workbenchResourceResponseHeaders(headers http.Header) map[string]string {
+	result := map[string]string{}
+	for _, name := range []string{"Content-Security-Policy", "X-Content-Type-Options", "Content-Disposition"} {
+		if value := headers.Get(name); value != "" && !strings.ContainsAny(value, "\r\n") {
+			result[name] = value
+		}
+	}
+	return result
 }
 
 func (bridge *workbenchBridge) serveRequest(writer *httptest.ResponseRecorder, message workbenchMessage) error {

@@ -289,6 +289,34 @@ func (sharing *WorkbenchSharing) SetEnabled(id string, enabled bool) error {
 	return nil
 }
 
+// 修改资源身份前先由用户断开此目标，保留配对身份，重连后所有会话使用明确的新配置。
+func (sharing *WorkbenchSharing) SetMCP(id, endpoint, tokenFile string) error {
+	sharing.mu.Lock()
+	defer sharing.mu.Unlock()
+	if runtime := sharing.runtimes[id]; runtime != nil && runtime.state != "disconnected" {
+		return errors.New("请先关闭此连接，再保存 MCP 资源访问配置")
+	}
+	next := sharing.nextConfig()
+	for index := range next.Workbenches {
+		if next.Workbenches[index].ID != id {
+			continue
+		}
+		target := &next.Workbenches[index]
+		target.MCPURL, target.MCPTokenFile = strings.TrimSpace(endpoint), strings.TrimSpace(tokenFile)
+		if err := sharing.validateTarget(target); err != nil {
+			return err
+		}
+		if target.MCPURL != "" {
+			parsed, err := url.Parse(target.MCPURL)
+			if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || !filepath.IsAbs(target.MCPTokenFile) {
+				return errors.New("MCP 地址需为 HTTP(S)，凭据需为当前用户的本地绝对路径")
+			}
+		}
+		return sharing.commitLocked(next)
+	}
+	return errors.New("工作台不存在")
+}
+
 func (sharing *WorkbenchSharing) Delete(id string) error {
 	sharing.mu.Lock()
 	next := sharing.nextConfig()

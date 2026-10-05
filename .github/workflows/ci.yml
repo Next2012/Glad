@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Test release candidate gate negative cases
+        run: python3 scripts/test_release_gate.py
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.1"

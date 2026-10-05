@@ -43,6 +43,11 @@ func NewServer(baseDir string, port int, assets fs.FS) (*Server, error) {
 		return nil, err
 	}
 	sessions := NewSessionManager(baseDir)
+	// 普通 AI 页面仅接收启动入口明确传入的原 MCP 身份元数据。
+	// WSS 的独立 server 不走这里，仍只使用该目标自己的配置。
+	if endpoint, tokenFile := os.Getenv("GLAD_WORKBENCH_MCP_URL"), os.Getenv("GLAD_WORKBENCH_MCP_TOKEN_FILE"); endpoint != "" && tokenFile != "" {
+		sessions.environment = []string{"GLAD_WORKBENCH_MCP_URL=" + endpoint, "GLAD_WORKBENCH_MCP_TOKEN_FILE=" + tokenFile}
+	}
 	sessions.config = config
 	roomStore, err := OpenRoomStore()
 	if err != nil {

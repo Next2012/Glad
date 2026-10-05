@@ -4,13 +4,38 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      verify_approved:
+        description: Rebuild and compare accepted bytes before pushing any formal tag
+        required: true
+        default: false
+        type: boolean
+      version:
+        description: Candidate version (artifact only; no publication)
+        required: true
+        type: string
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
+  actions: read
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then version="${INPUT_VERSION#v}"; else version="${GITHUB_REF_NAME#v}"; fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: prepare
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -23,13 +48,19 @@ jobs:
           - { runner: macos-14, goos: darwin, goarch: arm64, artifact: glad-macos-arm64, smoke: true }
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Normalize candidate and formal Git context
+        run: |
+          python3 -c 'import json,sys; assert json.load(open("package.json"))["version"]==sys.argv[1], "Candidate version must match the frozen source"' "${{ needs.prepare.outputs.version }}"
+          python3 scripts/release_gate.py context --version "${{ needs.prepare.outputs.version }}"
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.1"
           cache: true
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: "24.18.0"
           cache: npm
       - run: npm ci
       - name: Build ${{ matrix.artifact }}
@@ -38,7 +69,9 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
-        run: go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v}" -o ${{ matrix.artifact }} .
+        run: |
+          go build -trimpath -ldflags "-s -w -X main.version=${{ needs.prepare.outputs.version }}" -o ${{ matrix.artifact }} .
+          python3 scripts/release_gate.py binary --directory ${{ matrix.artifact }}
       - if: matrix.goos != 'windows'
         shell: bash
         run: chmod 755 ${{ matrix.artifact }}
@@ -52,51 +85,118 @@ jobs:
           path: ${{ matrix.artifact }}
           if-no-files-found: error
 
-  publish:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+  collect-assets:
+    needs: [prepare, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
-      - name: Use npm with trusted publishing support
+          node-version: "24.18.0"
+      - name: Pin npm package producer
         run: npm install --global npm@11.16.0
       - uses: actions/download-artifact@v4
         with:
-          path: dist-artifacts
-      - name: Flatten build artifacts
+          path: dist/artifacts
+      - name: Assemble the exact binary and npm candidate assets
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          mkdir -p dist
-          find dist-artifacts -maxdepth 2 -type f -exec cp {} dist/ \;
-          # 校验文件只记录附件名，下载到同一目录后即可直接校验。
-          (cd dist && sha256sum glad-*) > dist/SHA256SUMS
-      - name: Stage npm platform packages
-        run: node scripts/stage-npm-packages.js "${GITHUB_REF_NAME#v}" dist staged-npm
-      - name: Publish platform packages first
-        run: |
-          for package in staged-npm/platforms/*; do
-            name="$(node -p "require('./$package/package.json').name")"
-            version="$(node -p "require('./$package/package.json').version")"
-            if npm view "$name@$version" version --json >/dev/null 2>&1; then
-              echo "::notice::$name@$version is already published; skipping"
-              continue
-            fi
-            npm publish "./$package" --access public
+          mkdir -p dist/assets
+          find dist/artifacts -maxdepth 2 -type f -exec cp {} dist/assets/ \;
+          node scripts/stage-npm-packages.js "$VERSION" dist/assets staged-npm
+          for package in staged-npm/platforms/* staged-npm/main; do
+            npm pack "./$package" --pack-destination dist/assets
           done
-      - name: Publish main package last
+          (cd dist/assets && sha256sum glad-*) > dist/assets/SHA256SUMS
+      - name: Record all required binary and npm package checksums
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          name="$(node -p "require('./staged-npm/main/package.json').name")"
-          version="$(node -p "require('./staged-npm/main/package.json').version")"
-          if npm view "$name@$version" version --json >/dev/null 2>&1; then
-            echo "::notice::$name@$version is already published; skipping"
-          else
-            npm publish ./staged-npm/main --access public
+          args=(--asset SHA256SUMS --asset glad-linux-amd64 --asset glad-linux-arm64 --asset glad-windows-amd64.exe --asset glad-macos-x64 --asset glad-macos-arm64)
+          for package in glad-web glad-web-linux-x64 glad-web-linux-arm64 glad-web-darwin-x64 glad-web-darwin-arm64 glad-web-windows-x64; do
+            args+=(--asset "$package-$VERSION.tgz")
+          done
+          python3 scripts/release_gate.py record --version "$VERSION" --directory dist/assets "${args[@]}" --output dist/candidate-checksums.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: dist/assets/
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidate-checksums
+          path: dist/candidate-checksums.json
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || inputs.verify_approved
+    needs: [prepare, collect-assets]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.18.0"
+          registry-url: https://registry.npmjs.org
+      - name: Use identical npm producer with trusted publishing
+        run: npm install --global npm@11.16.0
+      - name: Require explicitly approved candidate run
+        env:
+          APPROVED_RUN: ${{ vars.APPROVED_CANDIDATE_RUN_ID }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$APPROVED_RUN" =~ ^[0-9]+$ ]] || { echo 'Missing approved candidate run' >&2; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$APPROVED_RUN" > "$RUNNER_TEMP/approved-run.json"
+          python3 -c 'import json,os; r=json.load(open(os.environ["RUNNER_TEMP"]+"/approved-run.json")); assert r["event"]=="workflow_dispatch" and r["head_sha"]==os.environ["GITHUB_SHA"] and r["conclusion"]=="success" and r["path"]==".github/workflows/release.yml", "Approved run must be a successful candidate from this exact source"'
+      - uses: actions/download-artifact@v4
+        with:
+          name: candidate-checksums
+          run-id: ${{ vars.APPROVED_CANDIDATE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: dist/approved
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist/assets
+      - name: Fail before npm or GitHub publication if candidate differs
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          args=(--asset SHA256SUMS --asset glad-linux-amd64 --asset glad-linux-arm64 --asset glad-windows-amd64.exe --asset glad-macos-x64 --asset glad-macos-arm64)
+          for package in glad-web glad-web-linux-x64 glad-web-linux-arm64 glad-web-darwin-x64 glad-web-darwin-arm64 glad-web-windows-x64; do
+            args+=(--asset "$package-$VERSION.tgz")
+          done
+          python3 scripts/release_gate.py verify --version "$VERSION" --directory dist/assets "${args[@]}" --approved dist/approved/candidate-checksums.json
+      - name: Preserve immutable published versions
+        if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Release already exists; use a new version' >&2
+            exit 1
           fi
+      - name: Publish platform packages first
+        if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          for package in dist/assets/glad-web-*-$VERSION.tgz; do npm publish "$package" --access public; done
+      - name: Publish main package last
+        if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: npm publish "dist/assets/glad-web-$VERSION.tgz" --access public
       - name: Publish GitHub release
+        if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: dist/*
+          files: dist/assets/*

@@ -1441,6 +1441,7 @@ func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
 	provider.resuming = true
 	provider.resumeInFlight = true
 	provider.resumeAborted = false
+	previousThreadID := provider.threadID
 	provider.resumeCancel = cancelResume
 	provider.mu.Unlock()
 	provider.updatePublicState("running")
@@ -1462,6 +1463,13 @@ func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
 		provider.needsThreadResume = false
 		provider.mu.Unlock()
 		err = provider.hydrateThread(resumeCtx, result)
+	}
+	if err != nil {
+		// 历史恢复失败保留原对话绑定，后续发送先恢复原线程。
+		provider.mu.Lock()
+		provider.threadID = previousThreadID
+		provider.needsThreadResume = previousThreadID != ""
+		provider.mu.Unlock()
 	}
 	if err != nil && resumeCtx.Err() != nil {
 		provider.mu.Lock()
@@ -1605,6 +1613,11 @@ func (provider *CodexProvider) hydrateThread(ctx context.Context, result map[str
 	if err != nil {
 		return err
 	}
+	if !codexHistoryHasVisibleItems(turns) && !provider.forking {
+		if err := provider.validateEmptyCodexHistory(ctx, thread); err != nil {
+			return err
+		}
+	}
 	messages, err := buildCodexHistoryMessages(ctx, threadID, turns)
 	if err != nil {
 		return err
@@ -1638,6 +1651,9 @@ func (provider *CodexProvider) loadThreadTurns(
 		return nil, err
 	}
 	if len(initialPage) == 0 && len(legacyTurns) > 0 {
+		if err := validateCodexHistoryTurns(legacyTurns); err != nil {
+			return nil, err
+		}
 		return legacyTurns, nil
 	}
 	descending := []any{}
@@ -1661,8 +1677,22 @@ func (provider *CodexProvider) loadThreadTurns(
 			}
 			page = result
 		}
-		descending = append(descending, sliceValue(page["data"])...)
-		next := strings.TrimSpace(stringValue(page["nextCursor"]))
+		data, valid := page["data"].([]any)
+		if !valid {
+			return nil, errors.New("Codex 历史页格式无效，原对话保留")
+		}
+		if err := validateCodexHistoryTurns(data); err != nil {
+			return nil, err
+		}
+		descending = append(descending, data...)
+		next := ""
+		if value := page["nextCursor"]; value != nil {
+			var valid bool
+			next, valid = value.(string)
+			if !valid {
+				return nil, errors.New("Codex 历史游标格式无效，原对话保留")
+			}
+		}
 		if next == "" {
 			break
 		}
@@ -1681,6 +1711,9 @@ func (provider *CodexProvider) loadThreadTurns(
 }
 
 func buildCodexHistoryMessages(ctx context.Context, threadID string, turns []any) ([]map[string]any, error) {
+	if err := validateCodexHistoryTurns(turns); err != nil {
+		return nil, err
+	}
 	messages := make([]map[string]any, 0, len(turns)*4)
 	for _, value := range turns {
 		if err := ctx.Err(); err != nil {

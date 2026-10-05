@@ -154,8 +154,8 @@ func TestCodexHistoricalPlansRestoreInNewSessionsWithoutDuplication(t *testing.T
 		planRecord("event_msg", map[string]any{"type": "plan_update", "turn_id": "rolled-back", "plan": planParams("removed", "pending")["plan"]}),
 	)
 	result := map[string]any{"thread": map[string]any{"id": "root", "path": path, "turns": []any{
-		map[string]any{"id": "one", "status": "completed", "createdAt": 1700000000},
-		map[string]any{"id": "two", "status": "interrupted", "createdAt": 1700000100},
+		map[string]any{"id": "one", "status": "completed", "createdAt": 1700000000, "items": []any{map[string]any{"id": "user-one", "type": "userMessage", "content": []any{map[string]any{"type": "text", "text": "historical request"}}}}},
+		map[string]any{"id": "two", "status": "interrupted", "createdAt": 1700000100, "items": []any{map[string]any{"id": "user-two", "type": "userMessage", "content": []any{map[string]any{"type": "text", "text": "historical request"}}}}},
 	}}}
 	for session := 0; session < 2; session++ {
 		provider := planTestProvider(t)
@@ -190,7 +190,7 @@ func TestCodexHistoricalPlansRefreshWhileLivePlansTakePrecedence(t *testing.T) {
 		planRecord("event_msg", map[string]any{"type": "plan_update", "turn_id": "one", "plan": planParams("old", "pending")["plan"]}),
 	)
 	result := map[string]any{"thread": map[string]any{"id": "root", "path": path, "turns": []any{
-		map[string]any{"id": "one", "status": "completed"},
+		map[string]any{"id": "one", "status": "completed", "items": []any{map[string]any{"id": "user-one", "type": "userMessage", "content": []any{map[string]any{"type": "text", "text": "historical request"}}}}},
 	}}}
 	if err := provider.hydrateThread(context.Background(), result); err != nil {
 		t.Fatal(err)

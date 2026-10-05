@@ -30,6 +30,7 @@ func (server *Server) registerWorkspaceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions/{id}/git-diff-file", server.gitDiffFile)
 	mux.HandleFunc("GET /api/sessions/{id}/file", server.workspaceFile)
 	mux.HandleFunc("GET /api/sessions/{id}/workspace-resource", server.markdownWorkspaceResource)
+	mux.HandleFunc("GET /api/sessions/{id}/mcp-resource", server.markdownMCPResource)
 	mux.HandleFunc("GET /api/sessions/{id}/fs/dir", server.workspaceDirectory)
 }
 

@@ -191,7 +191,7 @@ func TestServerChanIgnoresHistoryAndHiddenTitles(t *testing.T) {
 	session, provider, service, drain := notificationFixture(t)
 	provider.titles.hidden["hidden-title"] = nil
 	provider.handleRPC(map[string]any{"method": "turn/completed", "params": map[string]any{"threadId": "hidden-title", "turn": map[string]any{"id": "hidden", "status": "completed"}}})
-	history, err := buildCodexHistoryMessages(context.Background(), "root", []any{map[string]any{"id": "history", "status": "completed"}})
+	history, err := buildCodexHistoryMessages(context.Background(), "root", []any{map[string]any{"id": "history", "status": "completed", "items": []any{}}})
 	if err != nil {
 		t.Fatal(err)
 	}

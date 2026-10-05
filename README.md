@@ -149,6 +149,14 @@ own local directories automatically.
 Each workbench appears as a card with its own auto-connect switch and delete button.
 The connected workbench's ID and alias are synchronized on the card.
 
+To open MCP resource links returned in chat, expand **MCP resource access** on
+the connection card and configure the same Hub URL and local token file used by
+that assistant. Turn that target off before saving, then turn it on again; its
+paired identity is retained. Browser downloads use that configured identity and
+show an error if it lacks access, without exposing the token.
+Integrated AI launchers explicitly pass their existing MCP route to ordinary
+Glad pages as well. Each WSS target continues using its own configuration.
+
 The first connection shows **Waiting for trust**. In the workbench's
 **AI助理连接** page, choose **信任** for that Glad. Session operations are enabled
 only after approval. Trust persists across restarts and can be revoked in the

@@ -46,12 +46,23 @@ func (server *Server) registerWorkbenchSharingRoutes(mux *http.ServeMux) {
 	}))
 	mux.HandleFunc("PATCH /api/agent-workbench/targets/{id}", mutate(func(_ http.ResponseWriter, request *http.Request) error {
 		var input struct {
-			Enabled bool `json:"enabled"`
+			Enabled      *bool   `json:"enabled"`
+			MCPURL       *string `json:"mcpUrl"`
+			MCPTokenFile *string `json:"mcpTokenFile"`
 		}
 		if err := decodeJSON(request, &input); err != nil {
 			return err
 		}
-		return server.sharing.SetEnabled(request.PathValue("id"), input.Enabled)
+		if input.MCPURL != nil || input.MCPTokenFile != nil {
+			if input.Enabled != nil || input.MCPURL == nil || input.MCPTokenFile == nil {
+				return errors.New("MCP 地址和凭据路径需一起保存")
+			}
+			return server.sharing.SetMCP(request.PathValue("id"), *input.MCPURL, *input.MCPTokenFile)
+		}
+		if input.Enabled == nil {
+			return errors.New("需要连接开关或 MCP 配置")
+		}
+		return server.sharing.SetEnabled(request.PathValue("id"), *input.Enabled)
 	}))
 	mux.HandleFunc("DELETE /api/agent-workbench/targets/{id}", mutate(func(_ http.ResponseWriter, request *http.Request) error {
 		return server.sharing.Delete(request.PathValue("id"))

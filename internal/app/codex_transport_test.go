@@ -130,8 +130,8 @@ func TestCodexTransportMonitorDoesNotInterruptSlowResume(t *testing.T) {
 	}
 
 	provider.handleRPC(map[string]any{"id": request["id"], "result": map[string]any{
-		"thread":           map[string]any{"id": "slow-history"},
-		"initialTurnsPage": map[string]any{"data": []any{}, "nextCursor": nil},
+		"thread":           map[string]any{"id": "slow-history", "turns": []any{map[string]any{"id": "past-turn", "items": []any{map[string]any{"id": "past-user", "type": "userMessage", "content": []any{map[string]any{"type": "text", "text": "historical request"}}}}}}},
+		"initialTurnsPage": map[string]any{"data": []any{map[string]any{"id": "past-turn", "items": []any{map[string]any{"id": "past-user", "type": "userMessage", "content": []any{map[string]any{"type": "text", "text": "historical request"}}}}}}, "nextCursor": nil},
 	}})
 	select {
 	case err := <-resumeFinished:
