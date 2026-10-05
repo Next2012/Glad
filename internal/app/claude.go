@@ -235,6 +235,9 @@ func (provider *ClaudeProvider) Send(ctx context.Context, input ProviderInput) e
 	}
 	provider.session.beginInput(input)
 	turn := claudeTurn{ID: newUUID(), Started: millis()}
+	if provider.session.speed != nil {
+		provider.session.speed.begin(provider.claudeSessionID, turn.ID, stringValue(provider.options["model"]), claudeSpeedProfile(provider.session.WorkingDirectory), stringValue(provider.options["effort"]), false)
+	}
 	blocks := []any{}
 	if strings.TrimSpace(input.AgentText) != "" {
 		blocks = append(blocks, map[string]any{"type": "text", "text": input.AgentText})
@@ -309,6 +312,7 @@ func (provider *ClaudeProvider) readStdout(reader io.Reader) {
 		if json.Unmarshal(scanner.Bytes(), &message) != nil {
 			continue
 		}
+		provider.session.speed.claude(message)
 		switch stringValue(message["type"]) {
 		case "control_response":
 			provider.handleControlResponse(mapValue(message["response"]))
@@ -373,6 +377,7 @@ func (provider *ClaudeProvider) handleProcessExit(command *exec.Cmd, err error) 
 	if current && !closed && !expected {
 		for _, turn := range interrupted {
 			provider.session.appendMessage(map[string]any{"kind": "turn-end", "turnId": turn.ID, "turnStatus": "failed", "isRootTurn": true, "error": "Claude process exited before completing the turn"})
+			provider.session.speed.finish("failed", 0)
 			provider.session.markCompletionUnread()
 		}
 		provider.session.mu.Lock()
@@ -732,6 +737,7 @@ func (provider *ClaudeProvider) handleMessage(message map[string]any) {
 				},
 			)
 			provider.finishTaskPlan(turn.ID, status)
+			provider.session.speed.finish(status, numberInt64(message["duration_api_ms"]))
 		}
 		provider.session.markCompletionUnread()
 		// 回合结束即恢复输入；上下文统计由用户点击状态按钮时读取。

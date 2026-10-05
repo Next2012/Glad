@@ -65,6 +65,10 @@ func NewServer(baseDir string, port int, assets fs.FS) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	server.sessions.speeds, err = openSpeedStore(filepath.Join(home, ".glad", "speed"))
+	if err != nil {
+		return nil, err
+	}
 	server.supervisors, err = OpenSupervisorManager(filepath.Join(home, ".glad", "supervisors"), server.rooms, sessions)
 	if err != nil {
 		return nil, err
@@ -177,6 +181,7 @@ func (server *Server) registerRoutes(mux *http.ServeMux) {
 	server.registerSkillHubRoutes(mux)
 	server.registerRoomRoutes(mux)
 	server.registerSupervisorRoutes(mux)
+	mux.HandleFunc("GET /api/sessions/{id}/speed", server.sessionSpeed)
 	server.registerWorkbenchSharingRoutes(mux)
 	server.registerStaticRoutes(mux)
 }

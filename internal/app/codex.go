@@ -585,7 +585,10 @@ func (provider *CodexProvider) handleServerRequest(message map[string]any) {
 func (provider *CodexProvider) handleNotification(method string, params map[string]any) {
 	provider.mu.Lock()
 	currentThreadID, currentTurnID := provider.threadID, provider.turnID
+	model, effort, profile := stringValue(provider.options["model"]), stringValue(provider.options["effort"]), stringValue(provider.options["speedProfile"])
+	fast := provider.serviceTierLocked() != ""
 	provider.mu.Unlock()
+	provider.session.speed.codex(method, params, currentThreadID, model, profile, effort, fast)
 	threadID := firstNonEmpty(stringValue(params["threadId"]), currentThreadID)
 	turn := mapValue(params["turn"])
 	turnID := firstNonEmpty(stringValue(turn["id"]), stringValue(params["turnId"]), currentTurnID)
@@ -1379,6 +1382,7 @@ func (provider *CodexProvider) stopRuntime(sequence uint64, reason, status strin
 }
 
 func (provider *CodexProvider) settleStoppedTurn(threadID, turnID string, started int64, reason, status string) {
+	provider.session.speed.finish(status, 0)
 	provider.finishPlans("", "", status)
 	provider.session.appendMessage(map[string]any{"kind": "event", "level": "warning", "text": reason})
 	if turnID != "" {
@@ -1990,6 +1994,9 @@ func (provider *CodexProvider) applyConfig(config map[string]any) {
 	if provider.options["effort"] == nil {
 		provider.options["effort"] = config["model_reasoning_effort"]
 	}
+	selected := stringValue(config["model_provider"])
+	endpoint := stringValue(mapValue(mapValue(config["model_providers"])[selected])["base_url"])
+	provider.options["speedProfile"] = speedHash(selected + "\x00" + endpoint)
 	provider.options["configPermissionMode"] = config["approval_policy"]
 	provider.options["configSandboxMode"] = config["sandbox_mode"]
 }

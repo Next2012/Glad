@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Show the last completed turn’s observed generation speed beside History and in session tiles, with per-turn and hourly arithmetic averages for the current session or matching model/service/effort/Fast profile.
+- Persist root-turn token and timing observations across reconnects and Resume; distinguish missing data, short samples, and interrupted turns, and mark estimates explicitly.
+
 ## [2.9.1] - 2026-10-05
 
 ### Fixed
