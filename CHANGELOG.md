@@ -10,24 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- Align effective output speed timing across providers by tracking root collaboration tool invocations and retaining overlapping model activity.
-- Keep the maximum Claude output count for duplicate reply IDs; use result totals only for diagnostics and annotate automatic compaction.
-
-### Changed
-
-- Rename the metric to Effective output speed and explain first-output waiting. Dim short latest replies while keeping their value, and add an optional short-sample filter for turn/hourly averages with exclusion counts.
+## [2.10.0] - 2026-10-06
 
 ### Added
 
 - Show the last completed turn’s observed generation speed beside History and in session tiles, with per-turn and hourly arithmetic averages for the current session or matching model/service/effort/Fast profile.
 - Persist root-turn token and timing observations across reconnects and Resume; distinguish missing data, short samples, and interrupted turns, and mark estimates explicitly.
 
-## [2.9.1] - 2026-10-05
+### Changed
+
+- Rename the metric to Effective output speed and explain first-output waiting. Dim short latest replies while keeping their value, and add an optional short-sample filter for turn/hourly averages with exclusion counts.
+- Add a hover and keyboard-focus selection entry point for mouse devices without shifting message content.
+- Present Supervisor settings as grouped mobile-sized rows, with session and independent permission pickers in the same panel, visible skip controls, and a full-width save action.
 
 ### Fixed
 
+- Align effective output speed timing across providers by tracking root collaboration tool invocations and retaining overlapping model activity.
+- Keep the maximum Claude output count for duplicate reply IDs; use result totals only for diagnostics and annotate automatic compaction.
 - Deliver PDF and MCP/workbench resources with their correct content types and explicit resource access settings.
 - Preserve recovered Codex conversations when a transient resume response contains no turns.
 - Accept `message` as an explicit alias for Supervisor send commands, distinguish missing content from the UTF-8 byte limit, and audit rejected command parameters.
@@ -35,11 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preapprove only Glad’s five local Codex MCP tools so authorized automatic checks can run under a non-interactive approval policy.
 - Prevent native text selection during touch/pen message holds and consume the release click once, while keeping mouse dragging available for text selection.
 - Require Read permission when enabling Supervisor Stop operations, with an explanation in the permission editor and validation on create/update.
-
-### Changed
-
-- Add a hover and keyboard-focus selection entry point for mouse devices without shifting message content.
-- Present Supervisor settings as grouped mobile-sized rows, with session and independent permission pickers in the same panel, visible skip controls, and a full-width save action.
 
 ## [2.9.0] - 2026-10-04
 
