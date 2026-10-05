@@ -147,8 +147,12 @@ test('group stops all running members and acknowledges completion only while vis
     await expect(page.locator('.room-entry.user')).toHaveCount(2);
     await page.getByRole('button', { name: 'Stop group', exact: true }).click();
     await expect(page.locator('#room-send-button')).toBeEnabled();
-    const first = await (await page.request.get(`/api/rooms/${group.room.id}`)).json();
-    expect(first.members.every(member => member.status === 'idle')).toBe(true);
+    // Sending is enabled as soon as any member is idle; stopping the whole
+    // group must wait for every provider to acknowledge its interruption.
+    await expect.poll(async () => {
+      const first = await (await page.request.get(`/api/rooms/${group.room.id}`)).json();
+      return first.members.every(member => member.status === 'idle');
+    }).toBe(true);
 
     await mentionMembers(page, 2);
     await page.locator('#room-input').fill('__GLAD_E2E_PLAN_HOLD__ finish while hidden');
