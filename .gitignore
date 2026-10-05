@@ -122,3 +122,6 @@ AGENTS.md
 /glad-windows-*.exe
 /dist-ci/
 /staged-npm*/
+
+# Release gate test bytecode
+/scripts/__pycache__/
