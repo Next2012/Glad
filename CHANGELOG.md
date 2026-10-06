@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Keep speed controls within their own 44-pixel click areas beside History and inside existing tiled headers, with visible keyboard focus and legible digits on narrow screens.
+- Keep speed controls within their own 44-pixel click areas beside History without increasing navigation or tiled-header height, with visible keyboard focus and legible digits on narrow screens.
 
 ## [2.10.0] - 2026-10-06
 
