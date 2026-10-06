@@ -268,7 +268,7 @@
                 </button>
                 <div id="session-title">Terminal</div>
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <button id="session-speed-button" class="session-speed-badge" type="button" onclick="openSessionSpeed(activeSessionId)" aria-label="Effective output speed" title="Last completed turn · effective output tokens per second · includes first output waiting"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 15v2M7 11v6M12 7v10M17 3v14"/></svg><span>—</span></button>
+                    <button id="session-speed-button" class="session-speed-badge" type="button" onclick="openSessionSpeed(activeSessionId)" aria-label="Effective output speed · No speed data · Last completed turn · includes first output waiting" title="Effective output speed · No speed data · Last completed turn · includes first output waiting"><svg class="speed-gauge" viewBox="0 0 32 32" aria-hidden="true"><path class="speed-gauge-track" pathLength="100" d="M6.101 25.899 A14 14 0 1 1 25.899 25.899"/><path class="speed-gauge-value" pathLength="100" d="M6.101 25.899 A14 14 0 1 1 25.899 25.899" hidden/></svg><span class="speed-gauge-number">—</span></button>
                     <button class="icon-btn" onclick="showHistory()" title="History" style="color: var(--primary); font-size: 12px; font-weight: 700; background: rgba(0, 122, 255, 0.1); padding: 5px 9px; border-radius: 15px; gap: 4px;">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"></path><polyline points="3 3 3 9 9 9"></polyline><path d="M12 7v5l3 2"></path></svg>
                         HIS

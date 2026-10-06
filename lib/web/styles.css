@@ -641,6 +641,9 @@
     --surface: #121212;
     --surface-raised: #1c1c1e;
     --surface-soft: rgba(255,255,255,.08);
+    --speed-slow: #636366;
+    --speed-fast: #0a84ff;
+    --speed-track: rgba(10,132,255,.12);
     --line: rgba(255,255,255,.10);
     --chat-bg: #050505;
     --input-bg: rgba(255,255,255,.08);
@@ -667,6 +670,9 @@ html[data-theme="light"] {
     --surface: #ffffff;
     --surface-raised: #ffffff;
     --surface-soft: rgba(15,23,42,.055);
+    --speed-slow: #8e8e93;
+    --speed-fast: #007aff;
+    --speed-track: rgba(0,122,255,.12);
     --line: rgba(15,23,42,.11);
     --chat-bg: #ffffff;
     --input-bg: #f2f4f7;
@@ -1572,8 +1578,15 @@ body.tile-focus-open #room-view .room-composer { padding-left:14px; padding-righ
     .room-supervisor-modal > :is(#supervisor-list-view,#supervisor-detail-view,#supervisor-picker-view,#supervisor-permissions-view) { padding-bottom:max(20px,env(safe-area-inset-bottom)); }
 }
 
-.session-speed-badge { display:inline-flex; align-items:center; justify-content:center; gap:3px; min-width:48px; min-height:38px; padding:4px; border:0; border-radius:12px; background:var(--surface-soft); color:var(--primary); font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; cursor:pointer; flex:none; }
-.session-speed-badge svg { width:17px; height:20px; fill:none; stroke:currentColor; stroke-width:2.5; }
+.session-speed-badge { position:relative; display:inline-flex; align-items:center; justify-content:center; width:44px; height:44px; padding:0; box-sizing:border-box; border:0; border-radius:50%; background:transparent; color:var(--text); cursor:pointer; flex:0 0 44px; }
+.session-speed-badge:focus-visible { outline:2px solid var(--primary); outline-offset:-2px; }
+.session-speed-badge .speed-gauge { width:32px; height:32px; fill:none; stroke-width:2.5; stroke-linecap:round; pointer-events:none; }
+.speed-gauge-track { stroke:var(--speed-track); }
+.speed-gauge-value { stroke:var(--speed-fast); stroke:color-mix(in oklch,var(--speed-slow),var(--speed-fast) var(--speed-mix,0%)); stroke-dasharray:var(--speed-fill,0) 100; }
+.speed-gauge-value[hidden] { display:none; }
+.speed-gauge-number { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1; pointer-events:none; }
+.speed-badge-wide .speed-gauge-number { font-size:11px; }
+.tile-session-header:has(.session-speed-badge) { padding-top:0; padding-bottom:0; }
 #session-speed-overlay { z-index:11000; top:var(--app-viewport-top,0px); bottom:auto; height:var(--app-viewport-height,100dvh); box-sizing:border-box; }
 .session-speed-panel { display:flex; flex-direction:column; width:min(660px,100%); max-height:calc(var(--app-viewport-height,100dvh) * .9); overflow:hidden; border:1px solid var(--line); border-radius:18px; background:var(--surface-raised); color:var(--text); box-sizing:border-box; }
 .session-speed-panel [hidden] { display:none !important; }
@@ -1602,7 +1615,9 @@ body.tile-focus-open #room-view .room-composer { padding-left:14px; padding-righ
 .session-speed-panel button:disabled { opacity:.5; cursor:default; }
 @media(max-width:600px) { #session-speed-overlay { padding:0; align-items:stretch; } .session-speed-panel { height:var(--app-viewport-height,100dvh); max-height:var(--app-viewport-height,100dvh); border:0; border-radius:0; padding-top:env(safe-area-inset-top); } #nav-bar > div:last-child { gap:4px !important; } }
 
-.session-speed-badge.short-sample { color:var(--text-dim); }
+.session-speed-badge.short-sample .speed-gauge-number { color:var(--text-dim); }
+.speed-latest-speed { font-size:13px; color:var(--text-dim); }
+.speed-latest-speed strong { color:var(--text); font-variant-numeric:tabular-nums; }
 .speed-filter { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:44px; margin:0 16px 12px; font-size:14px; cursor:pointer; }
 .speed-filter input { flex:none; width:24px; height:24px; accent-color:var(--primary); }
 .speed-latest-note { padding:12px; border:1px solid var(--line); border-radius:10px; color:var(--text-dim); font-size:13px; line-height:1.5; }
