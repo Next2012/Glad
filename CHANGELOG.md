@@ -10,6 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.10.1] - 2026-10-06
+
+### Changed
+
+- Replace the signal-bar speed badge with a compact 270-degree gauge in session navigation and tiled windows, using a fixed 100 tok/s scale and theme-aware gray-to-blue colors.
+- Keep short-reply values readable with secondary text colors, distinguish missing, zero, and sub-one speeds, and abbreviate speeds of 1000 tok/s or more as `1k+`.
+- Show the last completed turn's full estimated speed and unit in the statistics panel, hover text, and accessible button label.
+
+### Fixed
+
+- Keep speed controls within their own 44-pixel click areas beside History and inside existing tiled headers, with visible keyboard focus and legible digits on narrow screens.
+
 ## [2.10.0] - 2026-10-06
 
 ### Added
