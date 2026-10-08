@@ -338,6 +338,23 @@ input.on('line', line => {
     write({ id: request.id, result: { turn: { id: turnId } } });
     setImmediate(() => {
       write({ method: 'turn/started', params: { threadId: 'thread-e2e', turn: { id: turnId } } });
+      if (text.includes('__GLAD_E2E_RESOURCE_RECEIPT__')) {
+        const uri = 'botlink-hub://resource/software/pdf-instance/'
+          + Buffer.from('botlink://markdown-pdf/tasks/build-e2e/document.pdf').toString('base64url');
+        const receipt = { ok: true, data: { status: 'completed', result: {
+          resource_uri: uri, media_type: 'application/pdf', size: 40, sha256: 'a'.repeat(64)
+        } } };
+        write({ method: 'item/completed', params: { threadId: 'thread-e2e', turnId,
+          item: { id: `pdf-${turnId}`, type: 'dynamicToolCall', tool: 'exec', status: 'completed', success: true,
+            contentItems: [{ type: 'inputText', text: JSON.stringify(receipt) }] }
+        } });
+        write({ method: 'item/completed', params: { threadId: 'thread-e2e', turnId,
+          item: { id: `pdf-answer-${turnId}`, type: 'agentMessage', text: text.includes('NO_LINK')
+            ? 'PDF 已生成。' : '[模型链接](sandbox:/mnt/data/model.pdf)' }
+        } });
+        write({ method: 'turn/completed', params: { threadId: 'thread-e2e', turn: { id: turnId, status: 'completed' } } });
+        return;
+      }
       if (text.includes('__GLAD_E2E_SUPERVISOR__')) {
         const { spawn } = require('node:child_process');
         const config = process.argv.slice(3).filter(value => value.startsWith('mcp_servers.glad.'));

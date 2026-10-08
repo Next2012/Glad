@@ -236,11 +236,15 @@ func (provider *ClaudeProvider) applyToolResults(message map[string]any, turnID 
 		}
 		toolUseID := stringValue(block["tool_use_id"])
 		text := strings.TrimSpace(textFromClaudeContent([]any{block}))
-		provider.session.appendMessage(map[string]any{
+		result := map[string]any{
 			"kind": "tool-result", "toolUseId": toolUseID, "text": text,
 			"isError": boolValue(block["is_error"]), "turnId": nilIfEmpty(turnID),
 			"parentToolUseId": nilIfEmpty(parentID), "completedAtMs": millis(),
-		})
+		}
+		if !boolValue(block["is_error"]) {
+			result[resourceDownloadsKey] = mcpDownloads([]any{block["content"], toolUseResult})
+		}
+		provider.session.appendMessage(result)
 		provider.handleTaskToolResult(turnID, toolUseID, toolUseResult, text)
 	}
 }

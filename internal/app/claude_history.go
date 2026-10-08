@@ -93,13 +93,17 @@ func readClaudeTranscriptReader(reader io.Reader) ([]map[string]any, error) {
 					continue
 				}
 				text := strings.TrimSpace(textFromClaudeContent([]any{block}))
-				messages = append(messages, map[string]any{
+				message := map[string]any{
 					"id":   claudeHistoryRecordID(record, "result-"+numberText(index)),
 					"kind": "tool-result", "toolUseId": block["tool_use_id"],
 					"text":    codexPreviewText(text, claudeHistoryToolLimit),
 					"isError": boolValue(block["is_error"]), "turnId": nilIfEmpty(currentTurnID),
 					"createdAt": timestamp, "completedAtMs": timestamp,
-				})
+				}
+				if !boolValue(block["is_error"]) {
+					message[resourceDownloadsKey] = mcpDownloads([]any{block["content"], record["tool_use_result"]})
+				}
+				messages = append(messages, message)
 			}
 			continue
 		}

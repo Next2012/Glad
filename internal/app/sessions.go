@@ -278,6 +278,7 @@ func (session *Session) subscribeWithSnapshot(capacity int) (*sessioncore.Subscr
 
 func publicMessage(message map[string]any, kind string) map[string]any {
 	copy := cloneMap(message)
+	delete(copy, resourceDownloadsKey)
 	delete(copy, "agentText")
 	if kind == "claude-structured" {
 		delete(copy, "raw")
@@ -349,6 +350,9 @@ func (session *Session) appendMessage(message map[string]any) map[string]any {
 	session.Messages = append(session.Messages, message)
 	public := publicMessage(message, session.Kind)
 	session.publishLocked(map[string]any{"type": "message", "message": public})
+	if message["kind"] == "turn-end" || message[resourceDownloadsKey] != nil {
+		session.syncResourceDownloadsLocked(stringValue(message["turnId"]))
+	}
 	session.mu.Unlock()
 	return message
 }
@@ -359,6 +363,7 @@ func (session *Session) replaceMessages(messages []map[string]any) bool {
 	if session.closed {
 		return false
 	}
+	messages = withResourceDownloads(messages, session.ID)
 	public := make([]map[string]any, len(messages))
 	for index, message := range messages {
 		public[index] = publicMessage(message, session.Kind)
@@ -374,6 +379,7 @@ func (session *Session) replaceClaudeConversation(messages []map[string]any) boo
 	if session.closed {
 		return false
 	}
+	messages = withResourceDownloads(messages, session.ID)
 	public := make([]map[string]any, len(messages))
 	for index, message := range messages {
 		public[index] = publicMessage(message, session.Kind)
@@ -412,6 +418,14 @@ func (session *Session) patchMessage(id string, patch map[string]any) {
 	}
 	if public != nil {
 		session.publishLocked(map[string]any{"type": "message-updated", "message": public})
+		if patch[resourceDownloadsKey] != nil {
+			for _, message := range session.Messages {
+				if stringValue(message["id"]) == id {
+					session.syncResourceDownloadsLocked(stringValue(message["turnId"]))
+					break
+				}
+			}
+		}
 	}
 	session.mu.Unlock()
 }

@@ -880,6 +880,7 @@ func (provider *CodexProvider) applyItem(raw map[string]any, inferred string) {
 		for key, value := range codexToolDetails(raw) {
 			patch[key] = value
 		}
+		patch[resourceDownloadsKey] = codexMCPDownloads(raw, inferred)
 		if result := stringValue(patch["result"]); result != "" {
 			patch["result"] = limitCodexToolOutput(result)
 		}
@@ -1817,6 +1818,7 @@ func codexHistoryItem(raw map[string]any) map[string]any {
 		for key, value := range codexToolDetails(raw) {
 			message[key] = value
 		}
+		message[resourceDownloadsKey] = codexMCPDownloads(raw, "")
 		if result := stringValue(message["result"]); result != "" {
 			message["result"] = limitCodexToolOutput(result)
 		}

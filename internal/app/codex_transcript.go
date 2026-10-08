@@ -142,6 +142,7 @@ func codexRolloutItem(payload map[string]any, conversationID, turnID string, cre
 	case "custom_tool_call_output", "function_call_output":
 		message["kind"], message["toolUseId"] = "tool-result", payload["call_id"]
 		message["text"] = codexPreviewText(codexRolloutOutputText(payload["output"]), codexTranscriptTextLimit)
+		message[resourceDownloadsKey] = mcpDownloads(payload["output"])
 	case "agent_message":
 		text := strings.TrimSpace(codexRolloutContentText(payload["content"]))
 		if text == "" {
