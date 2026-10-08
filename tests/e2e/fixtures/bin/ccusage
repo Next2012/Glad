@@ -1,0 +1,11 @@
+#!/usr/bin/env node
+'use strict';
+
+// Browser tests use an isolated engine with no network or real usage history.
+const fs = require('node:fs');
+const configIndex = process.argv.indexOf('--config');
+if (configIndex !== -1) {
+  try { JSON.parse(fs.readFileSync(process.argv[configIndex + 1], 'utf8')); }
+  catch { process.stderr.write('Invalid ccusage configuration: expected valid JSON\n'); process.exit(2); }
+}
+process.stdout.write(JSON.stringify({ daily:[], weekly:[], monthly:[], totals:{} }) + '\n');

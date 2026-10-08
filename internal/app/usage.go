@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -16,17 +17,110 @@ import (
 	"time"
 )
 
+const usageVersion = "20.0.26"
+
 type UsageService struct {
-	mu       sync.Mutex
-	cached   map[string]any
-	loadedAt time.Time
-	binary   string
-	version  string
-	loading  chan struct{}
-	loadErr  error
+	mu                sync.Mutex
+	cached            map[string]any
+	loadedAt          time.Time
+	lastAttempt       time.Time
+	failedAt          time.Time
+	binary            string
+	version           string
+	loading           chan struct{}
+	loadErr           error
+	config            *ConfigStore
+	offlineOnly       bool
+	cachedOfflineOnly bool
+	generation        uint64
+	cachedGeneration  uint64
+	revision          uint64
+	ctx               context.Context
+	cancel            context.CancelFunc
+	jobCancel         context.CancelFunc
+	started           bool
+	stopped           bool
+	wg                sync.WaitGroup
+	staleAfter        time.Duration
+	interval          time.Duration
+	timeout           time.Duration
 }
 
-func NewUsageService() *UsageService { return &UsageService{version: "20.0.24"} }
+func NewUsageService(configs ...*ConfigStore) *UsageService {
+	ctx, cancel := context.WithCancel(context.Background())
+	service := &UsageService{version: usageVersion, ctx: ctx, cancel: cancel, staleAfter: time.Minute, interval: 30 * time.Minute, timeout: 2 * time.Minute}
+	if len(configs) > 0 && configs[0] != nil {
+		service.config = configs[0]
+		service.offlineOnly = boolValue(service.config.Get("usageOfflineOnly"))
+	}
+	return service
+}
+
+func (service *UsageService) Start(parent context.Context) {
+	service.mu.Lock()
+	if service.started || service.stopped {
+		service.mu.Unlock()
+		return
+	}
+	service.cancel()
+	service.ctx, service.cancel = context.WithCancel(parent)
+	service.started = true
+	ctx, interval := service.ctx, service.interval
+	service.wg.Add(1)
+	service.mu.Unlock()
+	service.refresh(true)
+	go func() {
+		defer service.wg.Done()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				// An installation without the native engine does not spawn a job on every tick.
+				if _, err := service.findBinary(); err == nil {
+					service.refresh(true)
+				}
+			}
+		}
+	}()
+}
+
+func (service *UsageService) Stop() {
+	service.mu.Lock()
+	service.stopped = true
+	service.cancel()
+	if service.jobCancel != nil {
+		service.jobCancel()
+	}
+	service.mu.Unlock()
+	service.wg.Wait()
+}
+
+func (service *UsageService) SetOfflineOnly(value bool) error {
+	service.mu.Lock()
+	if service.offlineOnly == value {
+		service.mu.Unlock()
+		return nil
+	}
+	if service.config != nil {
+		if err := service.config.Set("usageOfflineOnly", value); err != nil {
+			service.mu.Unlock()
+			return err
+		}
+	}
+	service.offlineOnly = value
+	service.generation++
+	service.loadErr = nil
+	service.lastAttempt = time.Time{}
+	if service.jobCancel != nil {
+		service.jobCancel()
+	}
+	service.mu.Unlock()
+	service.refresh(true)
+	return nil
+}
 
 var usageSources = map[string]map[string]any{
 	"codex":  {"id": "codex", "label": "Codex", "badge": "CX"},
@@ -40,6 +134,9 @@ func (service *UsageService) findBinary() (string, error) {
 		return service.binary, nil
 	}
 	if configured := os.Getenv("GLAD_CCUSAGE_BIN"); configured != "" {
+		if info, err := os.Stat(configured); err != nil || info.IsDir() {
+			return "", errors.New("configured ccusage binary is missing")
+		}
 		service.binary = configured
 		return configured, nil
 	}
@@ -78,80 +175,140 @@ func (service *UsageService) findBinary() (string, error) {
 	}
 	return "", errors.New("ccusage native binary is missing for this platform")
 }
-func (service *UsageService) load(ctx context.Context, refresh bool) (map[string]any, error) {
+
+// refresh is single-flight. A request only schedules work; the daemon owns its context.
+func (service *UsageService) refresh(force bool) {
 	service.mu.Lock()
-	if !refresh && service.cached != nil && time.Since(service.loadedAt) < 5*time.Minute {
-		result := service.cached
+	if service.stopped || service.loading != nil {
 		service.mu.Unlock()
-		return result, nil
+		return
 	}
-	if loading := service.loading; loading != nil {
-		service.mu.Unlock()
-		select {
-		case <-loading:
-			service.mu.Lock()
-			result, err := service.cached, service.loadErr
+	if !force {
+		if service.cached != nil && service.cachedGeneration == service.generation && time.Since(service.loadedAt) < service.staleAfter {
 			service.mu.Unlock()
-			return result, err
-		case <-ctx.Done():
-			return nil, ctx.Err()
+			return
+		}
+		if service.loadErr != nil && time.Since(service.failedAt) < service.staleAfter {
+			service.mu.Unlock()
+			return
 		}
 	}
-	loading := make(chan struct{})
-	service.loading = loading
+	ctx, cancel := context.WithTimeout(service.ctx, service.timeout)
+	service.jobCancel = cancel
+	finished := make(chan struct{})
+	service.loading = finished
+	service.lastAttempt = time.Now()
+	generation, offline := service.generation, service.offlineOnly
+	service.wg.Add(1)
 	service.mu.Unlock()
-	result, err := service.loadUncached(ctx)
-	service.mu.Lock()
-	if err == nil {
-		service.cached = result
-		service.loadedAt = time.Now()
-	}
-	service.loadErr = err
-	service.loading = nil
-	close(loading)
-	service.mu.Unlock()
-	return result, err
+	go func() {
+		defer service.wg.Done()
+		result, err := service.loadUncached(ctx, offline)
+		cancel()
+		service.mu.Lock()
+		obsolete := generation != service.generation
+		if !service.stopped && !obsolete {
+			service.loadErr = err
+			if err != nil {
+				service.failedAt = time.Now()
+			}
+			if err == nil {
+				service.cached = result
+				service.loadedAt = time.Now()
+				service.cachedGeneration = generation
+				service.cachedOfflineOnly = offline
+				service.revision++
+			}
+		}
+		service.loading = nil
+		service.jobCancel = nil
+		close(finished)
+		restart := obsolete && !service.stopped
+		service.mu.Unlock()
+		if restart {
+			service.refresh(true)
+		}
+	}()
 }
 
-func (service *UsageService) loadUncached(ctx context.Context) (map[string]any, error) {
+func (service *UsageService) snapshot(refresh bool) (map[string]any, map[string]any) {
+	service.refresh(refresh)
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	var generatedAt any
+	if !service.loadedAt.IsZero() {
+		generatedAt = service.loadedAt.UTC().Format("2006-01-02T15:04:05.000Z07:00")
+	}
+	lastError := ""
+	if service.loadErr != nil {
+		lastError = service.loadErr.Error()
+	}
+	offline := service.offlineOnly
+	if service.cached != nil {
+		offline = service.cachedOfflineOnly
+	}
+	mode := "online-preferred"
+	if offline {
+		mode = "offline"
+	}
+	return service.cached, map[string]any{
+		"hasData": service.cached != nil, "generatedAt": generatedAt, "refreshing": service.loading != nil,
+		"lastError": lastError, "offlineOnly": service.offlineOnly, "revision": service.revision,
+		"settingsPending": service.cached != nil && service.cachedGeneration != service.generation,
+		"timezone":        systemTimezone(), "engine": map[string]any{"name": "ccusage", "version": service.version, "pricingMode": mode},
+	}
+}
+
+func (service *UsageService) loadUncached(ctx context.Context, offline bool) (map[string]any, error) {
 	binary, err := service.findBinary()
 	if err != nil {
 		return nil, err
 	}
-	timezone := systemTimezone()
-	command := exec.CommandContext(
-		ctx,
-		binary,
-		"daily",
-		"--sections",
-		"daily,weekly,monthly",
-		"--by-agent",
-		"--json",
-		"--offline",
-		"--timezone",
-		timezone,
-	)
+	args := []string{"daily", "--sections", "daily,weekly,monthly", "--by-agent", "--json", "--timezone", systemTimezone()}
+	if offline {
+		args = append(args, "--offline")
+	} else {
+		args = append(args, "--no-offline")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	configPath := filepath.Join(home, ".glad", "ccusage.json")
+	if _, err := os.Stat(configPath); err == nil {
+		if err := validateUsageConfig(configPath); err != nil {
+			return nil, err
+		}
+		args = append(args, "--config", configPath)
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	command := exec.CommandContext(ctx, binary, args...)
 	command.Env = append(os.Environ(), "NO_COLOR=1")
+	command.WaitDelay = 2 * time.Second
 	var stdout, stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
 	if err := command.Run(); err != nil {
-		return nil, errors.New(strings.TrimSpace(stderr.String()))
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("ccusage refresh: %w", ctx.Err())
+		}
+		if message := strings.TrimSpace(stderr.String()); message != "" {
+			return nil, errors.New(message)
+		}
+		return nil, fmt.Errorf("ccusage: %w", err)
 	}
 	if stdout.Len() > 64<<20 {
 		return nil, errors.New("ccusage report exceeded the safe output limit")
 	}
 	var raw map[string]any
-	if json.Unmarshal(stdout.Bytes(), &raw) != nil {
+	if json.Unmarshal(stdout.Bytes(), &raw) != nil || raw == nil {
 		return nil, errors.New("ccusage returned invalid JSON")
 	}
 	return raw, nil
 }
 func (service *UsageService) sources(ctx context.Context, refresh bool) (map[string]any, error) {
-	raw, err := service.load(ctx, refresh)
-	if err != nil {
-		return nil, err
-	}
+	raw, metadata := service.snapshot(refresh)
 	present := map[string]bool{}
 	for _, scope := range []string{"daily", "weekly", "monthly"} {
 		for _, rowValue := range sliceValue(raw[scope]) {
@@ -166,26 +323,29 @@ func (service *UsageService) sources(ctx context.Context, refresh bool) (map[str
 			sources = append(sources, usageSources[id])
 		}
 	}
-	timezone := systemTimezone()
-	return map[string]any{
-		"sources":     sources,
-		"generatedAt": time.Now().UTC().Format(time.RFC3339),
-		"timezone":    timezone,
-		"engine":      map[string]any{"name": "ccusage", "version": service.version, "pricingMode": "embedded"},
-	}, nil
+	metadata["sources"] = sources
+	return metadata, nil
 }
 
 type usageModel struct {
-	ModelName string `json:"modelName"`
-	Uncached  int64  `json:"uncachedInputTokens"`
-	Cached    int64  `json:"cachedInputTokens"`
-	Output    int64  `json:"outputTokens"`
-	Total     int64  `json:"totalTokens"`
-	Cost      any    `json:"estimatedCostUSD"`
+	ModelName      string `json:"modelName"`
+	Uncached       int64  `json:"uncachedInputTokens"`
+	Cached         int64  `json:"cachedInputTokens"`
+	Output         int64  `json:"outputTokens"`
+	Total          int64  `json:"totalTokens"`
+	Cost           any    `json:"estimatedCostUSD"`
+	MissingPricing bool   `json:"missingPricing"`
 }
 
-func normalizeUsageModels(source string, agent map[string]any) []usageModel {
+func normalizeUsageModels(source string, agent map[string]any, missingNames ...string) []usageModel {
 	models := []usageModel{}
+	if len(agent) == 0 {
+		return models
+	}
+	unpriced := stringSet(stringsFromAny(agent["unpricedModels"]))
+	for _, name := range missingNames {
+		unpriced[name] = true
+	}
 	breakdowns := sliceValue(agent["modelBreakdowns"])
 	if len(breakdowns) == 0 {
 		breakdowns = []any{
@@ -204,19 +364,22 @@ func normalizeUsageModels(source string, agent map[string]any) []usageModel {
 		uncached := numberInt64(row["inputTokens"]) + numberInt64(row["cacheCreationTokens"])
 		cached := numberInt64(row["cacheReadTokens"])
 		output := numberInt64(row["outputTokens"])
+		name := firstNonEmpty(stringValue(row["modelName"]), "Unknown")
+		missing := boolValue(row["missingPricing"]) || unpriced[name] || row["cost"] == nil
 		var cost any
-		if numberFloat(row["cost"]) > 0 {
+		if row["cost"] != nil && !missing {
 			cost = numberFloat(row["cost"])
 		}
 		models = append(
 			models,
 			usageModel{
-				ModelName: firstNonEmpty(stringValue(row["modelName"]), "Unknown"),
-				Uncached:  uncached,
-				Cached:    cached,
-				Output:    output,
-				Total:     uncached + cached + output,
-				Cost:      cost,
+				ModelName:      name,
+				MissingPricing: missing,
+				Uncached:       uncached,
+				Cached:         cached,
+				Output:         output,
+				Total:          uncached + cached + output,
+				Cost:           cost,
 			},
 		)
 	}
@@ -242,8 +405,8 @@ func findAgent(row map[string]any, source string) map[string]any {
 	}
 	return nil
 }
-func usageRow(source, period string, agent map[string]any) map[string]any {
-	models := normalizeUsageModels(source, agent)
+func usageRow(source, period string, agent map[string]any, missingNames ...string) map[string]any {
+	models := normalizeUsageModels(source, agent, missingNames...)
 	totals := map[string]any{
 		"uncachedInputTokens": int64(0),
 		"cachedInputTokens":   int64(0),
@@ -253,11 +416,15 @@ func usageRow(source, period string, agent map[string]any) map[string]any {
 	}
 	cost := 0.0
 	hasCost := false
+	unpriced := []string{}
 	for _, model := range models {
 		totals["uncachedInputTokens"] = numberInt64(totals["uncachedInputTokens"]) + model.Uncached
 		totals["cachedInputTokens"] = numberInt64(totals["cachedInputTokens"]) + model.Cached
 		totals["outputTokens"] = numberInt64(totals["outputTokens"]) + model.Output
 		totals["totalTokens"] = numberInt64(totals["totalTokens"]) + model.Total
+		if model.MissingPricing {
+			unpriced = append(unpriced, model.ModelName)
+		}
 		if model.Cost != nil {
 			cost += numberFloat(model.Cost)
 			hasCost = true
@@ -266,6 +433,15 @@ func usageRow(source, period string, agent map[string]any) map[string]any {
 	if hasCost {
 		totals["estimatedCostUSD"] = cost
 	}
+	status := "unavailable"
+	if hasCost {
+		status = "complete"
+		if len(unpriced) > 0 {
+			status = "partial"
+		}
+	}
+	totals["pricingStatus"] = status
+	totals["unpricedModels"] = unpriced
 	return map[string]any{"period": period, "models": models, "totals": totals}
 }
 
@@ -280,10 +456,8 @@ func (service *UsageService) dashboard(
 	if scope != "weekly" && scope != "monthly" {
 		return nil, errors.New("Scope must be weekly or monthly")
 	}
-	raw, err := service.load(ctx, refresh)
-	if err != nil {
-		return nil, err
-	}
+	raw, metadata := service.snapshot(refresh)
+	unpriced := stringsFromAny(mapValue(raw["totals"])["unpricedModels"])
 	periods := []string{}
 	for _, value := range sliceValue(raw[scope]) {
 		row := mapValue(value)
@@ -304,7 +478,7 @@ func (service *UsageService) dashboard(
 		row := mapValue(value)
 		if stringValue(row["period"]) == period {
 			if agent := findAgent(row, source); agent != nil {
-				summary = usageRow(source, period, agent)
+				summary = usageRow(source, period, agent, unpriced...)
 			}
 		}
 	}
@@ -313,11 +487,10 @@ func (service *UsageService) dashboard(
 		date := stringValue(row["period"])
 		if dateInUsageScope(date, scope, period) {
 			if agent := findAgent(row, source); agent != nil {
-				days = append(days, usageRow(source, date, agent))
+				days = append(days, usageRow(source, date, agent, unpriced...))
 			}
 		}
 	}
-	timezone := systemTimezone()
 	var cost any
 	if mapValue(summary["totals"])["estimatedCostUSD"] != nil {
 		cost = map[string]any{
@@ -325,18 +498,14 @@ func (service *UsageService) dashboard(
 			"note":  "Estimated from ccusage model pricing; it is not an actual provider bill or subscription charge.",
 		}
 	}
-	return map[string]any{
-		"source":           usageSources[source],
-		"scope":            scope,
-		"availablePeriods": periods,
-		"selectedPeriod":   nilIfEmpty(period),
-		"summary":          summary,
-		"days":             days,
-		"generatedAt":      time.Now().UTC().Format(time.RFC3339),
-		"timezone":         timezone,
-		"engine":           map[string]any{"name": "ccusage", "version": service.version, "pricingMode": "embedded"},
-		"cost":             cost,
-	}, nil
+	metadata["source"] = usageSources[source]
+	metadata["scope"] = scope
+	metadata["availablePeriods"] = periods
+	metadata["selectedPeriod"] = nilIfEmpty(period)
+	metadata["summary"] = summary
+	metadata["days"] = days
+	metadata["cost"] = cost
+	return metadata, nil
 }
 func dateInUsageScope(date, scope, period string) bool {
 	if scope == "monthly" {
@@ -391,6 +560,21 @@ func (server *Server) registerUsageRoutes(mux *http.ServeMux) {
 			return
 		}
 		respondJSON(w, 200, result)
+	})
+	mux.HandleFunc("PATCH /api/usage/settings", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			OfflineOnly *bool `json:"offlineOnly"`
+		}
+		if err := decodeJSON(r, &input); err != nil || input.OfflineOnly == nil {
+			respondError(w, 400, errors.New("offlineOnly must be a boolean"))
+			return
+		}
+		if err := server.usage.SetOfflineOnly(*input.OfflineOnly); err != nil {
+			respondError(w, 500, err)
+			return
+		}
+		_, metadata := server.usage.snapshot(false)
+		respondJSON(w, 200, metadata)
 	})
 	mux.HandleFunc("GET /api/usage/report", func(w http.ResponseWriter, r *http.Request) {
 		result, err := server.usage.dashboard(

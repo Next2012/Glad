@@ -1,0 +1,1023 @@
+{
+  "ccusageVersion": "20.0.26",
+  "$comment": "Validation rules derived from ccusage 20.0.26 config-schema.json, MIT license, https://github.com/ccusage/ccusage. Annotations removed; identical rules shared. Regenerate with scripts/update-ccusage-schema.js when upgrading ccusage.",
+  "$ref": "#/definitions/rule37",
+  "definitions": {
+    "rule0": {
+      "type": "string"
+    },
+    "rule1": {
+      "type": "boolean"
+    },
+    "rule2": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rule3": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "calculate",
+        "display"
+      ]
+    },
+    "rule4": {
+      "type": "string",
+      "enum": [
+        "desc",
+        "asc"
+      ]
+    },
+    "rule5": {
+      "type": "number"
+    },
+    "rule6": {
+      "type": "object",
+      "properties": {
+        "cacheCreationInputTokenCost": {
+          "$ref": "#/definitions/rule5"
+        },
+        "cacheCreationInputTokenCostAbove200kTokens": {
+          "$ref": "#/definitions/rule5"
+        },
+        "cacheReadInputTokenCost": {
+          "$ref": "#/definitions/rule5"
+        },
+        "cacheReadInputTokenCostAbove200kTokens": {
+          "$ref": "#/definitions/rule5"
+        },
+        "fastMultiplier": {
+          "$ref": "#/definitions/rule5"
+        },
+        "inputCostPerToken": {
+          "$ref": "#/definitions/rule5"
+        },
+        "inputCostPerTokenAbove200kTokens": {
+          "$ref": "#/definitions/rule5"
+        },
+        "maxInputTokens": {
+          "$ref": "#/definitions/rule2"
+        },
+        "outputCostPerToken": {
+          "$ref": "#/definitions/rule5"
+        },
+        "outputCostPerTokenAbove200kTokens": {
+          "$ref": "#/definitions/rule5"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule7": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/rule6"
+      }
+    },
+    "rule8": {
+      "type": "object",
+      "properties": {
+        "all": {
+          "$ref": "#/definitions/rule1"
+        },
+        "breakdown": {
+          "$ref": "#/definitions/rule1"
+        },
+        "color": {
+          "$ref": "#/definitions/rule1"
+        },
+        "compact": {
+          "$ref": "#/definitions/rule1"
+        },
+        "debug": {
+          "$ref": "#/definitions/rule1"
+        },
+        "debugSamples": {
+          "$ref": "#/definitions/rule2"
+        },
+        "jq": {
+          "$ref": "#/definitions/rule0"
+        },
+        "json": {
+          "$ref": "#/definitions/rule1"
+        },
+        "mode": {
+          "$ref": "#/definitions/rule3"
+        },
+        "noColor": {
+          "$ref": "#/definitions/rule1"
+        },
+        "noCost": {
+          "$ref": "#/definitions/rule1"
+        },
+        "noOffline": {
+          "$ref": "#/definitions/rule1"
+        },
+        "offline": {
+          "$ref": "#/definitions/rule1"
+        },
+        "order": {
+          "$ref": "#/definitions/rule4"
+        },
+        "pricingOverrides": {
+          "$ref": "#/definitions/rule7"
+        },
+        "since": {
+          "$ref": "#/definitions/rule0"
+        },
+        "singleThread": {
+          "$ref": "#/definitions/rule1"
+        },
+        "timezone": {
+          "$ref": "#/definitions/rule0"
+        },
+        "until": {
+          "$ref": "#/definitions/rule0"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule9": {
+      "type": "object",
+      "properties": {
+        "daily": {
+          "$ref": "#/definitions/rule8"
+        },
+        "monthly": {
+          "$ref": "#/definitions/rule8"
+        },
+        "session": {
+          "$ref": "#/definitions/rule8"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule10": {
+      "type": "object",
+      "properties": {
+        "commands": {
+          "$ref": "#/definitions/rule9"
+        },
+        "defaults": {
+          "$ref": "#/definitions/rule8"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule11": {
+      "type": "object",
+      "properties": {
+        "active": {
+          "$ref": "#/definitions/rule1"
+        },
+        "all": {
+          "$ref": "#/definitions/rule1"
+        },
+        "breakdown": {
+          "$ref": "#/definitions/rule1"
+        },
+        "color": {
+          "$ref": "#/definitions/rule1"
+        },
+        "compact": {
+          "$ref": "#/definitions/rule1"
+        },
+        "debug": {
+          "$ref": "#/definitions/rule1"
+        },
+        "debugSamples": {
+          "$ref": "#/definitions/rule2"
+        },
+        "jq": {
+          "$ref": "#/definitions/rule0"
+        },
+        "json": {
+          "$ref": "#/definitions/rule1"
+        },
+        "mode": {
+          "$ref": "#/definitions/rule3"
+        },
+        "noColor": {
+          "$ref": "#/definitions/rule1"
+        },
+        "noCost": {
+          "$ref": "#/definitions/rule1"
+        },
+        "noOffline": {
+          "$ref": "#/definitions/rule1"
+        },
+        "offline": {
+          "$ref": "#/definitions/rule1"
+        },
+        "order": {
+          "$ref": "#/definitions/rule4"
+        },
+        "pricingOverrides": {
+          "$ref": "#/definitions/rule7"
+        },
+        "recent": {
+          "$ref": "#/definitions/rule1"
+        },
+        "sessionLength": {
+          "$ref": "#/definitions/rule5"
+        },
+        "since": {
+          "$ref": "#/definitions/rule0"
+        },
+        "singleThread": {
+          "$ref": "#/definitions/rule1"
+        },
+        "timezone": {
+          "$ref": "#/definitions/rule0"
+        },
+        "tokenLimit": {
+          "$ref": "#/definitions/rule0"
+        },
+        "until": {
+          "$ref": "#/definitions/rule0"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule12": {
+      "type": "object",
+      "properties": {
+        "all": {
+          "$ref": "#/definitions/rule1"
+        },
+        "breakdown": {
+          "$ref": "#/definitions/rule1"
+        },
+        "color": {
+          "$ref": "#/definitions/rule1"
+        },
+        "compact": {
+          "$ref": "#/definitions/rule1"
+        },
+        "debug": {
+          "$ref": "#/definitions/rule1"
+        },
+        "debugSamples": {
+          "$ref": "#/definitions/rule2"
+        },
+        "instances": {
+          "$ref": "#/definitions/rule1"
+        },
+        "jq": {
+          "$ref": "#/definitions/rule0"
+        },
+        "json": {
+          "$ref": "#/definitions/rule1"
+        },
+        "mode": {
+          "$ref": "#/definitions/rule3"
+        },
+        "noColor": {
+          "$ref": "#/definitions/rule1"
+        },
+        "noCost": {
+          "$ref": "#/definitions/rule1"
+        },
+        "noOffline": {
+          "$ref": "#/definitions/rule1"
+        },
+        "offline": {
+          "$ref": "#/definitions/rule1"
+        },
+        "order": {
+          "$ref": "#/definitions/rule4"
+        },
+        "pricingOverrides": {
+          "$ref": "#/definitions/rule7"
+        },
+        "project": {
+          "$ref": "#/definitions/rule0"
+        },
+        "projectAliases": {
+          "$ref": "#/definitions/rule0"
+        },
+        "since": {
+          "$ref": "#/definitions/rule0"
+        },
+        "singleThread": {
+          "$ref": "#/definitions/rule1"
+        },
+        "timezone": {
+          "$ref": "#/definitions/rule0"
+        },
+        "until": {
+          "$ref": "#/definitions/rule0"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule13": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "ccusage",
+        "cc",
+        "both"
+      ]
+    },
+    "rule14": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/rule0"
+      }
+    },
+    "rule15": {
+      "type": "string",
+      "enum": [
+        "off",
+        "emoji",
+        "text",
+        "emoji-text"
+      ]
+    },
+    "rule16": {
+      "type": "object",
+      "properties": {
+        "cache": {
+          "$ref": "#/definitions/rule1"
+        },
+        "contextLowThreshold": {
+          "$ref": "#/definitions/rule2"
+        },
+        "contextMediumThreshold": {
+          "$ref": "#/definitions/rule2"
+        },
+        "costSource": {
+          "$ref": "#/definitions/rule13"
+        },
+        "debug": {
+          "$ref": "#/definitions/rule1"
+        },
+        "modelLabelAliases": {
+          "$ref": "#/definitions/rule14"
+        },
+        "noCache": {
+          "$ref": "#/definitions/rule1"
+        },
+        "noOffline": {
+          "$ref": "#/definitions/rule1"
+        },
+        "offline": {
+          "$ref": "#/definitions/rule1"
+        },
+        "pricingOverrides": {
+          "$ref": "#/definitions/rule7"
+        },
+        "refreshInterval": {
+          "$ref": "#/definitions/rule2"
+        },
+        "timezone": {
+          "$ref": "#/definitions/rule0"
+        },
+        "visualBurnRate": {
+          "$ref": "#/definitions/rule15"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule17": {
+      "type": "string",
+      "enum": [
+        "sunday",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday"
+      ]
+    },
+    "rule18": {
+      "type": "object",
+      "properties": {
+        "all": {
+          "$ref": "#/definitions/rule1"
+        },
+        "breakdown": {
+          "$ref": "#/definitions/rule1"
+        },
+        "color": {
+          "$ref": "#/definitions/rule1"
+        },
+        "compact": {
+          "$ref": "#/definitions/rule1"
+        },
+        "debug": {
+          "$ref": "#/definitions/rule1"
+        },
+        "debugSamples": {
+          "$ref": "#/definitions/rule2"
+        },
+        "jq": {
+          "$ref": "#/definitions/rule0"
+        },
+        "json": {
+          "$ref": "#/definitions/rule1"
+        },
+        "mode": {
+          "$ref": "#/definitions/rule3"
+        },
+        "noColor": {
+          "$ref": "#/definitions/rule1"
+        },
+        "noCost": {
+          "$ref": "#/definitions/rule1"
+        },
+        "noOffline": {
+          "$ref": "#/definitions/rule1"
+        },
+        "offline": {
+          "$ref": "#/definitions/rule1"
+        },
+        "order": {
+          "$ref": "#/definitions/rule4"
+        },
+        "pricingOverrides": {
+          "$ref": "#/definitions/rule7"
+        },
+        "since": {
+          "$ref": "#/definitions/rule0"
+        },
+        "singleThread": {
+          "$ref": "#/definitions/rule1"
+        },
+        "startOfWeek": {
+          "$ref": "#/definitions/rule17"
+        },
+        "timezone": {
+          "$ref": "#/definitions/rule0"
+        },
+        "until": {
+          "$ref": "#/definitions/rule0"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule19": {
+      "type": "object",
+      "properties": {
+        "blocks": {
+          "$ref": "#/definitions/rule11"
+        },
+        "daily": {
+          "$ref": "#/definitions/rule12"
+        },
+        "monthly": {
+          "$ref": "#/definitions/rule8"
+        },
+        "session": {
+          "$ref": "#/definitions/rule8"
+        },
+        "statusline": {
+          "$ref": "#/definitions/rule16"
+        },
+        "weekly": {
+          "$ref": "#/definitions/rule18"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule20": {
+      "type": "object",
+      "properties": {
+        "active": {
+          "$ref": "#/definitions/rule1"
+        },
+        "all": {
+          "$ref": "#/definitions/rule1"
+        },
+        "breakdown": {
+          "$ref": "#/definitions/rule1"
+        },
+        "cache": {
+          "$ref": "#/definitions/rule1"
+        },
+        "color": {
+          "$ref": "#/definitions/rule1"
+        },
+        "compact": {
+          "$ref": "#/definitions/rule1"
+        },
+        "contextLowThreshold": {
+          "$ref": "#/definitions/rule2"
+        },
+        "contextMediumThreshold": {
+          "$ref": "#/definitions/rule2"
+        },
+        "costSource": {
+          "$ref": "#/definitions/rule13"
+        },
+        "debug": {
+          "$ref": "#/definitions/rule1"
+        },
+        "debugSamples": {
+          "$ref": "#/definitions/rule2"
+        },
+        "instances": {
+          "$ref": "#/definitions/rule1"
+        },
+        "jq": {
+          "$ref": "#/definitions/rule0"
+        },
+        "json": {
+          "$ref": "#/definitions/rule1"
+        },
+        "mode": {
+          "$ref": "#/definitions/rule3"
+        },
+        "modelLabelAliases": {
+          "$ref": "#/definitions/rule14"
+        },
+        "noCache": {
+          "$ref": "#/definitions/rule1"
+        },
+        "noColor": {
+          "$ref": "#/definitions/rule1"
+        },
+        "noCost": {
+          "$ref": "#/definitions/rule1"
+        },
+        "noOffline": {
+          "$ref": "#/definitions/rule1"
+        },
+        "offline": {
+          "$ref": "#/definitions/rule1"
+        },
+        "order": {
+          "$ref": "#/definitions/rule4"
+        },
+        "pricingOverrides": {
+          "$ref": "#/definitions/rule7"
+        },
+        "project": {
+          "$ref": "#/definitions/rule0"
+        },
+        "projectAliases": {
+          "$ref": "#/definitions/rule0"
+        },
+        "recent": {
+          "$ref": "#/definitions/rule1"
+        },
+        "refreshInterval": {
+          "$ref": "#/definitions/rule2"
+        },
+        "sessionLength": {
+          "$ref": "#/definitions/rule5"
+        },
+        "since": {
+          "$ref": "#/definitions/rule0"
+        },
+        "singleThread": {
+          "$ref": "#/definitions/rule1"
+        },
+        "startOfWeek": {
+          "$ref": "#/definitions/rule17"
+        },
+        "timezone": {
+          "$ref": "#/definitions/rule0"
+        },
+        "tokenLimit": {
+          "$ref": "#/definitions/rule0"
+        },
+        "until": {
+          "$ref": "#/definitions/rule0"
+        },
+        "visualBurnRate": {
+          "$ref": "#/definitions/rule15"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule21": {
+      "type": "object",
+      "properties": {
+        "commands": {
+          "$ref": "#/definitions/rule19"
+        },
+        "defaults": {
+          "$ref": "#/definitions/rule20"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule22": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "standard",
+        "fast"
+      ]
+    },
+    "rule23": {
+      "type": "object",
+      "properties": {
+        "all": {
+          "$ref": "#/definitions/rule1"
+        },
+        "breakdown": {
+          "$ref": "#/definitions/rule1"
+        },
+        "color": {
+          "$ref": "#/definitions/rule1"
+        },
+        "compact": {
+          "$ref": "#/definitions/rule1"
+        },
+        "debug": {
+          "$ref": "#/definitions/rule1"
+        },
+        "debugSamples": {
+          "$ref": "#/definitions/rule2"
+        },
+        "jq": {
+          "$ref": "#/definitions/rule0"
+        },
+        "json": {
+          "$ref": "#/definitions/rule1"
+        },
+        "mode": {
+          "$ref": "#/definitions/rule3"
+        },
+        "noColor": {
+          "$ref": "#/definitions/rule1"
+        },
+        "noCost": {
+          "$ref": "#/definitions/rule1"
+        },
+        "noOffline": {
+          "$ref": "#/definitions/rule1"
+        },
+        "offline": {
+          "$ref": "#/definitions/rule1"
+        },
+        "order": {
+          "$ref": "#/definitions/rule4"
+        },
+        "pricingOverrides": {
+          "$ref": "#/definitions/rule7"
+        },
+        "since": {
+          "$ref": "#/definitions/rule0"
+        },
+        "singleThread": {
+          "$ref": "#/definitions/rule1"
+        },
+        "speed": {
+          "$ref": "#/definitions/rule22"
+        },
+        "timezone": {
+          "$ref": "#/definitions/rule0"
+        },
+        "until": {
+          "$ref": "#/definitions/rule0"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule24": {
+      "type": "object",
+      "properties": {
+        "daily": {
+          "$ref": "#/definitions/rule23"
+        },
+        "monthly": {
+          "$ref": "#/definitions/rule23"
+        },
+        "session": {
+          "$ref": "#/definitions/rule23"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule25": {
+      "type": "object",
+      "properties": {
+        "commands": {
+          "$ref": "#/definitions/rule24"
+        },
+        "defaults": {
+          "$ref": "#/definitions/rule23"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule26": {
+      "type": "object",
+      "properties": {
+        "all": {
+          "$ref": "#/definitions/rule1"
+        },
+        "breakdown": {
+          "$ref": "#/definitions/rule1"
+        },
+        "color": {
+          "$ref": "#/definitions/rule1"
+        },
+        "compact": {
+          "$ref": "#/definitions/rule1"
+        },
+        "debug": {
+          "$ref": "#/definitions/rule1"
+        },
+        "debugSamples": {
+          "$ref": "#/definitions/rule2"
+        },
+        "jq": {
+          "$ref": "#/definitions/rule0"
+        },
+        "json": {
+          "$ref": "#/definitions/rule1"
+        },
+        "mode": {
+          "$ref": "#/definitions/rule3"
+        },
+        "noColor": {
+          "$ref": "#/definitions/rule1"
+        },
+        "noCost": {
+          "$ref": "#/definitions/rule1"
+        },
+        "noOffline": {
+          "$ref": "#/definitions/rule1"
+        },
+        "offline": {
+          "$ref": "#/definitions/rule1"
+        },
+        "openClawPath": {
+          "$ref": "#/definitions/rule0"
+        },
+        "order": {
+          "$ref": "#/definitions/rule4"
+        },
+        "pricingOverrides": {
+          "$ref": "#/definitions/rule7"
+        },
+        "since": {
+          "$ref": "#/definitions/rule0"
+        },
+        "singleThread": {
+          "$ref": "#/definitions/rule1"
+        },
+        "timezone": {
+          "$ref": "#/definitions/rule0"
+        },
+        "until": {
+          "$ref": "#/definitions/rule0"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule27": {
+      "type": "object",
+      "properties": {
+        "daily": {
+          "$ref": "#/definitions/rule26"
+        },
+        "monthly": {
+          "$ref": "#/definitions/rule26"
+        },
+        "session": {
+          "$ref": "#/definitions/rule26"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule28": {
+      "type": "object",
+      "properties": {
+        "commands": {
+          "$ref": "#/definitions/rule27"
+        },
+        "defaults": {
+          "$ref": "#/definitions/rule26"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule29": {
+      "type": "object",
+      "properties": {
+        "daily": {
+          "$ref": "#/definitions/rule8"
+        },
+        "monthly": {
+          "$ref": "#/definitions/rule8"
+        },
+        "session": {
+          "$ref": "#/definitions/rule8"
+        },
+        "weekly": {
+          "$ref": "#/definitions/rule8"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule30": {
+      "type": "object",
+      "properties": {
+        "commands": {
+          "$ref": "#/definitions/rule29"
+        },
+        "defaults": {
+          "$ref": "#/definitions/rule8"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule31": {
+      "type": "object",
+      "properties": {
+        "all": {
+          "$ref": "#/definitions/rule1"
+        },
+        "breakdown": {
+          "$ref": "#/definitions/rule1"
+        },
+        "color": {
+          "$ref": "#/definitions/rule1"
+        },
+        "compact": {
+          "$ref": "#/definitions/rule1"
+        },
+        "debug": {
+          "$ref": "#/definitions/rule1"
+        },
+        "debugSamples": {
+          "$ref": "#/definitions/rule2"
+        },
+        "jq": {
+          "$ref": "#/definitions/rule0"
+        },
+        "json": {
+          "$ref": "#/definitions/rule1"
+        },
+        "mode": {
+          "$ref": "#/definitions/rule3"
+        },
+        "noColor": {
+          "$ref": "#/definitions/rule1"
+        },
+        "noCost": {
+          "$ref": "#/definitions/rule1"
+        },
+        "noOffline": {
+          "$ref": "#/definitions/rule1"
+        },
+        "offline": {
+          "$ref": "#/definitions/rule1"
+        },
+        "order": {
+          "$ref": "#/definitions/rule4"
+        },
+        "piPath": {
+          "$ref": "#/definitions/rule0"
+        },
+        "pricingOverrides": {
+          "$ref": "#/definitions/rule7"
+        },
+        "since": {
+          "$ref": "#/definitions/rule0"
+        },
+        "singleThread": {
+          "$ref": "#/definitions/rule1"
+        },
+        "timezone": {
+          "$ref": "#/definitions/rule0"
+        },
+        "until": {
+          "$ref": "#/definitions/rule0"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule32": {
+      "type": "object",
+      "properties": {
+        "daily": {
+          "$ref": "#/definitions/rule31"
+        },
+        "monthly": {
+          "$ref": "#/definitions/rule31"
+        },
+        "session": {
+          "$ref": "#/definitions/rule31"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule33": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,31}$"
+    },
+    "rule34": {
+      "type": "object",
+      "required": [
+        "name",
+        "path"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/definitions/rule33"
+        },
+        "path": {
+          "$ref": "#/definitions/rule0"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule35": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/rule34"
+      }
+    },
+    "rule36": {
+      "type": "object",
+      "properties": {
+        "commands": {
+          "$ref": "#/definitions/rule32"
+        },
+        "defaults": {
+          "$ref": "#/definitions/rule31"
+        },
+        "stores": {
+          "$ref": "#/definitions/rule35"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule37": {
+      "type": "object",
+      "properties": {
+        "$schema": {
+          "$ref": "#/definitions/rule0"
+        },
+        "amp": {
+          "$ref": "#/definitions/rule10"
+        },
+        "antigravity": {
+          "$ref": "#/definitions/rule10"
+        },
+        "claude": {
+          "$ref": "#/definitions/rule21"
+        },
+        "codebuff": {
+          "$ref": "#/definitions/rule10"
+        },
+        "codex": {
+          "$ref": "#/definitions/rule25"
+        },
+        "commands": {
+          "$ref": "#/definitions/rule19"
+        },
+        "copilot": {
+          "$ref": "#/definitions/rule10"
+        },
+        "defaults": {
+          "$ref": "#/definitions/rule8"
+        },
+        "droid": {
+          "$ref": "#/definitions/rule10"
+        },
+        "gemini": {
+          "$ref": "#/definitions/rule10"
+        },
+        "goose": {
+          "$ref": "#/definitions/rule10"
+        },
+        "grok": {
+          "$ref": "#/definitions/rule10"
+        },
+        "hermes": {
+          "$ref": "#/definitions/rule10"
+        },
+        "kilo": {
+          "$ref": "#/definitions/rule10"
+        },
+        "kimi": {
+          "$ref": "#/definitions/rule10"
+        },
+        "openclaw": {
+          "$ref": "#/definitions/rule28"
+        },
+        "opencode": {
+          "$ref": "#/definitions/rule30"
+        },
+        "pi": {
+          "$ref": "#/definitions/rule36"
+        },
+        "qwen": {
+          "$ref": "#/definitions/rule10"
+        },
+        "zcode": {
+          "$ref": "#/definitions/rule10"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

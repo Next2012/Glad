@@ -13,8 +13,10 @@ The interval is the delay **after the supervisor's own check finishes**, not aft
 | Save & start | Create a task and enable recurring monitoring |
 | Monitoring switch off | Let the current check finish, then pause |
 | Stop run | Interrupt the current check; keep the monitoring switch unchanged |
-| Run once now | Choose the configured prompt or a one-time custom message; queue one check without enabling a paused task |
+| Run once now | Expand ⋯, leave the message empty to use the configured prompt or enter a one-time message; queue one check without enabling a paused task |
 | Save changes | Update configuration without changing the monitoring switch |
+
+Each card’s ⋯ menu contains Edit, History, Delete, a message box, and Run once now at the bottom. Only one menu is expanded at a time. Messages are kept when switching cards, closing the menu, pausing monitoring, or retrying a failed submission. Enter adds a line; Ctrl/⌘+Enter submits, except while composing text with an input method. A successful submission clears only the submitted draft; text edited while the request was pending is retained.
 
 A one-time custom message replaces only that check’s prompt. It does not change saved settings, the recurring failure count, or the recurring error message. Its result is recorded in check history. The next periodic check runs after the normal interval and is not skipped even if targets are unchanged. A second run-once request is rejected while a check is running or already queued; switching monitoring off cancels the queued check. Restarting Glad clears queued messages.
 

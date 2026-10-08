@@ -34,6 +34,7 @@ module.exports = defineConfig({
       HOME: testHome,
       USERPROFILE: testHome,
       CODEX_HOME: testCodexHome,
+      GLAD_CCUSAGE_BIN: path.join(providerBin, 'ccusage'),
       PATH: `${providerBin}${path.delimiter}${process.env.PATH || ''}`
     },
     // Never point E2E writes at a developer's already-running Glad instance.

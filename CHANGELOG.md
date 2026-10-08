@@ -10,6 +10,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.11.0] - 2026-10-09
+
+### Added
+
+- Run a Supervisor check from an inline card message box: leave it empty for the saved prompt or enter a one-time custom message, with Enter for new lines and Ctrl/⌘+Enter to submit.
+- Keep custom checks separate from recurring configuration, error history, and failure counts; return the scope of `end_supervision` and force the next periodic check after a custom run.
+- Warm local usage reports at startup, refresh every 30 minutes, and return the last successful in-memory report immediately while refreshing stale data in the background.
+- Provide a persistent Only offline preference and optional price overrides in `~/.glad/ccusage.json`, with explicit unknown-price and partial-estimate indicators.
+
+### Changed
+
+- Move Supervisor beside Members in the group header with distinct monitoring and member icons; use a close button on the Members list and Back inside Controls.
+- Allow only one expanded Supervisor card while preserving drafts, focus, caret, composition, and scroll position during live updates. Clear only the submitted draft after success.
+- Upgrade ccusage to 20.0.26 and validate explicit override configuration against version-checked, reproducibly generated schema rules.
+- Describe pricing as offline or online-preferred without claiming that a download succeeded, and retain precision for small nonzero cost estimates.
+
+### Fixed
+
+- Prevent deleted Supervisors from being written back to disk and restored after daemon restart or group Resume.
+- Reject overlapping and already-queued Run once requests; clear queued custom messages on pause, deletion, and restart while preserving unsubmitted browser drafts.
+- Preserve the previous usage report and its real generation time when refresh fails, keep refresh jobs independent of browser disconnects, and discard obsolete results after pricing-mode changes.
+- Show malformed override configuration instead of allowing ccusage to silently ignore it in JSON mode.
+
 ## [2.10.1] - 2026-10-06
 
 ### Changed

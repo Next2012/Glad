@@ -75,8 +75,6 @@ test('supervisor UI creates, invokes real MCP tools, records history, edits and 
       return button.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2));
     })).toBe(true);
     await page.getByRole('button', { name: 'Run once now', exact: true }).click();
-    await expect(page.locator('#supervisor-run-prompt')).toHaveValue('__GLAD_E2E_SUPERVISOR__ inspect and direct the worker');
-    await page.getByRole('button', { name: 'Run once', exact: true }).click();
     await expect.poll(async () => {
       const data = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors`)).json();
       return data.tasks[0]?.lastRun?.status;
@@ -148,10 +146,9 @@ test('custom and configured run once use explicit modes and different end scopes
     await page.getByRole('button', { name:'Supervisor', exact:true }).click();
     for (const mode of ['custom', 'configured']) {
       await page.getByLabel('More supervisor actions').click();
+      await expect(page.locator('[data-supervisor-run-prompt]')).toHaveValue('');
+      await page.locator('[data-supervisor-run-prompt]').fill(mode === 'custom' ? configured : '');
       await page.getByRole('button', { name:'Run once now', exact:true }).click();
-      await expect(page.locator('#supervisor-run-prompt')).toHaveValue(configured);
-      await page.getByRole('radio', { name:mode === 'custom' ? 'One-time custom message' : 'Configured prompt', exact:true }).check();
-      await page.getByRole('button', { name:'Run once', exact:true }).click();
       await expect.poll(async () => {
         const data = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors`)).json();
         return `${data.tasks[0]?.lastRun?.kind}:${data.tasks[0]?.lastRun?.status}`;
@@ -184,29 +181,26 @@ test('run once preserves rejected drafts, rejects a queued run and clears it on 
     await page.request.post(`/api/sessions/${group.sessions[0]}/input`, { data:{text:'__GLAD_E2E_STUCK_ABORT__ hold director'} });
     await page.getByRole('button', { name:'Supervisor', exact:true }).click();
     await page.getByLabel('More supervisor actions').click();
-    await page.getByRole('button', { name:'Run once now', exact:true }).click();
-    await page.getByRole('radio', { name:'One-time custom message', exact:true }).check();
-    await page.locator('#supervisor-run-prompt').fill('Keep this rejected draft');
+    await page.locator('[data-supervisor-run-prompt]').fill('Keep this rejected draft');
+    const tasksURL = `/api/rooms/${group.room.id}/supervisors`;
+    const before = await (await page.request.get(tasksURL)).json();
+    await page.route(`**${tasksURL}`, route => route.fulfill({ json: before }));
     // A competing request queues while this form is open.
     expect((await page.request.post(`${path}/trigger`, { data:{mode:'custom', prompt:'First queued message'} })).ok()).toBe(true);
-    await page.getByRole('button', { name:'Run once', exact:true }).click();
-    await expect(page.locator('#supervisor-error')).toContainText('queued run once');
-    await expect(page.locator('#supervisor-run-prompt')).toHaveValue('Keep this rejected draft');
+    await page.getByRole('button', { name:'Run once now', exact:true }).click();
+    await expect(page.locator('[data-supervisor-run-error]')).toContainText('queued run once');
+    await expect(page.locator('[data-supervisor-run-prompt]')).toHaveValue('Keep this rejected draft');
+    await page.unroute(`**${tasksURL}`);
+    await page.evaluate(() => loadSupervisorTasks());
     const queued = await (await page.request.get(path)).json();
     expect(queued.task.runOncePrompt).toBe('First queued message');
-    await page.getByRole('button', { name:'Back to supervisors', exact:true }).click();
-    await page.getByLabel('More supervisor actions').click();
     await expect(page.getByRole('button', { name:'Run once now', exact:true })).toBeDisabled();
     await page.getByRole('checkbox', { name:'Enable monitoring' }).uncheck();
     await expect.poll(async () => (await (await page.request.get(path)).json()).task.runOnce).toBe(false);
     expect((await (await page.request.get(path)).json()).task.runOncePrompt).toBeUndefined();
-    await page.getByLabel('More supervisor actions').click();
+    await expect(page.locator('[data-supervisor-run-prompt]')).toHaveValue('Keep this rejected draft');
+    await page.locator('[data-supervisor-run-prompt]').fill('Actually deliver this once');
     await page.getByRole('button', { name:'Run once now', exact:true }).click();
-    await expect(page.getByRole('radio', { name:'Configured prompt', exact:true })).toBeChecked();
-    await expect(page.locator('#supervisor-run-prompt')).toHaveValue(configured);
-    await page.getByRole('radio', { name:'One-time custom message', exact:true }).check();
-    await page.locator('#supervisor-run-prompt').fill('Actually deliver this once');
-    await page.getByRole('button', { name:'Run once', exact:true }).click();
     await expect(page.locator('.supervisor-task')).toContainText('waiting for executor');
     await page.request.post(`/api/sessions/${group.sessions[0]}/abort`, { data:{} });
     await expect.poll(async () => (await (await page.request.get(path)).json()).summary.lastRun?.status, { timeout:20000 }).toBe('completed');
@@ -228,19 +222,92 @@ test('run once preserves its custom draft when the task starts running while the
     const path = `/api/rooms/${group.room.id}/supervisors/${created.task.id}`;
     await page.getByRole('button', { name:'Supervisor', exact:true }).click();
     await page.getByLabel('More supervisor actions').click();
-    await page.getByRole('button', { name:'Run once now', exact:true }).click();
-    await page.getByRole('radio', { name:'One-time custom message', exact:true }).check();
-    await page.locator('#supervisor-run-prompt').fill('Retain my draft after the active-run error');
+    await page.locator('[data-supervisor-run-prompt]').fill('Retain my draft after the active-run error');
+    const tasksURL = `/api/rooms/${group.room.id}/supervisors`;
+    const before = await (await page.request.get(tasksURL)).json();
+    await page.route(`**${tasksURL}`, route => route.fulfill({ json: before }));
     expect((await page.request.post(`${path}/trigger`, { data:{mode:'custom', prompt:'__GLAD_E2E_STUCK_ABORT__ competing run'} })).ok()).toBe(true);
     await expect.poll(async () => (await (await page.request.get(path)).json()).summary.lastRun?.status).toBe('running');
-    await page.getByRole('button', { name:'Run once', exact:true }).click();
-    await expect(page.locator('#supervisor-error')).toContainText('active invocation');
-    await expect(page.locator('#supervisor-run-prompt')).toHaveValue('Retain my draft after the active-run error');
-    await page.getByRole('button', { name:'Back to supervisors', exact:true }).click();
-    await page.getByLabel('More supervisor actions').click();
+    await page.getByRole('button', { name:'Run once now', exact:true }).click();
+    await expect(page.locator('[data-supervisor-run-error]')).toContainText('active invocation');
+    await expect(page.locator('[data-supervisor-run-prompt]')).toHaveValue('Retain my draft after the active-run error');
+    await page.unroute(`**${tasksURL}`);
+    await page.evaluate(() => loadSupervisorTasks());
     await expect(page.getByRole('button', { name:'Run once now', exact:true })).toBeDisabled();
     expect((await page.request.post(`${path}/stop`)).ok()).toBe(true);
     await expect.poll(async () => (await (await page.request.get(path)).json()).summary.lastRun?.status, { timeout:15000 }).toBe('stopped');
+  } finally { await group.cleanup(); }
+});
+
+test('inline cards keep input nodes, caret, drafts and keyboard access across refresh and navigation', async ({ page }) => {
+  await mockVisualViewport(page);
+  const group = await setup(page);
+  try {
+    const config = { executorMemberId:group.members[0].id, targets:[{memberId:group.members[1].id, read:true}], intervalSeconds:120, prompt:'Configured check' };
+    const ids=[];
+    for (let i=0;i<2;i++) ids.push((await (await page.request.post(`/api/rooms/${group.room.id}/supervisors`, { data:config })).json()).task.id);
+    await page.getByRole('button', { name:'Supervisor', exact:true }).click();
+    const first=page.locator(`[data-supervisor-id="${ids[0]}"]`), second=page.locator(`[data-supervisor-id="${ids[1]}"]`);
+    await first.getByLabel('More supervisor actions').click();
+    const input=first.locator('[data-supervisor-run-prompt]');
+    await input.fill('Keep this draft while status changes');
+    await input.evaluate(field => { window.inlineInputProbe=field; field.focus(); field.setSelectionRange(2,5); field.dispatchEvent(new CompositionEvent('compositionstart')); });
+    const inputTop=await input.evaluate(field=>field.getBoundingClientRect().top);
+    await page.request.patch(`/api/rooms/${group.room.id}/supervisors/${ids[0]}`, { data:{...config,prompt:'Updated configured check'} });
+    await page.evaluate(() => loadSupervisorTasks());
+    expect(await input.evaluate(field => field===window.inlineInputProbe && document.activeElement===field && field.selectionStart===2 && field.selectionEnd===5)).toBe(true);
+    expect(await input.evaluate(field=>field.getBoundingClientRect().top)).toBe(inputTop);
+    await expect(input).toHaveValue('Keep this draft while status changes');
+    let submissions=0;
+    page.on('request', request => { if (request.url().endsWith('/trigger')) submissions++; });
+    await input.dispatchEvent('keydown',{key:'Enter',ctrlKey:true,isComposing:true});
+    expect(submissions).toBe(0);
+    await input.evaluate(field => field.dispatchEvent(new CompositionEvent('compositionend')));
+    await second.getByLabel('More supervisor actions').click();
+    await expect(first.locator('.supervisor-menu')).not.toHaveAttribute('open','');
+    await expect(second.locator('.supervisor-menu')).toHaveAttribute('open','');
+    await first.getByLabel('More supervisor actions').click();
+    await expect(input).toHaveValue('Keep this draft while status changes');
+    await first.getByRole('checkbox',{name:'Enable monitoring'}).uncheck();
+    await expect(input).toHaveValue('Keep this draft while status changes');
+    await input.fill('Keyboard draft');
+    await input.focus(); await input.press('End'); await input.press('Enter');
+    await expect(input).toHaveValue('Keyboard draft\n');
+    await page.evaluate(() => window.setTestVisualViewport({height:520,offsetTop:40,scale:1}));
+    await expect.poll(() => first.locator('[data-supervisor-run-submit]').evaluate(button => button.getBoundingClientRect().bottom)).toBeLessThanOrEqual(560);
+    await input.press('Control+Enter');
+    await expect(input).toHaveValue('');
+    await expect(first.locator('.supervisor-menu')).not.toHaveAttribute('open','');
+    expect(submissions).toBe(1);
+  } finally { await group.cleanup(); }
+});
+
+test('accepted inline submit preserves a newer draft written while the request is pending', async ({ page }) => {
+  const group=await setup(page);
+  try {
+    const created=await (await page.request.post(`/api/rooms/${group.room.id}/supervisors`,{data:{executorMemberId:group.members[0].id,targets:[{memberId:group.members[1].id,read:true}],intervalSeconds:120,prompt:'Configured'}})).json();
+    await page.getByRole('button',{name:'Supervisor',exact:true}).click();
+    await page.getByLabel('More supervisor actions').click();
+    const input=page.locator('[data-supervisor-run-prompt]');
+    await input.fill('Submitted content');
+    let release;
+    const hold=new Promise(resolve => {release=resolve;});
+    let submitted;
+    const arrived=new Promise(resolve => {submitted=resolve;});
+    await page.route(`**/supervisors/${created.task.id}/trigger`,async route => {
+      const response=await route.fetch(); submitted(); await hold; await route.fulfill({response});
+    });
+    await page.getByRole('button',{name:'Run once now',exact:true}).click();
+    await arrived;
+    await input.fill('New content for a later check');
+    release();
+    await expect(page.locator('[data-supervisor-run-reason]')).not.toContainText('Submitting');
+    await expect(input).toHaveValue('New content for a later check');
+    await expect(page.locator('.supervisor-menu')).toHaveAttribute('open','');
+    await expect.poll(async () => (await (await page.request.get(`/api/rooms/${group.room.id}/supervisors/${created.task.id}/history`)).json()).items.length).toBeGreaterThan(0);
+    const history=await (await page.request.get(`/api/rooms/${group.room.id}/supervisors/${created.task.id}/history`)).json();
+    const run=await (await page.request.get(`/api/rooms/${group.room.id}/supervisors/${created.task.id}/history/${history.items[0].id}`)).json();
+    expect(run.invocation.prompt).toBe('Submitted content');
   } finally { await group.cleanup(); }
 });
 

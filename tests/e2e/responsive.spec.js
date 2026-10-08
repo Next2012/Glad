@@ -792,7 +792,7 @@ test('usage dashboard selects week or month and renders model summaries with dai
 		],
         generatedAt: '2026-08-26T10:00:00.000Z',
         timezone: 'Asia/Shanghai',
-		engine: { name: 'ccusage', version: '20.0.24', pricingMode: 'embedded' },
+		engine: { name: 'ccusage', version: '20.0.26', pricingMode: 'embedded' },
 		cost: { basis: `ccusage estimate for ${source}`, note: 'Estimate only.' }
       })
     });
@@ -813,14 +813,14 @@ test('usage dashboard selects week or month and renders model summaries with dai
 	await expect(page.locator('#usage-model-summary')).toContainText('gpt-6-astra');
   await expect(page.locator('#usage-model-summary')).toContainText('deepseek-v4-pro');
   await expect(page.locator('#usage-model-summary')).toContainText('All models');
-  await expect(page.locator('#usage-model-summary tbody tr').filter({ hasText: 'deepseek-v4-pro' })).toContainText('—');
+  await expect(page.locator('#usage-model-summary tbody tr').filter({ hasText: 'deepseek-v4-pro' })).toContainText('Unknown');
   await expect(page.locator('#usage-token-chart .usage-chart-row')).toHaveCount(2);
   await expect(page.locator('#usage-token-legend')).toContainText('deepseek-v4-pro');
   await expect(page.locator('#usage-cost-chart .usage-chart-row')).toHaveCount(2);
   await expect(page.locator('#usage-cost-legend')).not.toContainText('deepseek-v4-pro');
   await expect(page.locator('#usage-daily-table')).toContainText('2026-08-26');
-	await expect(page.locator('#usage-engine-note')).toContainText('ccusage 20.0.24');
-  await expect(page.locator('#usage-engine-note')).toContainText('embedded pricing');
+	await expect(page.locator('#usage-engine-note')).toContainText('ccusage 20.0.26');
+  await expect(page.locator('#usage-engine-note')).toContainText('offline pricing');
   await expectInsideViewport(page.locator('.usage-summary-card').first(), page);
 
   await page.locator('#usage-period-select').selectOption('2026-08-17');

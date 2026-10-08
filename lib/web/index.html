@@ -231,8 +231,11 @@
                     <select id="usage-period-select" onchange="selectUsagePeriod(this.value)" aria-label="Select period"></select>
                 </label>
             </div>
+            <label class="usage-pricing-setting"><input id="usage-offline-only" type="checkbox" onchange="setUsageOfflineOnly(this.checked)">Only offline</label>
+            <p id="usage-refresh-status" class="usage-refresh-status" role="status" hidden></p>
             <div id="usage-loading" class="usage-state">Loading usage data...</div>
             <div id="usage-dashboard" hidden>
+                <p id="usage-pricing-note" class="usage-refresh-status" role="status" hidden></p>
                 <section id="usage-summary" class="usage-summary usage-summary-totals" aria-label="All-model totals"></section>
                 <section class="usage-panel">
                     <div class="usage-panel-heading"><div><h2>Model summary</h2><p>All models in the selected period.</p></div></div>
@@ -515,6 +518,7 @@
                 </div>
                 <button class="icon-btn" type="button" onclick="closeUsageSourceModal()" aria-label="Close">×</button>
             </div>
+            <label class="usage-pricing-setting"><input id="usage-source-offline-only" type="checkbox" onchange="setUsageOfflineOnly(this.checked)">Only offline</label><p id="usage-sources-status" class="usage-refresh-status" role="status" hidden></p>
             <div id="usage-sources-list"><p class="usage-modal-state">Reading local usage data...</p></div>
         </div>
     </div>
@@ -700,12 +704,6 @@
                 <div class="supervisor-form-actions"><button id="supervisor-save" class="primary" type="submit">Save &amp; start</button></div>
             </form></div>
             <div id="supervisor-picker-view" hidden><p class="supervisor-help">Choose the session that will perform each check.</p><div id="supervisor-session-options" class="supervisor-group"></div></div>
-            <div id="supervisor-run-view" hidden><form id="supervisor-run-form" onsubmit="event.preventDefault();submitSupervisorRun()">
-                <fieldset class="supervisor-run-modes"><legend>Message for this check</legend><label class="supervisor-switch-row"><span>Configured prompt</span><input type="radio" name="supervisor-run-mode" value="configured" checked></label><label class="supervisor-switch-row"><span>One-time custom message</span><input type="radio" name="supervisor-run-mode" value="custom"></label></fieldset>
-                <label for="supervisor-run-prompt">Prompt</label><textarea id="supervisor-run-prompt" rows="4" required readonly></textarea>
-                <p id="supervisor-run-help" class="supervisor-help">Uses the saved prompt. Ending supervision disables future monitoring.</p>
-                <div class="supervisor-form-actions"><button id="supervisor-run-submit" class="primary" type="submit">Run once</button></div>
-            </form></div>
             <div id="supervisor-permissions-view" hidden><p id="supervisor-permissions-member" class="supervisor-help"></p><div class="supervisor-group">
                 <label class="supervisor-switch-row"><span>Read output and history</span><input id="supervisor-permission-read" data-edit-permission="read" type="checkbox" role="switch"></label>
                 <label class="supervisor-switch-row"><span>Stop session</span><input id="supervisor-permission-stop" data-edit-permission="stop" type="checkbox" role="switch"></label>

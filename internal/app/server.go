@@ -57,7 +57,7 @@ func NewServer(baseDir string, port int, assets fs.FS) (*Server, error) {
 	server := &Server{
 		baseDir: baseDir, port: port, sessions: sessions, config: config,
 		attachments: attachments, schedules: NewScheduleStore(config),
-		usage:  NewUsageService(),
+		usage:  NewUsageService(config),
 		assets: assets,
 	}
 	server.rooms = NewRoomManager(roomStore, sessions, attachments)
@@ -98,6 +98,7 @@ func (server *Server) Run(ctx context.Context) error {
 	}
 	server.sessions.mcpExecutable, _ = os.Executable()
 	server.sessions.mcpURL = fmt.Sprintf("http://127.0.0.1:%d", listener.Addr().(*net.TCPAddr).Port)
+	server.usage.Start(runCtx)
 	server.supervisors.Start(runCtx)
 	server.notifications.Start(runCtx)
 	server.rooms.Start(runCtx)
@@ -109,6 +110,7 @@ func (server *Server) Run(ctx context.Context) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = server.http.Shutdown(shutdownCtx)
+		server.usage.Stop()
 		server.supervisors.Stop()
 		server.schedules.Stop()
 		server.sharing.Stop(shutdownCtx)
