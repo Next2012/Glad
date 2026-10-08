@@ -43,6 +43,22 @@ func startSupervisorTest(t *testing.T, manager *SupervisorManager, roomID, taskI
 	manager.tick()
 	manager.wg.Wait()
 }
+func TestSupervisorDeleteRemainsDeletedAfterRestart(t *testing.T) {
+	manager, _, task, roomID := supervisorControlFixture(t)
+	if err := manager.Action(roomID, task.ID, "delete"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(manager.directory, task.ID+".json")); !os.IsNotExist(err) {
+		t.Fatalf("deleted task file still exists: %v", err)
+	}
+	reloaded, err := OpenSupervisorManager(manager.directory, manager.rooms, manager.sessions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manager.List(roomID)) != 0 || len(reloaded.List(roomID)) != 0 {
+		t.Fatal("deleted task was restored")
+	}
+}
 func TestSupervisorPauseKeepsCurrentRunAndDisablesNextCheck(t *testing.T) {
 	manager, provider, task, roomID := supervisorControlFixture(t)
 	startSupervisorTest(t, manager, roomID, task.ID)

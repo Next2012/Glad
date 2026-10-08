@@ -520,8 +520,8 @@ test('group and member names are editable without leaving the room and user mess
   page.once('dialog', dialog => dialog.accept('审阅者'));
   await page.locator('.room-manage-member').getByRole('button', { name: 'Rename' }).click();
   await expect(page.locator('.room-manage-member strong')).toHaveText('审阅者');
-  await expect(page.locator('#room-members-overlay .room-modal-back')).toBeVisible();
-  await page.locator('#room-members-overlay .room-modal-back').click();
+  await expect(page.locator('#members-back')).toBeHidden();
+  await page.getByRole('button', { name: 'Close members', exact: true }).click();
   await page.locator('#room-input').fill('User avatar message');
   await page.locator('#room-send-button').click();
   const userEntry = page.locator('.room-entry.user').last();

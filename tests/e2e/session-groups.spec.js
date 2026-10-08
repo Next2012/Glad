@@ -75,14 +75,17 @@ test('session groups collapse, share cards, update live, and return ungrouped se
     await groupSection(first.id).getByRole('button', { name: 'Connect', exact: true }).first().click();
     await expect(page.locator('#room-view')).toBeVisible();
     expect(await page.locator('.room-action-rail > button').evaluateAll(buttons => buttons.map(button => button.id))).toEqual([
-      'room-mention-button', 'room-supervisor-button', 'room-attachment-button', 'room-schedule-send-btn',
+      'room-mention-button', 'room-attachment-button', 'room-schedule-send-btn',
       'room-abort-button', 'room-history-resume', 'room-history-fork'
     ]);
+    await expect(page.locator('.room-header-actions #room-supervisor-open')).toBeVisible();
+    await expect(page.locator('.room-header-actions #room-members-open')).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath('group-toolbar.png') });
     await page.locator('.room-back-button').click();
     expect((await page.request.delete(`/api/rooms/${first.id}`)).ok()).toBe(true);
-    await expect(mainCard(member.id)).toBeVisible();
-    await expect(groupSection(first.id)).toHaveCount(0);
+    // API deletion is observed by the lobby's ten-second polling cycle.
+    await expect(mainCard(member.id)).toBeVisible({ timeout: 15000 });
+    await expect(groupSection(first.id)).toHaveCount(0, { timeout: 15000 });
     const history = await (await page.request.get('/api/room-history')).json();
     expect(JSON.stringify(history)).toContain(first.id);
     expect((await page.request.delete(`/api/sessions/${shared.id}`)).ok()).toBe(true);

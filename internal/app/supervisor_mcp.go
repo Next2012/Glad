@@ -58,7 +58,7 @@ func supervisorTools() []map[string]any {
 		{"read_session", "Read live output or paginated history, including a session that is still running."},
 		{"stop_session", "Interrupt the expected target turn. Read again before sending; stop acceptance does not mean the session is ready."},
 		{"send_to_session", "Send a prompt to an idle target session. The command appears in the group."},
-		{"end_supervision", "Finish this supervisor task and cancel future scheduled invocations."},
+		{"end_supervision", "End supervision. For periodic and configured run-once checks, disable future monitoring (scope: task). For a one-time custom check, revoke only this invocation's tool access and leave recurring monitoring unchanged (scope: invocation). The executor turn must still finish before another check can start."},
 	} {
 		properties := map[string]any{"invocationId": map[string]any{"type": "string", "description": "Invocation ID supplied in the current supervisor prompt. Required; old invocation IDs are rejected."}}
 		required := []string{"invocationId"}

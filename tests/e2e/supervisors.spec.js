@@ -20,6 +20,28 @@ async function setup(page) {
   } };
 }
 
+test('group management icons stay in the header without overlapping the title on narrow screens', async ({ page }, testInfo) => {
+  const group = await setup(page);
+  try {
+    for (const width of testInfo.project.name === 'MacBook Pro 16' ? [1728, 320, 375] : [320, 375, 440]) {
+      await page.setViewportSize({ width, height: 956 });
+      await expect(page.locator('.room-header-actions #room-supervisor-open')).toBeVisible();
+      await expect(page.locator('.room-header-actions #room-members-open')).toBeVisible();
+      await expect(page.locator('#room-supervisor-button')).toHaveCount(0);
+      const layout = await page.locator('.room-header').evaluate(header => {
+        const title = header.querySelector('#room-title').getBoundingClientRect();
+        const actions = header.querySelector('.room-header-actions').getBoundingClientRect();
+        const back = header.querySelector('.room-back-button').getBoundingClientRect();
+        return { titleWidth:title.width, left:title.left, right:title.right, actionsLeft:actions.left, actionsRight:actions.right, backRight:back.right, viewport:innerWidth };
+      });
+      expect(layout.titleWidth).toBeGreaterThanOrEqual(80);
+      expect(layout.left).toBeGreaterThanOrEqual(layout.backRight);
+      expect(layout.right).toBeLessThanOrEqual(layout.actionsLeft);
+      expect(layout.actionsRight).toBeLessThanOrEqual(layout.viewport);
+    }
+  } finally { await group.cleanup(); }
+});
+
 test('supervisor UI creates, invokes real MCP tools, records history, edits and deletes a task', async ({ page }) => {
   test.setTimeout(60000);
   const group = await setup(page);
@@ -53,6 +75,8 @@ test('supervisor UI creates, invokes real MCP tools, records history, edits and 
       return button.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2));
     })).toBe(true);
     await page.getByRole('button', { name: 'Run once now', exact: true }).click();
+    await expect(page.locator('#supervisor-run-prompt')).toHaveValue('__GLAD_E2E_SUPERVISOR__ inspect and direct the worker');
+    await page.getByRole('button', { name: 'Run once', exact: true }).click();
     await expect.poll(async () => {
       const data = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors`)).json();
       return data.tasks[0]?.lastRun?.status;
@@ -112,6 +136,114 @@ test('live output and individual abort work while another room member remains av
   } finally { await group.cleanup(); }
 });
 
+test('custom and configured run once use explicit modes and different end scopes', async ({ page }) => {
+  const group = await setup(page);
+  const errors = []; page.on('pageerror', error => errors.push(error.message));
+  try {
+    const configured = '__GLAD_E2E_SUPERVISOR_END__ finish this check';
+    const created = await (await page.request.post(`/api/rooms/${group.room.id}/supervisors`, { data: {
+      executorMemberId:group.members[0].id, targets:[{memberId:group.members[1].id, read:true}], intervalSeconds:60, prompt:configured
+    } })).json();
+    const taskId = created.task.id;
+    await page.getByRole('button', { name:'Supervisor', exact:true }).click();
+    for (const mode of ['custom', 'configured']) {
+      await page.getByLabel('More supervisor actions').click();
+      await page.getByRole('button', { name:'Run once now', exact:true }).click();
+      await expect(page.locator('#supervisor-run-prompt')).toHaveValue(configured);
+      await page.getByRole('radio', { name:mode === 'custom' ? 'One-time custom message' : 'Configured prompt', exact:true }).check();
+      await page.getByRole('button', { name:'Run once', exact:true }).click();
+      await expect.poll(async () => {
+        const data = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors`)).json();
+        return `${data.tasks[0]?.lastRun?.kind}:${data.tasks[0]?.lastRun?.status}`;
+      }, { timeout:20000 }).toBe(`${mode === 'custom' ? 'custom' : 'check'}:completed`);
+      const detail = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors/${taskId}`)).json();
+      expect(detail.task.prompt).toBe(configured);
+      expect(detail.task.enabled).toBe(mode === 'custom');
+      const history = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors/${taskId}/history`)).json();
+      const run = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors/${taskId}/history/${history.items[0].id}`)).json();
+      expect(run.invocation.prompt).toBe(configured);
+      expect(run.invocation.summary).toContain(`End scope: ${mode === 'custom' ? 'invocation' : 'task'}`);
+      expect(run.invocation.calls[0].tool).toBe('end_supervision');
+      await expect(page.locator('.supervisor-task')).toContainText(mode === 'custom' ? 'Checks in' : 'Paused');
+    }
+    const snapshot = await (await page.request.get(`/api/rooms/${group.room.id}`)).json();
+    expect(snapshot.entries.some(entry => entry.text?.includes('__GLAD_E2E_SUPERVISOR_END__') || entry.text?.includes('End scope:'))).toBe(false);
+    expect(snapshot.hasUnreadCompletion).toBe(false);
+    expect(errors).toEqual([]);
+  } finally { await group.cleanup(); }
+});
+
+test('run once preserves rejected drafts, rejects a queued run and clears it on pause', async ({ page }) => {
+  const group = await setup(page);
+  try {
+    const configured = 'Configured recurring check';
+    const created = await (await page.request.post(`/api/rooms/${group.room.id}/supervisors`, { data: {
+      executorMemberId:group.members[0].id, targets:[{memberId:group.members[1].id, read:true}], intervalSeconds:60, prompt:configured
+    } })).json();
+    const path = `/api/rooms/${group.room.id}/supervisors/${created.task.id}`;
+    await page.request.post(`/api/sessions/${group.sessions[0]}/input`, { data:{text:'__GLAD_E2E_STUCK_ABORT__ hold director'} });
+    await page.getByRole('button', { name:'Supervisor', exact:true }).click();
+    await page.getByLabel('More supervisor actions').click();
+    await page.getByRole('button', { name:'Run once now', exact:true }).click();
+    await page.getByRole('radio', { name:'One-time custom message', exact:true }).check();
+    await page.locator('#supervisor-run-prompt').fill('Keep this rejected draft');
+    // A competing request queues while this form is open.
+    expect((await page.request.post(`${path}/trigger`, { data:{mode:'custom', prompt:'First queued message'} })).ok()).toBe(true);
+    await page.getByRole('button', { name:'Run once', exact:true }).click();
+    await expect(page.locator('#supervisor-error')).toContainText('queued run once');
+    await expect(page.locator('#supervisor-run-prompt')).toHaveValue('Keep this rejected draft');
+    const queued = await (await page.request.get(path)).json();
+    expect(queued.task.runOncePrompt).toBe('First queued message');
+    await page.getByRole('button', { name:'Back to supervisors', exact:true }).click();
+    await page.getByLabel('More supervisor actions').click();
+    await expect(page.getByRole('button', { name:'Run once now', exact:true })).toBeDisabled();
+    await page.getByRole('checkbox', { name:'Enable monitoring' }).uncheck();
+    await expect.poll(async () => (await (await page.request.get(path)).json()).task.runOnce).toBe(false);
+    expect((await (await page.request.get(path)).json()).task.runOncePrompt).toBeUndefined();
+    await page.getByLabel('More supervisor actions').click();
+    await page.getByRole('button', { name:'Run once now', exact:true }).click();
+    await expect(page.getByRole('radio', { name:'Configured prompt', exact:true })).toBeChecked();
+    await expect(page.locator('#supervisor-run-prompt')).toHaveValue(configured);
+    await page.getByRole('radio', { name:'One-time custom message', exact:true }).check();
+    await page.locator('#supervisor-run-prompt').fill('Actually deliver this once');
+    await page.getByRole('button', { name:'Run once', exact:true }).click();
+    await expect(page.locator('.supervisor-task')).toContainText('waiting for executor');
+    await page.request.post(`/api/sessions/${group.sessions[0]}/abort`, { data:{} });
+    await expect.poll(async () => (await (await page.request.get(path)).json()).summary.lastRun?.status, { timeout:20000 }).toBe('completed');
+    const done = await (await page.request.get(path)).json();
+    expect(done.task.enabled).toBe(false);
+    expect(done.task.prompt).toBe(configured);
+    const run = await (await page.request.get(`${path}/history/${done.summary.lastRun.id}`)).json();
+    expect(run.invocation.prompt).toBe('Actually deliver this once');
+    expect(run.invocation.kind).toBe('custom');
+  } finally { await group.cleanup(); }
+});
+
+test('run once preserves its custom draft when the task starts running while the form is open', async ({ page }) => {
+  const group = await setup(page);
+  try {
+    const created = await (await page.request.post(`/api/rooms/${group.room.id}/supervisors`, { data: {
+      executorMemberId:group.members[0].id, targets:[{memberId:group.members[1].id, read:true}], intervalSeconds:60, prompt:'Periodic prompt'
+    } })).json();
+    const path = `/api/rooms/${group.room.id}/supervisors/${created.task.id}`;
+    await page.getByRole('button', { name:'Supervisor', exact:true }).click();
+    await page.getByLabel('More supervisor actions').click();
+    await page.getByRole('button', { name:'Run once now', exact:true }).click();
+    await page.getByRole('radio', { name:'One-time custom message', exact:true }).check();
+    await page.locator('#supervisor-run-prompt').fill('Retain my draft after the active-run error');
+    expect((await page.request.post(`${path}/trigger`, { data:{mode:'custom', prompt:'__GLAD_E2E_STUCK_ABORT__ competing run'} })).ok()).toBe(true);
+    await expect.poll(async () => (await (await page.request.get(path)).json()).summary.lastRun?.status).toBe('running');
+    await page.getByRole('button', { name:'Run once', exact:true }).click();
+    await expect(page.locator('#supervisor-error')).toContainText('active invocation');
+    await expect(page.locator('#supervisor-run-prompt')).toHaveValue('Retain my draft after the active-run error');
+    await page.getByRole('button', { name:'Back to supervisors', exact:true }).click();
+    await page.getByLabel('More supervisor actions').click();
+    await expect(page.getByRole('button', { name:'Run once now', exact:true })).toBeDisabled();
+    expect((await page.request.post(`${path}/stop`)).ok()).toBe(true);
+    await expect.poll(async () => (await (await page.request.get(path)).json()).summary.lastRun?.status, { timeout:15000 }).toBe('stopped');
+  } finally { await group.cleanup(); }
+});
+
 test('Members controls navigate in the same panel and supervisor editor keeps its draft', async ({ page }) => {
   test.setTimeout(60000);
   const group = await setup(page);
@@ -125,6 +257,8 @@ test('Members controls navigate in the same panel and supervisor editor keeps it
     await page.getByRole('button', { name: 'Back to supervisors', exact: true }).click();
     await page.getByRole('button', { name: 'Close supervisors' }).click();
     await page.getByRole('button', { name: 'Members', exact: true }).click();
+    await expect(page.locator('#members-back')).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Close members', exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Controls', exact: true }).last().click();
     await expect(page.locator('#room-members-home')).toBeHidden();
     await expect(page.locator('#room-member-controls')).toBeVisible();
@@ -136,10 +270,13 @@ test('Members controls navigate in the same panel and supervisor editor keeps it
     await expect(page.locator('#member-command')).toHaveValue('');
     await page.locator('#room-members-overlay').getByRole('button', { name: 'History', exact: true }).click();
     await expect(page.locator('#member-control-output')).toContainText('Start this worker from Members');
-    await page.locator('#room-members-overlay').getByRole('button', { name: 'Back', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to members', exact: true }).click();
     await expect(page.locator('#room-members-home')).toBeVisible();
     await expect(page.locator('#room-members-title')).toHaveText('Group members');
     await expect(page.locator('.room-modal-overlay.active')).toHaveCount(1);
+    await expect(page.locator('#members-back')).toBeHidden();
+    await page.getByRole('button', { name: 'Close members', exact: true }).click();
+    await expect(page.locator('#room-members-overlay')).not.toHaveClass(/active/);
   } finally { await group.cleanup(); }
 });
 

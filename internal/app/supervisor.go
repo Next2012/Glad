@@ -44,6 +44,7 @@ type SupervisorCall struct {
 }
 type SupervisorInvocation struct {
 	ID            string           `json:"id"`
+	Kind          string           `json:"kind,omitempty"`
 	SessionID     string           `json:"sessionId"`
 	StartedAt     int64            `json:"startedAt"`
 	EndedAt       int64            `json:"endedAt,omitempty"`
@@ -75,6 +76,7 @@ type SupervisorTask struct {
 	LastError        string                 `json:"lastError,omitempty"`
 	Invocations      []SupervisorInvocation `json:"-"`
 	RunOnce          bool                   `json:"runOnce"`
+	RunOncePrompt    string                 `json:"runOncePrompt,omitempty"`
 	RunCount         uint64                 `json:"runCount"`
 	Skipped          int                    `json:"skipped"`
 	LastSkippedAt    int64                  `json:"lastSkippedAt,omitempty"`
@@ -84,6 +86,24 @@ type SupervisorTask struct {
 	fingerprint      string
 	force            bool
 }
+
+type SupervisorTriggerInput struct {
+	Mode   string `json:"mode"`
+	Prompt string `json:"prompt"`
+}
+
+func (task *SupervisorTask) clearRunOnce() {
+	task.RunOnce = false
+	task.RunOncePrompt = ""
+}
+
+func supervisorInvocationKind(inv *SupervisorInvocation) string {
+	if inv.Kind == "custom" {
+		return "custom"
+	}
+	return "check"
+}
+
 type SupervisorManager struct {
 	mu           sync.Mutex
 	directory    string
@@ -263,6 +283,27 @@ func (manager *SupervisorManager) Save(runtimeID, id string, input SupervisorTas
 	return cloneSupervisor(task), nil
 }
 func (manager *SupervisorManager) Action(runtimeID, id, action string) error {
+	return manager.action(runtimeID, id, action, SupervisorTriggerInput{})
+}
+
+func (manager *SupervisorManager) Trigger(runtimeID, id string, input SupervisorTriggerInput) error {
+	switch input.Mode {
+	case "", "configured":
+		if input.Prompt != "" {
+			return errors.New("Choose custom mode to send a one-time prompt")
+		}
+	case "custom":
+		input.Prompt = strings.TrimSpace(input.Prompt)
+		if input.Prompt == "" || len(input.Prompt) > 16384 {
+			return errors.New("One-time prompt is required and must fit 16 KiB")
+		}
+	default:
+		return errors.New("Unknown run once mode")
+	}
+	return manager.action(runtimeID, id, "trigger", input)
+}
+
+func (manager *SupervisorManager) action(runtimeID, id, action string, input SupervisorTriggerInput) error {
 	room, err := manager.rooms.GetRecord(runtimeID)
 	if err != nil {
 		return err
@@ -273,11 +314,13 @@ func (manager *SupervisorManager) Action(runtimeID, id, action string) error {
 		manager.mu.Unlock()
 		return errRoomNotFound
 	}
+	backup := *task
 	switch action {
 	case "delete":
 		if inv := activeInvocation(task); inv != nil {
 			inv.Revoked = true
 		}
+		task.clearRunOnce()
 		if err := os.Remove(filepath.Join(manager.directory, id+".json")); err != nil {
 			manager.mu.Unlock()
 			return err
@@ -288,9 +331,11 @@ func (manager *SupervisorManager) Action(runtimeID, id, action string) error {
 				manager.warnLocked(id + suffix + ": " + err.Error())
 			}
 		}
+		manager.mu.Unlock()
+		return nil
 	case "pause":
 		task.Enabled = false
-		task.RunOnce = false
+		task.clearRunOnce()
 		if activeInvocation(task) == nil {
 			task.Status = "paused"
 			task.NextAt = 0
@@ -301,7 +346,13 @@ func (manager *SupervisorManager) Action(runtimeID, id, action string) error {
 			manager.mu.Unlock()
 			return errors.New("Supervisor already has an active invocation")
 		}
-		task.LastError = ""
+		if action == "trigger" && task.RunOnce {
+			manager.mu.Unlock()
+			return errors.New("Supervisor already has a queued run once")
+		}
+		if input.Mode != "custom" {
+			task.LastError = ""
+		}
 		task.Revision++
 		task.force = true
 		if action == "resume" {
@@ -311,6 +362,7 @@ func (manager *SupervisorManager) Action(runtimeID, id, action string) error {
 			task.NextAt = millis() + int64(task.IntervalSeconds)*1000
 		} else {
 			task.RunOnce = true
+			task.RunOncePrompt = input.Prompt
 			task.Status = "scheduled"
 			task.NextAt = millis()
 		}
@@ -365,6 +417,10 @@ func (manager *SupervisorManager) Action(runtimeID, id, action string) error {
 		return errors.New("Unknown supervisor action")
 	}
 	err = manager.saveLocked(task)
+	if err != nil {
+		*task = backup
+		task.LastError = err.Error()
+	}
 	manager.mu.Unlock()
 	return err
 }
@@ -407,7 +463,7 @@ func (manager *SupervisorManager) tick() {
 		if runtimeID == "" {
 			if task.Enabled || task.RunOnce {
 				task.Enabled = false
-				task.RunOnce = false
+				task.clearRunOnce()
 				task.Status = "paused"
 				task.NextAt = 0
 				task.Revision++
@@ -431,7 +487,7 @@ func (manager *SupervisorManager) tick() {
 		executor, ok := supervisorMember(room, task.ExecutorMemberID)
 		if !ok {
 			task.Enabled = false
-			task.RunOnce = false
+			task.clearRunOnce()
 			task.Status = "needs_attention"
 			task.LastError = "Executor is no longer a member"
 			_ = manager.saveLocked(task)
@@ -471,7 +527,11 @@ func (manager *SupervisorManager) tick() {
 		}
 		task.fingerprint = fingerprint
 		task.force = false
-		inv := SupervisorInvocation{ID: newUUID(), SessionID: session.ID, StartedAt: millis(), Status: "running", Prompt: task.Prompt, Calls: []SupervisorCall{}}
+		kind, invocationPrompt := "check", task.Prompt
+		if task.RunOnce && task.RunOncePrompt != "" {
+			kind, invocationPrompt = "custom", task.RunOncePrompt
+		}
+		inv := SupervisorInvocation{ID: newUUID(), Kind: kind, SessionID: session.ID, StartedAt: millis(), Status: "running", Prompt: invocationPrompt, Calls: []SupervisorCall{}}
 		session.mu.Lock()
 		if session.supervisorLease != "" {
 			session.mu.Unlock()
@@ -486,7 +546,7 @@ func (manager *SupervisorManager) tick() {
 		task.Invocations = append(task.Invocations, inv)
 		task.Status = "running"
 		task.launching = true
-		task.RunOnce = false
+		task.clearRunOnce()
 		task.RunCount++
 		if err := manager.appendAuditLocked(task, "start", &task.Invocations[len(task.Invocations)-1], nil); err != nil {
 			session.mu.Lock()
@@ -504,7 +564,11 @@ func (manager *SupervisorManager) tick() {
 			task.Enabled = false
 		}
 		source := &SupervisorSource{Version: 1, TaskID: task.ID, InvocationID: inv.ID, Kind: "trigger"}
-		prompt := fmt.Sprintf("You are supervising members of a Glad group. Current invocationId: %s. Use the glad MCP tools with this invocationId to list_targets and read_session as authorized. Stop acceptance is not readiness; read before sending. Call end_supervision when the goal is achieved. Targets and permissions: %s\n\n%s", inv.ID, supervisorTargetJSON(task.Targets), task.Prompt)
+		endInstruction := "Call end_supervision when the goal is achieved to disable future monitoring."
+		if kind == "custom" {
+			endInstruction = "This is a one-time custom check. Call end_supervision when this request is complete to revoke this invocation's tool access only; recurring monitoring remains unchanged. Finish your response afterward; the next periodic check waits for this turn to finish."
+		}
+		prompt := fmt.Sprintf("You are supervising members of a Glad group. Current invocationId: %s. Use the glad MCP tools with this invocationId to list_targets and read_session as authorized. Stop acceptance is not readiness; read before sending. %s Targets and permissions: %s\n\n%s", inv.ID, endInstruction, supervisorTargetJSON(task.Targets), inv.Prompt)
 		manager.wg.Add(1)
 		go manager.launch(task.ID, session, source, prompt)
 	}
@@ -543,9 +607,12 @@ func (manager *SupervisorManager) pollLocked(task *SupervisorTask, inv *Supervis
 	session := manager.sessions.Get(inv.SessionID)
 	if session == nil {
 		manager.finishLocked(task, inv, "interrupted", "Executor session was closed")
+		task.LastError = "Executor session was closed"
 		task.Enabled = false
 		task.Status = "needs_attention"
-		_ = manager.saveLocked(task)
+		if err := manager.saveLocked(task); err != nil {
+			task.LastError = err.Error()
+		}
 		return
 	}
 	session.mu.RLock()
@@ -624,10 +691,15 @@ func (manager *SupervisorManager) finishLocked(task *SupervisorTask, inv *Superv
 		}
 		session.mu.Unlock()
 	}
-	task.LastError = ""
 	task.Status = "paused"
 	task.NextAt = 0
-	if status == "completed" || status == "stopped" || inv.StopAccepted && status == "failed" {
+	custom := inv.Kind == "custom"
+	if custom {
+		// A custom check cannot satisfy or fail the recurring prompt.
+		// Preserve its error and failure count, and force the next normal check.
+		task.force = true
+	} else if status == "completed" || status == "stopped" || inv.StopAccepted && status == "failed" {
+		task.LastError = ""
 		task.failures = 0
 	} else {
 		task.failures++
@@ -635,13 +707,13 @@ func (manager *SupervisorManager) finishLocked(task *SupervisorTask, inv *Superv
 		task.force = true
 	}
 	if task.Enabled {
-		if task.failures >= 3 {
+		if !custom && task.failures >= 3 {
 			task.Enabled = false
 			task.Status = "needs_attention"
 		} else {
 			task.Status = "scheduled"
 			delay := int64(task.IntervalSeconds) * 1000
-			if task.failures > 0 {
+			if !custom && task.failures > 0 {
 				delay *= int64(1 << min(task.failures, 3))
 			}
 			task.NextAt = millis() + delay
@@ -652,7 +724,11 @@ func (manager *SupervisorManager) finishLocked(task *SupervisorTask, inv *Superv
 		task.Enabled = false
 		task.Status = "needs_attention"
 	}
-	_ = manager.saveLocked(task)
+	if err := manager.saveLocked(task); err != nil {
+		task.LastError = err.Error()
+		task.Enabled = false
+		task.Status = "needs_attention"
+	}
 }
 
 func (server *Server) registerSupervisorRoutes(mux *http.ServeMux) {
@@ -689,7 +765,18 @@ func (server *Server) supervisorTasks(writer http.ResponseWriter, request *http.
 		action = "delete"
 	}
 	if action != "" {
-		err = server.supervisors.Action(request.PathValue("id"), request.PathValue("taskId"), action)
+		if action == "trigger" {
+			var input SupervisorTriggerInput
+			if request.ContentLength != 0 {
+				if err := decodeJSON(request, &input); err != nil {
+					respondError(writer, 400, err)
+					return
+				}
+			}
+			err = server.supervisors.Trigger(request.PathValue("id"), request.PathValue("taskId"), input)
+		} else {
+			err = server.supervisors.Action(request.PathValue("id"), request.PathValue("taskId"), action)
+		}
 		if err != nil {
 			respondError(writer, 409, err)
 			return
@@ -844,11 +931,17 @@ func (manager *SupervisorManager) Call(ctx context.Context, caller *Session, too
 	case "read_session":
 		result = sessionOutput(targetSession, uint64(numberInt64(args["after"])), int(max64(1, numberInt64(firstNonNil(args["limit"], 50)))), int(numberInt64(args["offset"])), boolValue(args["history"]))
 	case "end_supervision":
-		task.Enabled = false
-		task.RunOnce = false
+		result["scope"] = "invocation"
+		if inv.Kind != "custom" {
+			task.Enabled = false
+			task.clearRunOnce()
+			result["scope"] = "task"
+		}
 		inv.Revoked = true
 		task.Revision++
 		if saveErr := manager.saveLocked(task); saveErr != nil {
+			task.LastError = saveErr.Error()
+			task.Enabled = false
 			manager.mu.Unlock()
 			return nil, saveErr
 		}
@@ -898,6 +991,8 @@ func (manager *SupervisorManager) Call(ctx context.Context, caller *Session, too
 		auditCall = &inv.Calls[len(inv.Calls)-1]
 	}
 	if saveErr := manager.appendAuditLocked(task, "call", inv, auditCall); saveErr != nil && err == nil {
+		task.LastError = saveErr.Error()
+		task.Enabled = false
 		err = saveErr
 	}
 	if err == nil && tool != "read_session" && tool != "list_targets" {

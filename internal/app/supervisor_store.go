@@ -53,7 +53,8 @@ func OpenSupervisorManager(directory string, rooms *RoomManager, sessions *Sessi
 			manager.warnLocked(file.Name() + ": " + err.Error())
 			continue
 		}
-		task.Enabled, task.RunOnce, task.Status, task.NextAt = false, false, "paused", 0
+		task.clearRunOnce()
+		task.Enabled, task.Status, task.NextAt = false, "paused", 0
 		for i := range task.Invocations {
 			inv := &task.Invocations[i]
 			if inv.EndedAt == 0 {
@@ -178,6 +179,7 @@ func (manager *SupervisorManager) readAuditLocked(id string, repair bool) ([]Sup
 			}
 			run := runs[event.InvocationID]
 			if event.Invocation != nil && event.Invocation.ID == event.InvocationID {
+				event.Invocation.Kind = supervisorInvocationKind(event.Invocation)
 				if run == nil {
 					copy := *event.Invocation
 					run = &copy
@@ -210,7 +212,7 @@ func invocationSummary(inv *SupervisorInvocation) map[string]any {
 	if inv == nil {
 		return nil
 	}
-	return map[string]any{"id": inv.ID, "startedAt": inv.StartedAt, "endedAt": inv.EndedAt, "status": inv.Status, "summary": inv.Summary, "callCount": len(inv.Calls), "stopRequested": inv.StopRequested, "stopError": inv.StopError}
+	return map[string]any{"id": inv.ID, "kind": supervisorInvocationKind(inv), "startedAt": inv.StartedAt, "endedAt": inv.EndedAt, "status": inv.Status, "summary": inv.Summary, "callCount": len(inv.Calls), "stopRequested": inv.StopRequested, "stopError": inv.StopError}
 }
 func taskSummary(task *SupervisorTask) map[string]any {
 	var last *SupervisorInvocation

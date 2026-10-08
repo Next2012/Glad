@@ -1,6 +1,6 @@
 # Group Supervisors
 
-Open a group and choose **Supervisor** in its composer toolbar. Create a task with a supervisor session, monitored members, an interval, and a prompt describing what the supervisor should check and do. Read, stop, and send permissions default to enabled for each selected target and can be changed individually.
+Open a group and choose **Supervisor** in its top-right header. Create a task with a supervisor session, monitored members, an interval, and a prompt describing what the supervisor should check and do. Read, stop, and send permissions default to enabled for each selected target and can be changed individually.
 
 The editor uses grouped settings. Tap a monitored member’s permission summary to open its three switches in the same panel; Back returns to the draft. Enabling Stop also enables Read so the supervisor can obtain the expected turn ID. Disabling Read also disables Stop. The API rejects Stop without Read; Read + Stop without Send remains supported.
 
@@ -13,8 +13,10 @@ The interval is the delay **after the supervisor's own check finishes**, not aft
 | Save & start | Create a task and enable recurring monitoring |
 | Monitoring switch off | Let the current check finish, then pause |
 | Stop run | Interrupt the current check; keep the monitoring switch unchanged |
-| Run once now | Queue one check; a paused task remains paused afterward |
+| Run once now | Choose the configured prompt or a one-time custom message; queue one check without enabling a paused task |
 | Save changes | Update configuration without changing the monitoring switch |
+
+A one-time custom message replaces only that check’s prompt. It does not change saved settings, the recurring failure count, or the recurring error message. Its result is recorded in check history. The next periodic check runs after the normal interval and is not skipped even if targets are unchanged. A second run-once request is rejected while a check is running or already queued; switching monitoring off cancels the queued check. Restarting Glad clears queued messages.
 
 Changing only the prompt keeps the existing countdown. Changing the interval updates the next scheduled time. The list shows status and recent results; open task details for check history, and expand a check to load its tool calls. Prompt and usage details are collapsed by default.
 
@@ -22,7 +24,7 @@ Monitored sessions cannot include the executor. A session cannot simultaneously 
 
 ## Instructions and tools
 
-The supervisor receives your prompt with its current invocation ID and available target permissions. Glad supplies five MCP tools: list targets, read a session, stop an expected turn, send a prompt to an idle target, and end supervision. You can ask it to call `end_supervision` when the goal is reached.
+The supervisor receives your prompt with its current invocation ID and available target permissions. Glad supplies five MCP tools: list targets, read a session, stop an expected turn, send a prompt to an idle target, and end supervision. For periodic and configured run-once checks, `end_supervision` disables future monitoring and returns `scope: task`. For custom checks it revokes only the current invocation’s tool access and returns `scope: invocation`; the monitoring switch stays unchanged. The executor must still finish its turn before another check can start.
 
 For example:
 
