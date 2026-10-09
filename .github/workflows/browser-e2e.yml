@@ -8,8 +8,13 @@ permissions:
 
 jobs:
   test:
+    name: Browser E2E (${{ matrix.project }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ["iPhone 17 Pro Max", "iPad Air 7", "MacBook Pro 16"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
@@ -24,4 +29,16 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
       - name: Run browser contract tests on port 3001
-        run: npm run test:e2e
+        env:
+          PROJECT: ${{ matrix.project }}
+        run: npx playwright test --project "$PROJECT"
+      - name: Retain browser reports and failure traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-e2e-${{ strategy.job-index }}
+          path: |
+            .playwright-report/
+            .playwright-results/
+          if-no-files-found: ignore
+          retention-days: 14
