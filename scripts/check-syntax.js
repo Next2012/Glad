@@ -4,7 +4,7 @@ const { spawnSync } = require('child_process');
 
 const projectRoot = path.resolve(__dirname, '..');
 const sourceRoots = ['lib/web', 'lib/npm', 'scripts', 'tests'];
-const standaloneFiles = ['playwright.config.js', 'tests/e2e/fixtures/bin/codex'];
+const standaloneFiles = ['playwright.config.js', 'tests/e2e/fixtures/bin/codex', 'tests/e2e/fixtures/bin/claude', 'tests/e2e/fixtures/bin/ccusage'];
 
 function collectJavaScriptFiles(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {

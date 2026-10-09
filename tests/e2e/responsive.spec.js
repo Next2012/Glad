@@ -316,7 +316,8 @@ test('desktop lobby collapses into live tiled conversations and opens a draggabl
   await expect(page.locator('.tile-session-window').filter({ hasText: 'Tiled Claude session' }).locator('.claude-conversation')).toBeVisible();
   const codexHeader = page.locator('.tile-session-window').filter({ hasText: 'Tiled Codex session' }).locator('.tile-session-header');
   await expect(codexHeader.locator('.tile-session-title-row > :first-child')).toHaveClass(/tile-status/);
-  await expect(codexHeader.locator('.tile-session-path')).toHaveAttribute('title', /glad/);
+  const runtimeConfig = await (await page.request.get('/api/config')).json();
+  await expect(codexHeader.locator('.tile-session-path')).toHaveAttribute('title', runtimeConfig.defaultWorkingDirectory);
   expect((await codexHeader.boundingBox()).height).toBeLessThanOrEqual(46);
 
   await page.getByRole('button', { name: 'Tile layout' }).click();

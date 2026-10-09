@@ -2,8 +2,14 @@ const { defineConfig } = require('@playwright/test');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
+const { spawnSync } = require('node:child_process');
 
 const providerBin = path.join(__dirname, 'tests', 'e2e', 'fixtures', 'bin');
+// Keep read-only Go module-cache directories out of the disposable application
+// HOME. Non-root CI workers must be able to remove that HOME after each run.
+const goEnvironment = spawnSync('go', ['env', 'GOPATH', 'GOCACHE'], { encoding:'utf8' });
+if (goEnvironment.status !== 0) throw new Error(`Unable to locate Go caches: ${goEnvironment.stderr}`);
+const [goPath, goCache] = goEnvironment.stdout.trim().split(/\r?\n/);
 const port = Number(process.env.GLAD_E2E_PORT || 3001);
 const testHome = fs.mkdtempSync(path.join(os.tmpdir(), 'glad-e2e-'));
 const testCodexHome = path.join(testHome, '.codex');
@@ -34,6 +40,8 @@ module.exports = defineConfig({
       HOME: testHome,
       USERPROFILE: testHome,
       CODEX_HOME: testCodexHome,
+      GOPATH: goPath,
+      GOCACHE: goCache,
       GLAD_CCUSAGE_BIN: path.join(providerBin, 'ccusage'),
       PATH: `${providerBin}${path.delimiter}${process.env.PATH || ''}`
     },

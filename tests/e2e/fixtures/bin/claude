@@ -1,0 +1,35 @@
+#!/usr/bin/env node
+'use strict';
+
+// A local structured-protocol fixture; browser tests never require Claude login.
+const readline = require('node:readline');
+if (process.argv.includes('--version')) {
+  process.stdout.write('2.1.287 (Claude Code E2E)\n');
+  process.exit(0);
+}
+const write = message => process.stdout.write(JSON.stringify(message) + '\n');
+let ready = false;
+let sequence = 0;
+let model = 'claude-sonnet-4-5';
+const input = readline.createInterface({ input:process.stdin, crlfDelay:Infinity });
+input.on('line', line => {
+  const message = JSON.parse(line);
+  if (message.type === 'control_request') {
+    const request = message.request;
+    const response = request.subtype === 'initialize' ? { commands:[], models:[] } : {};
+    if (request.subtype === 'set_model') model = request.model;
+    write({type:'control_response',response:{subtype:'success',request_id:message.request_id,response}});
+    if (!ready) {
+      ready = true;
+      write({type:'system',subtype:'init',session_id:'claude-e2e',model});
+    }
+    return;
+  }
+  if (message.type === 'user') {
+    const content = message.message.content;
+    const text = typeof content === 'string' ? content : content.filter(item => item.type === 'text').map(item => item.text).join('\n');
+    const answer = `Claude fixture: ${text}`;
+    write({type:'assistant',session_id:'claude-e2e',message:{id:`claude-e2e-${++sequence}`,role:'assistant',model,content:[{type:'text',text:answer}],usage:{input_tokens:10,output_tokens:10}}});
+    write({type:'result',subtype:'success',session_id:'claude-e2e',is_error:false,result:answer,duration_ms:20,duration_api_ms:10,total_cost_usd:0,usage:{input_tokens:10,output_tokens:10}});
+  }
+});
