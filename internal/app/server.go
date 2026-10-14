@@ -182,6 +182,7 @@ func (server *Server) registerRoutes(mux *http.ServeMux) {
 	server.registerUsageRoutes(mux)
 	server.registerSkillHubRoutes(mux)
 	server.registerRoomRoutes(mux)
+	server.registerManagedRuntimeRoutes(mux)
 	server.registerSupervisorRoutes(mux)
 	mux.HandleFunc("GET /api/sessions/{id}/speed", server.sessionSpeed)
 	server.registerWorkbenchSharingRoutes(mux)

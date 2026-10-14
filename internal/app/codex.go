@@ -73,38 +73,43 @@ func (stream *codexDeltaStream) append(delta string) bool {
 func (stream *codexDeltaStream) text() string { return stream.builder.String() }
 
 type CodexProvider struct {
-	titles            *codexTitles
-	mu                sync.Mutex
-	eventMu           sync.Mutex
-	streamMu          sync.Mutex
-	session           *Session
-	options           map[string]any
-	defaultsStore     *ConfigStore
-	cmd               *exec.Cmd
-	stdin             io.WriteCloser
-	pending           map[int64]chan codexRPCResult
-	permissions       map[string]codexPendingPermission
-	userInputs        map[string]codexPendingUserInput
-	requestID         atomic.Int64
-	threadID          string
-	turnID            string
-	turnStarted       int64
-	activeTurns       map[string]codexActiveTurn
-	models            []map[string]any
-	tokenUsage        map[string]any
-	tokenUsageTurnID  string
-	streams           map[string]*codexDeltaStream
-	expectedStops     map[*exec.Cmd]struct{}
-	resumeCancel      context.CancelFunc
-	resuming          bool
-	forking           bool
-	resumeInFlight    bool
-	resumeAborted     bool
-	aborting          bool
-	needsThreadResume bool
-	abortSequence     uint64
-	abortGrace        time.Duration
-	closed            bool
+	titles                     *codexTitles
+	mu                         sync.Mutex
+	eventMu                    sync.Mutex
+	streamMu                   sync.Mutex
+	session                    *Session
+	options                    map[string]any
+	defaultsStore              *ConfigStore
+	cmd                        *exec.Cmd
+	stdin                      io.WriteCloser
+	pending                    map[int64]chan codexRPCResult
+	permissions                map[string]codexPendingPermission
+	userInputs                 map[string]codexPendingUserInput
+	requestID                  atomic.Int64
+	threadID                   string
+	turnID                     string
+	turnStarted                int64
+	activeTurns                map[string]codexActiveTurn
+	models                     []map[string]any
+	tokenUsage                 map[string]any
+	tokenUsageTurnID           string
+	streams                    map[string]*codexDeltaStream
+	expectedStops              map[*exec.Cmd]struct{}
+	resumeCancel               context.CancelFunc
+	resuming                   bool
+	forking                    bool
+	resumeInFlight             bool
+	resumeAborted              bool
+	aborting                   bool
+	needsThreadResume          bool
+	abortSequence              uint64
+	abortGrace                 time.Duration
+	closed                     bool
+	managedResumeMetadata      managedResumeMetadata
+	managedResumeSettings      map[string]any
+	managedResumeRejected      bool
+	managedResumeInvoked       bool
+	managedResumeMetadataValid bool
 
 	settingsRevision        uint64
 	appliedSettingsRevision uint64
@@ -1431,6 +1436,15 @@ func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
 	resumeCtx, cancelResume := context.WithTimeout(ctx, codexHistoryOperationTimeout)
 	defer cancelResume()
 	provider.mu.Lock()
+	if ctx.Value(managedRuntimeResumeKey{}) == true && provider.managedResumeRejected {
+		provider.mu.Unlock()
+		return errors.New("original managed resume requires verified recovery after failure")
+	}
+	if ctx.Value(managedRuntimeResumeKey{}) == true {
+		provider.managedResumeInvoked = false
+		provider.managedResumeMetadataValid = false
+		provider.managedResumeMetadata = managedResumeMetadata{}
+	}
 	if provider.closed || provider.resumeInFlight || provider.aborting || provider.turnID != "" || provider.sending || provider.capacityRetryTimer != nil {
 		provider.mu.Unlock()
 		return errors.New("Codex session is busy")
@@ -1456,11 +1470,51 @@ func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
 		"config": codexPlanConfig(),
 	}
 	provider.applyDeveloperInstructions(params)
-	result, err := provider.rpc(
-		resumeCtx,
-		"thread/resume",
-		params,
-	)
+	var managedOptions map[string]any
+	if ctx.Value(managedRuntimeResumeKey{}) == true {
+		provider.mu.Lock()
+		managedOptions = managedRuntimeOptions(provider)
+		provider.applyThreadOptions(params)
+		if effort := stringValue(managedOptions["effort"]); effort != "" {
+			mapValue(params["config"])["model_reasoning_effort"] = effort
+		}
+		provider.mu.Unlock()
+	}
+	var originalHistory *managedHistorySeal
+	var historyErr error
+	if ctx.Value(managedRuntimeResumeKey{}) == true {
+		// 原thread只读定位已封存文件；不注册新thread或发模型任务。
+		original, readErr := provider.rpc(resumeCtx, "thread/read", map[string]any{"threadId": id, "includeTurns": false})
+		thread := mapValue(original["thread"])
+		if readErr != nil || stringValue(thread["id"]) != id {
+			historyErr = errors.New("original native history unavailable")
+		} else {
+			originalHistory, historyErr = sealManagedHistory(resumeCtx, stringValue(thread["path"]))
+		}
+	}
+	var result map[string]any
+	err := historyErr
+	if err == nil {
+		if ctx.Value(managedRuntimeResumeKey{}) == true {
+			provider.mu.Lock()
+			provider.managedResumeInvoked = true
+			provider.mu.Unlock()
+		}
+		result, err = provider.rpc(resumeCtx, "thread/resume", params)
+	}
+	if err == nil && originalHistory != nil {
+		var metadata managedResumeMetadata
+		metadata, err = originalHistory.observe(resumeCtx, id)
+		if err == nil {
+			provider.mu.Lock()
+			provider.managedResumeMetadata = metadata
+			provider.managedResumeMetadataValid = true
+			provider.managedResumeSettings = cloneMap(result)
+			delete(provider.managedResumeSettings, "thread")
+			provider.mu.Unlock()
+			err = validateManagedSettings(managedOptions, result, provider.session.WorkingDirectory)
+		}
+	}
 	if err == nil {
 		provider.mu.Lock()
 		provider.threadID = firstNonEmpty(stringValue(mapValue(result["thread"])["id"]), id)
@@ -1471,6 +1525,9 @@ func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
 	if err != nil {
 		// 历史恢复失败保留原对话绑定，后续发送先恢复原线程。
 		provider.mu.Lock()
+		if ctx.Value(managedRuntimeResumeKey{}) == true {
+			provider.managedResumeRejected = true
+		}
 		provider.threadID = previousThreadID
 		provider.needsThreadResume = previousThreadID != ""
 		provider.mu.Unlock()
@@ -1500,7 +1557,8 @@ func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
 	if aborted {
 		return errors.New("resume aborted")
 	}
-	if err == nil {
+	if err == nil && ctx.Value(managedRuntimeResumeKey{}) != true {
+		// 受管恢复只续接原对话，不创建自动标题模型任务。
 		provider.titles.schedule(id, "", true)
 	}
 	return err
