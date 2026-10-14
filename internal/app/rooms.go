@@ -170,8 +170,10 @@ func (manager *RoomManager) syncSessionConversation(sessionID, conversationID st
 			changed := false
 			for index := range room.Members {
 				if room.Members[index].RuntimeSessionID == sessionID && room.Members[index].LeftAt == 0 {
-					room.Members[index].NativeConversationID = conversationID
-					changed = true
+					if room.Members[index].NativeConversationID != conversationID {
+						room.Members[index].NativeConversationID = conversationID
+						changed = true
+					}
 				}
 			}
 			if !changed {
