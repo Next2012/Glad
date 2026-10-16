@@ -2136,6 +2136,7 @@ test('Claude conversation settles tool state and keeps resume controls usable', 
       items: [{
         id: '11111111-1111-4111-8111-111111111111',
         updatedAt: Date.now(),
+        name: 'Latest maintenance question',
         questions: ['Latest maintenance question', 'Previous architecture question']
       }]
     })
@@ -2228,6 +2229,7 @@ test('Claude supports edit diffs, image sends, and session forks', async ({ page
     body: JSON.stringify({ success: true, items: [{
       id: '22222222-2222-4222-8222-222222222222',
       updatedAt: Date.now(),
+      name: 'Fork this Claude work',
       questions: ['Fork this Claude work', 'Original request']
     }] })
   }));

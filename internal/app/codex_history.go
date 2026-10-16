@@ -53,6 +53,9 @@ func (provider *CodexProvider) listThreadPage(ctx context.Context, query codexTh
 		preview := codexPreviewText(stringValue(thread["preview"]), 600)
 		name := stringValue(thread["name"])
 		if provider.session.names != nil {
+			if err := provider.session.names.registerNativeName("codex", stringValue(thread["cwd"]), stringValue(thread["id"]), name); err != nil {
+				return nil, "", err
+			}
 			stored, readErr := provider.session.names.read("codex", stringValue(thread["cwd"]), stringValue(thread["id"]))
 			if readErr != nil {
 				return nil, "", readErr

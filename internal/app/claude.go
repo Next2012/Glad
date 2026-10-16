@@ -867,6 +867,8 @@ func (provider *ClaudeProvider) Resume(ctx context.Context, id string) error {
 		provider.mu.Unlock()
 		return errors.New("Claude conversation can only be resumed while idle")
 	}
+	finishNameRestore := provider.session.beginNameRestore(strings.TrimSpace(id))
+	defer finishNameRestore()
 	provider.stopLocked()
 	provider.resetConversationLocked()
 	provider.resumeID = strings.TrimSpace(id)

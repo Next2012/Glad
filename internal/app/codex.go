@@ -1436,6 +1436,8 @@ func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
 		provider.mu.Unlock()
 		return errors.New("Codex session is busy")
 	}
+	finishNameRestore := provider.session.beginNameRestore(id)
+	defer finishNameRestore()
 	if provider.cmd == nil {
 		if err := provider.startLocked(resumeCtx); err != nil {
 			provider.mu.Unlock()
@@ -1647,6 +1649,14 @@ func (provider *CodexProvider) hydrateThread(ctx context.Context, result map[str
 		return errors.New("Codex session is closed")
 	}
 	provider.session.rememberTranscriptPath(thread)
+	if err := provider.session.names.registerNativeName("codex", provider.session.WorkingDirectory, threadID, stringValue(thread["name"])); err != nil {
+		return err
+	}
+	if !provider.forking {
+		if err := provider.session.restoreConversationName(threadID); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

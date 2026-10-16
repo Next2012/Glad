@@ -137,7 +137,9 @@ working directory and native conversation ID. Room member `displayName` is a
 read-only projection of that session name. Renaming from a group writes through
 the session rename API. A missing name stays missing; group snapshots, prompts,
 provider display labels and unrelated conversation names are never substitutes.
-Resume reads the target session name. Group Resume only reconstructs bindings,
+Existing Codex sessions register their own persisted names on first discovery;
+explicit catalog names, including empty names, are preserved. Resume reads the
+target session name. Group Resume only reconstructs bindings,
 without passing a name. Fork copies the source name into the new session's own
 identity; later edits do not change the source. Rename and recovery routes
 serialize to avoid an old recovery overwriting a new manual name. Claude

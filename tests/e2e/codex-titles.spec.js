@@ -69,21 +69,21 @@ test('Codex manual naming wins during generation and title errors leave the chat
   } finally { await page.request.delete(`/api/sessions/${failedId}`); }
 });
 
-test('Codex resume and fork fill unnamed history titles while respecting custom window names', async ({ page }) => {
+test('Codex resume and fork preserve unnamed history and session-owned names', async ({ page }) => {
   const id = await titleSession(page);
   try {
     await page.evaluate(() => selectCodexResumeThread('untitled-history-e2e'));
-    await expect(page.locator('#session-title')).toHaveText('修复项目构建');
+    await expect(page.locator('#session-title')).toHaveText('');
     const listing = await (await page.request.get(`/api/sessions/${id}/codex-resume-threads`)).json();
-    expect(listing.items.find(item => item.id === 'untitled-history-e2e').title).toBe('修复项目构建');
+    expect(listing.items.find(item => item.id === 'untitled-history-e2e').title).toBe('');
   } finally { await page.request.delete(`/api/sessions/${id}`); }
 
   const forkId = await titleSession(page);
   try {
     await page.evaluate(() => selectCodexForkThread('untitled-history-e2e'));
-    await expect(page.locator('#session-title')).toHaveText('修复项目构建');
+    await expect(page.locator('#session-title')).toHaveText('');
     const listing = await (await page.request.get(`/api/sessions/${forkId}/codex-resume-threads`)).json();
-    expect(listing.items.find(item => item.id === 'fork-of-untitled-history-e2e').title).toBe('修复项目构建');
+    expect(listing.items.find(item => item.id === 'fork-of-untitled-history-e2e').title).toBe('');
     expect(listing.items.find(item => item.id === 'untitled-history-e2e')).toBeUndefined();
   } finally { await page.request.delete(`/api/sessions/${forkId}`); }
 

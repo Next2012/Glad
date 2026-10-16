@@ -28,20 +28,25 @@ func (store *SessionNameStore) path(tool, cwd, id string) string {
 }
 
 func (store *SessionNameStore) read(tool, cwd, id string) (sessionName, error) {
+	name, _, err := store.lookup(tool, cwd, id)
+	return name, err
+}
+
+func (store *SessionNameStore) lookup(tool, cwd, id string) (sessionName, bool, error) {
 	if store == nil || id == "" {
-		return sessionName{}, nil
+		return sessionName{}, false, nil
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	data, err := os.ReadFile(store.path(tool, cwd, id))
 	if errors.Is(err, os.ErrNotExist) {
-		return sessionName{}, nil
+		return sessionName{}, false, nil
 	}
 	var name sessionName
 	if err == nil {
 		err = json.Unmarshal(data, &name)
 	}
-	return name, err
+	return name, err == nil, err
 }
 
 func (store *SessionNameStore) write(tool, cwd, id string, name sessionName) error {
@@ -50,6 +55,27 @@ func (store *SessionNameStore) write(tool, cwd, id string, name sessionName) err
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	return store.writeLocked(tool, cwd, id, name)
+}
+
+// Register an existing provider session's persisted name when it first enters
+// the session catalog. Existing catalog entries, including explicit empty names,
+// remain authoritative. Group snapshots and prompt previews are never inputs.
+func (store *SessionNameStore) registerNativeName(tool, cwd, id, name string) error {
+	if store == nil || id == "" || name == "" {
+		return nil
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if _, err := os.Stat(store.path(tool, cwd, id)); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return store.writeLocked(tool, cwd, id, sessionName{Name: name})
+}
+
+func (store *SessionNameStore) writeLocked(tool, cwd, id string, name sessionName) error {
 	if err := os.MkdirAll(store.directory, 0700); err != nil {
 		return err
 	}
@@ -72,6 +98,35 @@ func (store *SessionNameStore) write(tool, cwd, id string, name sessionName) err
 	return os.Rename(file.Name(), store.path(tool, cwd, id))
 }
 
+func (session *Session) restoreConversationName(id string) error {
+	if session.names == nil {
+		return nil
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	name, err := session.names.read(session.Tool.Key, session.WorkingDirectory, id)
+	if err != nil {
+		return err
+	}
+	session.nameConversationID = id
+	session.Name, session.NameManual = name.Name, name.Manual
+	session.publishLocked(map[string]any{"type": "session-renamed", "name": name.Name})
+	return nil
+}
+
+func (session *Session) beginNameRestore(id string) func() {
+	session.mu.Lock()
+	session.nameRestoreTarget = id
+	session.mu.Unlock()
+	return func() {
+		session.mu.Lock()
+		if session.nameRestoreTarget == id {
+			session.nameRestoreTarget = ""
+		}
+		session.mu.Unlock()
+	}
+}
+
 func (session *Session) bindNameLocked(id string) {
 	if id == "" || id == session.nameConversationID || session.names == nil {
 		return
@@ -91,7 +146,7 @@ func (session *Session) bindNameLocked(id string) {
 		if err == nil {
 			err = session.names.write(session.Tool.Key, session.WorkingDirectory, id, value)
 		}
-	} else if first && session.NameManual {
+	} else if first && session.NameManual && id != session.nameRestoreTarget {
 		value = sessionName{session.Name, true}
 		err = session.names.write(session.Tool.Key, session.WorkingDirectory, id, value)
 	} else {
@@ -133,9 +188,12 @@ func (session *Session) copyForkName(source, destination string) error {
 	if session.names == nil {
 		return nil
 	}
-	value, err := session.names.read(session.Tool.Key, session.WorkingDirectory, source)
+	value, exists, err := session.names.lookup(session.Tool.Key, session.WorkingDirectory, source)
 	if err != nil {
 		return err
+	}
+	if !exists {
+		return nil
 	}
 	if err = session.names.write(session.Tool.Key, session.WorkingDirectory, destination, value); err != nil {
 		return err

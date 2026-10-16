@@ -130,6 +130,7 @@ type Session struct {
 	NameManual                      bool
 	names                           *SessionNameStore
 	nameConversationID              string
+	nameRestoreTarget               string
 	forkNameSource                  string
 	nameRevision                    uint64
 	forkNameRevision                uint64

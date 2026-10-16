@@ -251,6 +251,7 @@ input.on('line', line => {
     if (request.params?.threadId === 'plan-history-e2e') result = historicalPlanThread('fork-of-plan-history-e2e');
   } else if (request.method === 'thread/resume') {
     const threadId = request.params?.threadId || 'thread-e2e';
+    if (threadId === 'untitled-history-e2e' && !threadNames.has(threadId)) threadNames.set(threadId, '');
     if (threadId === 'stuck-resume-e2e') return;
     if (threadId === 'disconnected-resume-e2e') { outputLost = true; return; }
     if (threadId === 'plan-history-e2e') {
@@ -332,7 +333,12 @@ input.on('line', line => {
       write({ method: 'thread/started', params: { thread: { id, ephemeral: true } } });
       result = { thread: { id, ephemeral: true }, sandbox: { type: 'readOnly' } };
     } else {
-      activeThreadId = process.cwd().includes('glad-speed-e2e') ? `speed-thread-${process.pid}` : 'thread-e2e'; savedTurns = []; saveMockHistory();
+      activeThreadId = process.cwd().includes('glad-speed-e2e') ? `speed-thread-${process.pid}` : 'thread-e2e';
+      // Each fixture process creates a fresh logical conversation. Its shared
+      // protocol ID is fixed for assertions, so discard that ID's old catalog record.
+      const key = require('node:crypto').createHash('sha256').update(['codex', path.normalize(process.cwd()), activeThreadId].join('\0')).digest('hex');
+      fs.rmSync(path.join(process.env.HOME, '.glad', 'session-names', `${key}.json`), { force:true });
+      savedTurns = []; saveMockHistory();
       result = { thread: { id: activeThreadId, path: mockHistoryPath(activeThreadId, '.jsonl') } };
     }
   } else if (request.method === 'turn/start') {

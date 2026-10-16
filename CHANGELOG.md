@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Discard delayed lobby and session-list responses after newer socket updates so resuming a group cannot visually revive a closed group.
 - Keep the existing-session picker open after adding a member so several sessions can be added consecutively.
+- Register existing native Codex session names without deriving names from prompts, and preserve unnamed history on Resume and Fork.
 - Restore Claude names during individual and group recovery, update browser titles on reconnect and rename, and preserve independent names after Fork.
 - Keep repeated Claude prompts as separate turns while new output is still waiting to reach native history.
 

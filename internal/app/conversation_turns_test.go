@@ -173,6 +173,53 @@ func TestSessionNamesPersistAcrossResumeWithoutRoomFallback(t *testing.T) {
 	}
 }
 
+func TestNativeSessionNamesRegisterOnceAndNeverReplaceExplicitNames(t *testing.T) {
+	store := &SessionNameStore{directory: t.TempDir()}
+	if err := store.registerNativeName("codex", "/project", "existing", "Saved session name"); err != nil {
+		t.Fatal(err)
+	}
+	name, err := store.read("codex", "/project", "existing")
+	if err != nil || name.Name != "Saved session name" {
+		t.Fatal(name, err)
+	}
+	if err = store.write("codex", "/project", "existing", sessionName{Name: "", Manual: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.registerNativeName("codex", "/project", "existing", "Old native name"); err != nil {
+		t.Fatal(err)
+	}
+	name, err = store.read("codex", "/project", "existing")
+	if err != nil || name.Name != "" || !name.Manual {
+		t.Fatal("native discovery replaced explicit name", name, err)
+	}
+	session := newSession("resume", "Temporary window", "codex-structured", ToolInfo{Key: "codex"}, "/project")
+	session.names = store
+	session.NameManual = true
+	if err = session.restoreConversationName("existing"); err != nil {
+		t.Fatal(err)
+	}
+	if session.Name != "" {
+		t.Fatal("Resume used the temporary window name", session.Name)
+	}
+}
+
+func TestResumeBeforeFirstNativeIdentityDoesNotRenameSavedSession(t *testing.T) {
+	store := &SessionNameStore{directory: t.TempDir()}
+	if err := store.write("claude-code", "/project", "saved", sessionName{Name: "Saved name", Manual: true}); err != nil {
+		t.Fatal(err)
+	}
+	session := newSession("new-window", "Temporary window", "claude-structured", ToolInfo{Key: "claude-code"}, "/project")
+	session.names = store
+	session.NameManual = true
+	finish := session.beginNameRestore("saved")
+	defer finish()
+	session.setState(map[string]any{"claudeSessionId": "saved"})
+	name, err := store.read("claude-code", "/project", "saved")
+	if err != nil || name.Name != "Saved name" || session.Name != "Saved name" {
+		t.Fatal("temporary name overwrote restored session", name, session.Name, err)
+	}
+}
+
 func TestGroupTransportCarriesTriggerAndReferenceProvenance(t *testing.T) {
 	rooms, session, _, room, member := newRuntimeRoomTest(t)
 	provider := &stubProvider{}
