@@ -134,6 +134,15 @@ test('streamed snapshots keep history still and preserve anchors when earlier co
   expect(Math.abs(inserted.offset - before.offset)).toBeLessThan(1);
 });
 
+test('reference jump highlights survive a streamed message update', async ({ page }) => {
+  const stream = await openScrollingRoom(page);
+  await page.evaluate(() => jumpToRoomEntry('entry-1'));
+  const target = page.locator('[data-room-entry-id="entry-1"]');
+  await expect(target).toHaveClass(/room-entry-jump/);
+  await stream.update(room => { room.entries[1].text += '\n\nUpdated quoted response'; });
+  await expect(target).toHaveClass(/room-entry-jump/);
+});
+
 test('following the bottom works and manual scrolling immediately stops following', async ({ page }) => {
   const stream = await openScrollingRoom(page);
   await page.locator('[data-room-entry-id="entry-47"] .room-entry-bubble').click();

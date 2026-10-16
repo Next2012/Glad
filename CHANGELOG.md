@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Keep Claude usage and context queries visible in a dedicated status panel, handle connection and request errors, and allow retry after a query timeout without losing the native conversation.
 - Reject references exceeding 128 KiB explicitly instead of silently replacing them with an unavailable-message placeholder.
-- Discard stale group context and preview responses after navigation and retain message nodes and reading positions during incremental updates.
+- Discard stale group context and preview responses after navigation and retain message nodes, reading positions and reference jump highlights during incremental updates.
 
 ## [2.11.0] - 2026-10-09
 

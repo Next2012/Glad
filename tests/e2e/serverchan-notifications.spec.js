@@ -74,7 +74,7 @@ test('configures ServerChan separately from the per-session notification toggle'
 
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  const card = page.locator('.session-card');
+  const card = page.locator('.session-card[data-session-id="session-serverchan-test"]');
   await expect(card).toContainText('通知交互验证');
   const toggle = card.getByRole('button', { name: 'Enable ServerChan notifications for this chat' });
   await expect(toggle).toBeVisible();

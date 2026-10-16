@@ -2051,7 +2051,7 @@ test('model pickers stay compact and normalize provider model data', async ({ pa
   expect(pageErrors).toEqual([]);
 });
 
-test('Claude combines model and effort and renders one status card', async ({ page }, testInfo) => {
+test('Claude combines model and effort and presents refreshed status in its info panel', async ({ page }, testInfo) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto('/', { waitUntil: 'networkidle' });
@@ -2104,7 +2104,9 @@ test('Claude combines model and effort and renders one status card', async ({ pa
     }
   }));
 
-  const card = page.locator('.claude-status-card');
+  const panel = page.getByRole('dialog', { name: 'Claude status', exact: true });
+  await expect(panel).toBeVisible();
+  const card = panel.locator('.claude-status-card');
   await expect(card).toBeVisible();
   await expect(card).toContainText('100 in · 20 out');
   await expect(card).toContainText('deepseek-v4-pro[1m]');
@@ -2115,8 +2117,12 @@ test('Claude combines model and effort and renders one status card', async ({ pa
   await expect(statusButton).toBeEnabled();
   await expect(page.locator('#claude-usage-panel')).toHaveCount(0);
   await expect(page.locator('.claude-context-size-badge')).toHaveCount(0);
+  await expect(page.locator('#claude-chat-container .claude-status-card')).toHaveCount(1);
   expect(pageErrors).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath('claude-model-effort-and-usage.png'), fullPage: true });
+  await panel.getByRole('button', { name: 'Close Claude status', exact: true }).click();
+  await expect(panel).toBeHidden();
+  await expect(page.locator('#claude-info-content .claude-status-card')).toHaveCount(0);
 });
 
 test('Claude conversation settles tool state and keeps resume controls usable', async ({ page }, testInfo) => {
