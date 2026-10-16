@@ -67,6 +67,12 @@ func supervisorEnvelope(text string) (*SupervisorSource, string) {
 }
 
 func providerReadiness(session *Session) (bool, string) {
+	session.mu.RLock()
+	recovering := session.recovering
+	session.mu.RUnlock()
+	if recovering {
+		return false, "Session conversation is recovering"
+	}
 	if provider, ok := session.Provider.(ReadinessProvider); ok {
 		return provider.CanAccept()
 	}
@@ -76,6 +82,24 @@ func providerReadiness(session *Session) (bool, string) {
 		return false, "Session is busy or unavailable"
 	}
 	return true, ""
+}
+
+// Serialize recovery with names and other recoveries, while keeping Stop free
+// to interrupt a provider RPC. The short command lock settles an accepted Send
+// before readiness is revoked; it is never held across a recovery RPC.
+func (session *Session) beginConversationRecovery() func() {
+	session.conversationMu.Lock()
+	session.commandMu.Lock()
+	session.mu.Lock()
+	session.recovering = true
+	session.mu.Unlock()
+	session.commandMu.Unlock()
+	return func() {
+		session.mu.Lock()
+		session.recovering = false
+		session.mu.Unlock()
+		session.conversationMu.Unlock()
+	}
 }
 func sessionCanAccept(session *Session) (bool, string) {
 	session.mu.RLock()

@@ -71,6 +71,31 @@ func TestSessionControlSerializesBusySendsAndDeduplicates(t *testing.T) {
 		t.Fatal("ID reused with different content")
 	}
 }
+
+func TestConversationRecoveryRejectsInputButAllowsStop(t *testing.T) {
+	_, session, provider, _, _ := newRuntimeRoomTest(t)
+	finish := session.beginConversationRecovery()
+	defer finish()
+	if ready, _ := sessionCanAccept(session); ready {
+		t.Fatal("recovering session accepted input")
+	}
+	if err := sendSessionControlled(context.Background(), session, ProviderInput{Text: "must wait"}); err == nil {
+		t.Fatal("Send bypassed recovery readiness")
+	}
+	done := make(chan error, 1)
+	go func() { done <- stopSessionControlled(context.Background(), session, "") }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Stop waited for recovery to finish")
+	}
+	if provider.interrupts.Load() != 1 || provider.calls.Load() != 0 {
+		t.Fatal("wrong recovery operations")
+	}
+}
 func TestSessionOutputTracksPatchesStateAndReset(t *testing.T) {
 	session := newSession("output-test", "Test", "codex-structured", ToolInfo{Key: "codex"}, t.TempDir())
 	session.Provider = &stubProvider{}

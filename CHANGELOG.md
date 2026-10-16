@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Allow Stop to interrupt session recovery while serializing recovery with renames and rejecting new input until history is ready.
 - Discard delayed lobby and session-list responses after newer socket updates so resuming a group cannot visually revive a closed group.
 - Keep the existing-session picker open after adding a member so several sessions can be added consecutively.
 - Register existing native Codex session names without deriving names from prompts, and preserve unnamed history on Resume and Fork.

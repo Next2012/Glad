@@ -360,8 +360,8 @@ func (server *Server) recreateRoomMember(ctx context.Context, member RoomMemberR
 	if err != nil {
 		return nil, err
 	}
-	session.commandMu.Lock()
-	defer session.commandMu.Unlock()
+	finishRecovery := session.beginConversationRecovery()
+	defer finishRecovery()
 	server.rooms.trackOperationSession(runtimeID, session.ID)
 	cleanup := func(err error) (*Session, error) {
 		server.sessions.Delete(context.Background(), session.ID)

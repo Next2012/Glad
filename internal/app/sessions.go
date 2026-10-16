@@ -121,6 +121,8 @@ type sendResult struct {
 type Session struct {
 	mu                              sync.RWMutex
 	commandMu                       sync.Mutex
+	conversationMu                  sync.Mutex
+	recovering                      bool
 	ctx                             context.Context
 	cancel                          context.CancelFunc
 	closeOnce                       sync.Once

@@ -103,8 +103,8 @@ func (server *Server) claudeResume(writer http.ResponseWriter, request *http.Req
 		notFound(writer, "Claude session not found")
 		return
 	}
-	session.commandMu.Lock()
-	defer session.commandMu.Unlock()
+	finishRecovery := session.beginConversationRecovery()
+	defer finishRecovery()
 	var input map[string]any
 	_ = decodeJSON(request, &input)
 	id := stringValue(input["resumeSessionId"])
@@ -147,8 +147,8 @@ func (server *Server) claudeFork(writer http.ResponseWriter, request *http.Reque
 		notFound(writer, "Claude session not found")
 		return
 	}
-	session.commandMu.Lock()
-	defer session.commandMu.Unlock()
+	finishRecovery := session.beginConversationRecovery()
+	defer finishRecovery()
 	var input map[string]any
 	_ = decodeJSON(request, &input)
 	source := firstNonEmpty(stringValue(input["claudeSessionId"]), stringValue(session.State["claudeSessionId"]))
@@ -246,8 +246,8 @@ func (server *Server) codexResume(writer http.ResponseWriter, request *http.Requ
 		notFound(writer, "Codex session not found")
 		return
 	}
-	session.commandMu.Lock()
-	defer session.commandMu.Unlock()
+	finishRecovery := session.beginConversationRecovery()
+	defer finishRecovery()
 	var input map[string]any
 	_ = decodeJSON(request, &input)
 	provider, ok := session.Provider.(ResumeProvider)
@@ -267,8 +267,8 @@ func (server *Server) codexFork(writer http.ResponseWriter, request *http.Reques
 		notFound(writer, "Codex session not found")
 		return
 	}
-	session.commandMu.Lock()
-	defer session.commandMu.Unlock()
+	finishRecovery := session.beginConversationRecovery()
+	defer finishRecovery()
 	var input map[string]any
 	_ = decodeJSON(request, &input)
 	provider := session.Provider.(*CodexProvider)

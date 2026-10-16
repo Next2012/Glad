@@ -306,8 +306,8 @@ func (server *Server) renameSession(writer http.ResponseWriter, request *http.Re
 		respondError(writer, 400, err)
 		return
 	}
-	session.commandMu.Lock()
-	defer session.commandMu.Unlock()
+	session.conversationMu.Lock()
+	defer session.conversationMu.Unlock()
 	name := strings.TrimSpace(input.Name)
 	session.mu.Lock()
 	persistID := sessionNativeConversationID(session)
@@ -527,8 +527,14 @@ func (server *Server) handleWebsocketMessage(
 	send func(map[string]any) bool,
 	payload map[string]any,
 ) {
-	session.commandMu.Lock()
-	defer session.commandMu.Unlock()
+	if stringValue(payload["type"]) == "claude-resume" {
+		finishRecovery := session.beginConversationRecovery()
+		defer finishRecovery()
+	} else {
+		session.commandMu.Lock()
+		defer session.commandMu.Unlock()
+	}
+
 	if connectionCtx.Err() != nil {
 		return
 	}
