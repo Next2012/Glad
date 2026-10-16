@@ -1384,7 +1384,7 @@ test('Codex unlocks resume controls after the server rejects recovery', async ({
     window.fetch = async url => {
       if (String(url).includes('codex-resume-threads')) {
         return new Response(JSON.stringify({ success: true, items: [{
-          id: 'retry-thread', questions: ['Retry conversation', 'Second question'], updatedAt: 100
+          id: 'retry-thread', title: 'Retry conversation', questions: ['Retry conversation', 'Second question'], updatedAt: 100
         }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       // 模拟 WebSocket 状态先于失败的 HTTP 响应到达。
