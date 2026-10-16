@@ -103,6 +103,8 @@ func (server *Server) claudeResume(writer http.ResponseWriter, request *http.Req
 		notFound(writer, "Claude session not found")
 		return
 	}
+	session.commandMu.Lock()
+	defer session.commandMu.Unlock()
 	var input map[string]any
 	_ = decodeJSON(request, &input)
 	id := stringValue(input["resumeSessionId"])
@@ -145,6 +147,8 @@ func (server *Server) claudeFork(writer http.ResponseWriter, request *http.Reque
 		notFound(writer, "Claude session not found")
 		return
 	}
+	session.commandMu.Lock()
+	defer session.commandMu.Unlock()
 	var input map[string]any
 	_ = decodeJSON(request, &input)
 	source := firstNonEmpty(stringValue(input["claudeSessionId"]), stringValue(session.State["claudeSessionId"]))
@@ -191,6 +195,14 @@ func (server *Server) claudeResumeSessions(writer http.ResponseWriter, request *
 		session.WorkingDirectory, query.Get("sort"),
 		atoiDefault(query.Get("offset"), 0), atoiDefault(query.Get("limit"), 20),
 	)
+	for _, item := range items {
+		name, err := session.names.read("claude-code", session.WorkingDirectory, stringValue(item["id"]))
+		if err != nil {
+			respondError(writer, 500, err)
+			return
+		}
+		item["name"] = name.Name
+	}
 	respondJSON(writer, 200, map[string]any{"success": true, "items": items, "nextOffset": nextOffset, "hasMore": nextOffset >= 0})
 }
 
@@ -234,6 +246,8 @@ func (server *Server) codexResume(writer http.ResponseWriter, request *http.Requ
 		notFound(writer, "Codex session not found")
 		return
 	}
+	session.commandMu.Lock()
+	defer session.commandMu.Unlock()
 	var input map[string]any
 	_ = decodeJSON(request, &input)
 	provider, ok := session.Provider.(ResumeProvider)
@@ -253,6 +267,8 @@ func (server *Server) codexFork(writer http.ResponseWriter, request *http.Reques
 		notFound(writer, "Codex session not found")
 		return
 	}
+	session.commandMu.Lock()
+	defer session.commandMu.Unlock()
 	var input map[string]any
 	_ = decodeJSON(request, &input)
 	provider := session.Provider.(*CodexProvider)

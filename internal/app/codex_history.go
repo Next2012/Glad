@@ -51,9 +51,17 @@ func (provider *CodexProvider) listThreadPage(ctx context.Context, query codexTh
 			continue
 		}
 		preview := codexPreviewText(stringValue(thread["preview"]), 600)
+		name := stringValue(thread["name"])
+		if provider.session.names != nil {
+			stored, readErr := provider.session.names.read("codex", stringValue(thread["cwd"]), stringValue(thread["id"]))
+			if readErr != nil {
+				return nil, "", readErr
+			}
+			name = stored.Name
+		}
 		items = append(items, map[string]any{
 			"id": thread["id"], "sessionId": firstNonNil(thread["sessionId"], thread["id"]),
-			"title":   codexPreviewText(firstNonEmpty(stringValue(thread["name"]), preview, "Codex session"), 300),
+			"title":   codexPreviewText(name, 300),
 			"preview": preview, "questions": []string{preview, ""},
 			"createdAt": timestampMillis(thread["createdAt"]),
 			"updatedAt": timestampMillis(firstNonNil(thread["updatedAt"], thread["createdAt"])),

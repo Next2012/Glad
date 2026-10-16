@@ -1501,7 +1501,7 @@ func (provider *CodexProvider) Resume(ctx context.Context, id string) error {
 	if aborted {
 		return errors.New("resume aborted")
 	}
-	if err == nil {
+	if err == nil && provider.session.names == nil {
 		provider.titles.schedule(id, "", true)
 	}
 	return err
@@ -1596,6 +1596,9 @@ func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, err
 		return "", errors.New("fork aborted")
 	}
 	if err == nil {
+		err = provider.session.copyForkName(id, newID)
+	}
+	if err == nil && provider.session.names == nil {
 		provider.titles.schedule(newID, "", true)
 	}
 	return newID, err

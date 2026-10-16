@@ -34,7 +34,7 @@ func TestRoomStorePersistsVersionedRoomsIndependently(t *testing.T) {
 		t.Fatalf("loaded room = %#v, err=%v", loaded, err)
 	}
 	data, err := os.ReadFile(filepath.Join(directory, room.ID+".json"))
-	if err != nil || !strings.Contains(string(data), `"schemaVersion": 2`) {
+	if err != nil || !strings.Contains(string(data), `"schemaVersion": 3`) {
 		t.Fatalf("versioned room file is invalid: %v %s", err, data)
 	}
 }
@@ -547,7 +547,7 @@ func TestRoomIgnoresAndRepairsInternalTransportMessages(t *testing.T) {
 		t.Fatalf("references to repaired artifacts remain: %#v", loaded.Entries[2].QuotedEntryIDs)
 	}
 	persisted, err := os.ReadFile(path)
-	if err != nil || !strings.Contains(string(persisted), `"schemaVersion": 2`) || strings.Contains(string(persisted), "You are being addressed as a member of a Glad group chat.") {
+	if err != nil || !strings.Contains(string(persisted), `"schemaVersion": 3`) || strings.Contains(string(persisted), "You are being addressed as a member of a Glad group chat.") {
 		t.Fatalf("repair was not persisted atomically: err=%v data=%s", err, persisted)
 	}
 
@@ -646,7 +646,10 @@ func TestRoomNotificationTargetsReportCurrentBatchProgress(t *testing.T) {
 	if err := store.Save(room); err != nil {
 		t.Fatal(err)
 	}
-	manager := NewRoomManager(store, NewSessionManager(t.TempDir()), NewAttachmentStore())
+	sessions := NewSessionManager(t.TempDir())
+	sessions.sessions["session-b"] = newSession("session-b", "Beta", "claude-structured", ToolInfo{Key: "claude-code"}, t.TempDir())
+	sessions.sessions["session-b"].Provider = &stubProvider{}
+	manager := NewRoomManager(store, sessions, NewAttachmentStore())
 	manager.activeIDs[room.ID] = room.ID
 	targets := manager.NotificationTargets("session-b", "turn-b", true)
 	if len(targets) != 1 {

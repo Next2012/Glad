@@ -582,15 +582,30 @@ func (manager *SupervisorManager) tick() {
 		if kind == "custom" {
 			endInstruction = "This is a one-time custom check. Call end_supervision when this request is complete to revoke this invocation's tool access only; recurring monitoring remains unchanged. Finish your response afterward; the next periodic check waits for this turn to finish."
 		}
-		prompt := fmt.Sprintf("You are supervising members of a Glad group. Current invocationId: %s. Use the glad MCP tools with this invocationId to list_targets and read_session as authorized. read_session includes pendingQuestions independently of message pagination. Use answer_question to answer an authorized Codex question while it runs; do not stop it just to answer. For earlier history, session_history provides the original transcript path and a Markdown index; read_session_record reads complete original records in chunks using nextOffset. Stop acceptance is not readiness; read before sending. %s Targets and permissions: %s\n\n%s", inv.ID, endInstruction, supervisorTargetJSON(task.Targets), inv.Prompt)
+		prompt := fmt.Sprintf("You are supervising members of a Glad group. Current invocationId: %s. Use the glad MCP tools with this invocationId to list_targets and read_session as authorized. read_session includes pendingQuestions independently of message pagination. Use answer_question to answer an authorized Codex question while it runs; do not stop it just to answer. Use session_turns to query arbitrary monitor turn summaries by turnIds, turnNumbers or ranges; use session_turn_details for selected complete turns and follow nextOffset. list_targets gives all monitors, their live state and session names on every check. For earlier history, session_history provides the original transcript path and a Markdown index; read_session_record reads complete original records in chunks using nextOffset. Stop acceptance is not readiness; read before sending. %s Targets and permissions: %s\n\n%s", inv.ID, endInstruction, supervisorTargetJSON(task.Targets, room, manager.sessions), inv.Prompt)
 		manager.wg.Add(1)
 		go manager.launch(task.ID, session, source, prompt)
 	}
 }
-func supervisorTargetJSON(targets []SupervisorTarget) string {
-	data, _ := json.Marshal(targets)
+func supervisorTargetJSON(targets []SupervisorTarget, room RoomRecord, sessions *SessionManager) string {
+	items := []map[string]any{}
+	for _, target := range targets {
+		member, exists := supervisorMember(room, target.MemberID)
+		item := map[string]any{"memberId": target.MemberID, "name": sessions.memberName(member), "permissions": target, "available": false}
+		if s := sessions.Get(member.RuntimeSessionID); exists && s != nil {
+			s.mu.RLock()
+			item["status"] = s.StatusValue
+			item["revision"] = s.outputRevision
+			item["conversationId"] = sessionNativeConversationID(s)
+			s.mu.RUnlock()
+			item["available"] = true
+		}
+		items = append(items, item)
+	}
+	data, _ := json.Marshal(items)
 	return string(data)
 }
+
 func (manager *SupervisorManager) launch(id string, session *Session, source *SupervisorSource, prompt string) {
 	defer manager.wg.Done()
 	ctx, cancel := context.WithTimeout(manager.ctx, 90*time.Second)
@@ -831,6 +846,15 @@ func (server *Server) supervisorCall(writer http.ResponseWriter, request *http.R
 		respondError(writer, 403, errors.New("Invalid supervisor session credential"))
 		return
 	}
+	if isRoomMCPTool(input.Tool) {
+		result, err := server.rooms.CallMCP(request.Context(), session, input.Tool, input.Arguments)
+		if err != nil {
+			respondError(writer, 409, err)
+			return
+		}
+		respondJSON(writer, 200, result)
+		return
+	}
 	if server.supervisors == nil {
 		respondError(writer, 503, errors.New("Supervisor service unavailable"))
 		return
@@ -894,7 +918,7 @@ func (manager *SupervisorManager) Call(ctx context.Context, caller *Session, too
 			break
 		}
 	}
-	readTool := tool == "read_session" || tool == "session_history" || tool == "read_session_record"
+	readTool := tool == "read_session" || tool == "session_history" || tool == "read_session_record" || tool == "session_turns" || tool == "session_turn_details"
 	if tool != "list_targets" && tool != "end_supervision" && (!allowed || readTool && !permissions.Read || tool == "stop_session" && !permissions.Stop || tool == "send_to_session" && !permissions.Send || tool == "answer_question" && (!permissions.Read || !permissions.Send)) {
 		if len(inv.Calls) < 200 {
 			inv.Calls = append(inv.Calls, SupervisorCall{ID: callID, Tool: tool, MemberID: memberID, CreatedAt: millis(), Success: false, Summary: "Operation is not authorized for this target"})
@@ -945,6 +969,13 @@ func (manager *SupervisorManager) Call(ctx context.Context, caller *Session, too
 				ready, _ = sessionCanAccept(s)
 			}
 			item := map[string]any{"memberId": target.MemberID, "name": m.DisplayName, "sessionId": m.RuntimeSessionID, "canAccept": ready, "permissions": target}
+			if s != nil {
+				s.mu.RLock()
+				item["status"] = s.StatusValue
+				item["revision"] = s.outputRevision
+				item["conversationId"] = sessionNativeConversationID(s)
+				s.mu.RUnlock()
+			}
 			if target.Read && s != nil {
 				if path, pathErr := sessionTranscriptPath(s); pathErr == nil {
 					item["rawPath"] = path
@@ -956,6 +987,24 @@ func (manager *SupervisorManager) Call(ctx context.Context, caller *Session, too
 		result["targets"] = targets
 	case "read_session":
 		result = sessionOutput(targetSession, uint64(numberInt64(args["after"])), int(max64(1, numberInt64(firstNonNil(args["limit"], 50)))), int(numberInt64(args["offset"])), boolValue(args["history"]))
+	case "session_turns", "session_turn_details":
+		manager.mu.Unlock()
+		var turns []conversationTurn
+		var path string
+		turns, path, err = conversationTurns(ctx, targetSession)
+		if err == nil {
+			if tool == "session_turns" {
+				result = turnSummaries(turns, args)
+			} else {
+				result, err = turnDetails(ctx, turns, path, args)
+			}
+		}
+		manager.mu.Lock()
+		if !manager.invocationTargetValidLocked(task, invocationID, memberID, targetSession.ID, false) {
+			manager.mu.Unlock()
+			return nil, errors.New("Supervisor authorization changed while reading turns")
+		}
+		inv = activeInvocation(task)
 	case "session_history", "read_session_record":
 		manager.mu.Unlock()
 		if tool == "session_history" {

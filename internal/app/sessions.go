@@ -128,6 +128,12 @@ type Session struct {
 	ID                              string
 	Name                            string
 	NameManual                      bool
+	names                           *SessionNameStore
+	nameConversationID              string
+	forkNameSource                  string
+	nameRevision                    uint64
+	forkNameRevision                uint64
+	turnIndexes                     *turnIndexCache
 	Kind                            string
 	Tool                            ToolInfo
 	WorkingDirectory                string
@@ -179,6 +185,11 @@ func (session *Session) setAutomaticName(name string) {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	if session.closed || session.NameManual || name == "" || session.Name == name {
+		return
+	}
+	if err := session.names.write(session.Tool.Key, session.WorkingDirectory, sessionNativeConversationID(session), sessionName{name, false}); err != nil {
+		session.State["nameError"] = err.Error()
+		session.publishLocked(map[string]any{"type": "state", "state": cloneMap(session.State)})
 		return
 	}
 	session.Name = name
@@ -429,6 +440,7 @@ func (session *Session) setState(patch map[string]any) {
 	for key, value := range patch {
 		session.State[key] = value
 	}
+	session.bindNameLocked(sessionNativeConversationID(session))
 	if status := stringValue(patch["status"]); status != "" {
 		session.StatusValue = status
 		session.speed.state(status)
@@ -555,11 +567,13 @@ type SessionManager struct {
 	events                *sessioncore.EventHub
 	mcpURL, mcpExecutable string
 	speeds                *SpeedStore
+	names                 *SessionNameStore
+	turnIndexes           *turnIndexCache
 }
 
 func NewSessionManager(baseDir string) *SessionManager {
 	return &SessionManager{
-		baseDir: baseDir, sessions: map[string]*Session{}, creating: map[string]struct{}{},
+		baseDir: baseDir, sessions: map[string]*Session{}, creating: map[string]struct{}{}, turnIndexes: &turnIndexCache{},
 		events: sessioncore.NewEventHub(),
 	}
 }
@@ -637,12 +651,10 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 	if request.ToolKey == "claude-code" {
 		kind = "claude-structured"
 	}
-	name := request.Name
-	if name == "" {
-		name = tool.DisplayName
-	}
-	session := newSession(id, name, kind, tool, directory)
+	session := newSession(id, request.Name, kind, tool, directory)
 	session.environment = append([]string(nil), manager.environment...)
+	session.names = manager.names
+	session.turnIndexes = manager.turnIndexes
 	if manager.speeds != nil {
 		session.speed = &SpeedTracker{session: session, store: manager.speeds}
 	}

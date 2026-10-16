@@ -184,29 +184,19 @@ func (manager *RoomManager) syncSessionConversation(sessionID, conversationID st
 }
 
 func (manager *RoomManager) syncSessionName(sessionID, name string) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return
-	}
-	rooms, err := manager.store.List()
-	if err != nil {
-		return
-	}
-	for _, snapshot := range rooms {
-		roomID := snapshot.ID
-		_ = manager.mutateHistory(roomID, func(room *RoomRecord) error {
-			changed := false
-			for index := range room.Members {
-				if room.Members[index].RuntimeSessionID == sessionID && room.Members[index].LeftAt == 0 {
-					room.Members[index].DisplayName = name
-					changed = true
-				}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	for runtimeID, historyID := range manager.activeIDs {
+		room, err := manager.store.Get(historyID)
+		if err != nil {
+			continue
+		}
+		for _, member := range room.Members {
+			if member.RuntimeSessionID == sessionID && member.LeftAt == 0 {
+				manager.publishLocked(runtimeID)
+				break
 			}
-			if !changed {
-				return errors.New("session is not an active member")
-			}
-			return nil
-		})
+		}
 	}
 }
 
@@ -482,7 +472,8 @@ func (manager *RoomManager) Close(id string) error {
 func (manager *RoomManager) GetHistoryRecord(id string) (RoomRecord, error) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
-	return manager.store.Get(id)
+	room, err := manager.store.Get(id)
+	return manager.sessions.hydrateRoomNames(room), err
 }
 
 func (manager *RoomManager) CopyHistory(id string) (RoomRecord, error) {
@@ -597,7 +588,7 @@ func (manager *RoomManager) NotificationTargets(sessionID, runtimeTurnID string,
 			if member.LeftAt == 0 && member.RuntimeSessionID == sessionID {
 				total, completed := roomNotificationProgress(room, sessionID, runtimeTurnID, currentCompleted)
 				result = append(result, RoomNotificationTarget{
-					RoomID: room.ID, RoomName: room.Name, MemberName: member.DisplayName,
+					RoomID: room.ID, RoomName: room.Name, MemberName: manager.sessions.memberName(member),
 					ToolName: firstNonEmpty(member.ToolName, member.ToolKey), ActiveMembers: activeMembers,
 					RoundTotal: total, RoundCompleted: completed,
 				})
@@ -656,7 +647,8 @@ func roomNotificationProgress(room RoomRecord, sessionID, runtimeTurnID string, 
 func (manager *RoomManager) GetRecord(id string) (RoomRecord, error) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
-	return manager.store.Get(manager.roomIDLocked(id))
+	room, err := manager.store.Get(manager.roomIDLocked(id))
+	return manager.sessions.hydrateRoomNames(room), err
 }
 
 func (manager *RoomManager) BindRuntimeSession(roomID, memberID, sessionID, conversationID string) error {
@@ -706,6 +698,7 @@ func (manager *RoomManager) roomView(id string, history bool, page *roomPageQuer
 	// retain them on disk so a later resume/fork operation can diagnose state.
 	members := make([]map[string]any, 0, len(room.Members))
 	memberByID := map[string]RoomMemberRecord{}
+	room = manager.sessions.hydrateRoomNames(room)
 	for _, member := range room.Members {
 		memberByID[member.ID] = member
 		session := manager.sessions.Get(member.RuntimeSessionID)
@@ -784,6 +777,8 @@ type roomProjectedTurn struct {
 	turnID, conversationID, originRoomID, clientID, userText, assistantText, status string
 	hidden                                                                          bool
 	userAt, assistantAt                                                             int64
+	trigger                                                                         string
+	references                                                                      []string
 }
 
 type roomContextTurn struct {
@@ -867,6 +862,9 @@ func (manager *RoomManager) projectRoomEntriesLocked(room RoomRecord) []RoomEntr
 			case "user":
 				text := strings.TrimSpace(stringValue(message["text"]))
 				clientID := stringValue(message["clientMessageId"])
+				meta := roomTransportMetadata(firstNonEmpty(stringValue(message["agentText"]), text))
+				turn.trigger = stringValue(meta["entryId"])
+				turn.references = stringList(meta["quotedEntryIds"])
 				source := sourceValue(message["supervisorSource"])
 				if source == nil {
 					source, _ = supervisorEnvelope(stringValue(message["agentText"]))
@@ -925,7 +923,7 @@ func (manager *RoomManager) projectRoomEntriesLocked(room RoomRecord) []RoomEntr
 				SourceSessionID: member.RuntimeSessionID, NativeConversationID: firstNonEmpty(turn.conversationID, conversationID),
 				NativeTurnID: turnID, OriginRoomID: turn.originRoomID, ClientMessageID: turn.clientID,
 				Status: "completed", CreatedAt: createdAt,
-				Historical: true,
+				Historical: true, QuotedEntryIDs: turn.references,
 			})
 			if turn.assistantText != "" {
 				assistantAt := turn.assistantAt
@@ -937,7 +935,7 @@ func (manager *RoomManager) projectRoomEntriesLocked(room RoomRecord) []RoomEntr
 					MemberID: member.ID, SourceSessionID: member.RuntimeSessionID,
 					NativeConversationID: firstNonEmpty(turn.conversationID, conversationID), NativeTurnID: turnID,
 					OriginRoomID: turn.originRoomID, Status: turn.status, CreatedAt: assistantAt,
-					Historical: true, ResolvedText: turn.assistantText,
+					Historical: true, ResolvedText: turn.assistantText, TriggerEntryID: roomHistoryEntryID(member.ID, turnID, "user"),
 				})
 			}
 		}
@@ -992,7 +990,7 @@ func (manager *RoomManager) EntryContext(roomID, entryID string, before, after i
 		})
 	}
 	return map[string]any{
-		"entryId": entry.ID, "memberId": member.ID, "memberName": member.DisplayName,
+		"entryId": entry.ID, "memberId": member.ID, "memberName": manager.sessions.memberName(member),
 		"conversationId": entry.NativeConversationID, "anchorTurnId": entry.NativeTurnID,
 		"turns": items, "hasBefore": start > 0, "hasAfter": end < len(turns),
 		"before": anchor - start, "after": end - anchor - 1, "totalTurns": len(turns),
@@ -1024,7 +1022,7 @@ func (manager *RoomManager) EntryTurnDetails(roomID, entryID, turnID string) (ma
 	if len(messages) == 0 {
 		return nil, errors.New("source turn details are unavailable")
 	}
-	return map[string]any{"turnId": turnID, "memberId": member.ID, "memberName": member.DisplayName, "messages": messages}, nil
+	return map[string]any{"turnId": turnID, "memberId": member.ID, "memberName": manager.sessions.memberName(member), "messages": messages}, nil
 }
 
 func (manager *RoomManager) roomSourceLocked(room RoomRecord, entryID string) (RoomEntryRecord, RoomMemberRecord, []roomSourceMessage, error) {
@@ -1300,10 +1298,10 @@ func (manager *RoomManager) PostMessage(ctx context.Context, roomID string, inpu
 		}
 		if session := manager.sessions.Get(member.RuntimeSessionID); session == nil {
 			manager.mu.Unlock()
-			return nil, fmt.Errorf("room member is unavailable: %s", member.DisplayName)
+			return nil, fmt.Errorf("room member is unavailable: %s", manager.sessions.memberName(member))
 		} else if ready, reason := sessionCanAccept(session); !ready {
 			manager.mu.Unlock()
-			return nil, fmt.Errorf("%s: %s", member.DisplayName, reason)
+			return nil, fmt.Errorf("%s: %s", manager.sessions.memberName(member), reason)
 		}
 		targets = append(targets, member)
 	}
@@ -1328,6 +1326,7 @@ func (manager *RoomManager) PostMessage(ctx context.Context, roomID string, inpu
 	for _, member := range targets {
 		entry := RoomEntryRecord{
 			ID: newUUID(), Sequence: room.NextSequence, Type: "session", MemberID: member.ID,
+			TriggerEntryID:       userEntry.ID,
 			SourceSessionID:      member.RuntimeSessionID,
 			NativeConversationID: member.NativeConversationID,
 			ClientMessageID:      newRoomClientID(room.ID), OriginRoomID: room.ID,
@@ -1347,6 +1346,21 @@ func (manager *RoomManager) PostMessage(ctx context.Context, roomID string, inpu
 	manager.mu.Unlock()
 
 	agentText := buildRoomAgentTextForRoom(room.ID, input.Text, references, missing)
+	provenance := []map[string]any{}
+	byID := map[string]RoomEntryRecord{}
+	for _, entry := range projected {
+		byID[entry.ID] = entry
+	}
+	for _, id := range input.QuotedEntryIDs {
+		entry := byID[id]
+		quoted := entry.QuotedEntryIDs
+		if entry.TriggerEntryID != "" {
+			quoted = byID[entry.TriggerEntryID].QuotedEntryIDs
+		}
+		provenance = append(provenance, map[string]any{"entryId": id, "triggerEntryId": entry.TriggerEntryID, "quotedEntryIds": quoted})
+	}
+	metadata, _ := json.Marshal(map[string]any{"version": 1, "roomId": room.ID, "message": input.Text, "entryId": userEntry.ID, "quotedEntryIds": input.QuotedEntryIDs, "references": provenance})
+	agentText += "\n\n<glad_group_metadata>\n" + string(metadata) + "\n</glad_group_metadata>"
 	var wait sync.WaitGroup
 	for _, target := range targets {
 		target := target
@@ -1487,7 +1501,7 @@ func (manager *RoomManager) publicEntryLocked(
 	result := map[string]any{
 		"id": entry.ID, "sequence": entry.Sequence, "type": entry.Type,
 		"memberId": nilIfEmpty(entry.MemberID), "mentionedMemberIds": entry.MentionedMemberIDs,
-		"quotedEntryIds": entry.QuotedEntryIDs, "status": entry.Status,
+		"triggerEntryId": entry.TriggerEntryID, "quotedEntryIds": entry.QuotedEntryIDs, "status": entry.Status,
 		"createdAt":            entry.CreatedAt,
 		"historical":           entry.Historical,
 		"senderMemberId":       nilIfEmpty(entry.SenderMemberID),
@@ -1547,7 +1561,7 @@ func (manager *RoomManager) referenceTextLocked(room RoomRecord, projected []Roo
 		label, text := "User", entry.UserText
 		if entry.Type == "session" {
 			member := members[entry.MemberID]
-			label = member.DisplayName
+			label = manager.sessions.memberName(member)
 			if entry.ResolvedText != "" {
 				text = entry.ResolvedText
 			} else if view, available := manager.resolver.Resolve(member, entry); available {
@@ -1576,7 +1590,7 @@ func buildRoomAgentText(text string, references, missing []string) string {
 
 func buildRoomAgentTextForRoom(roomID, text string, references, missing []string) string {
 	parts := []string{
-		"You are being addressed as a member of a Glad group chat. Only the explicitly quoted messages below are shared context; do not assume you can see the rest of the room.",
+		"You are being addressed as a member of a Glad group chat. The quoted messages below are provided directly. Use Glad MCP list_rooms, room_members, room_turns, room_turn_details and room_references to read the full shared history of groups you belong to. You may select arbitrary turns and filter by session name. The group metadata identifies this command and its direct references; use room_references to follow nested references. Do not assume you have already read unqueried history.",
 	}
 	if roomID != "" {
 		parts = append(parts, "<glad_group_origin>\n"+roomID+"\n</glad_group_origin>")

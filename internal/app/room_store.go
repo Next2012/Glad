@@ -11,7 +11,7 @@ import (
 	"sync"
 )
 
-const currentRoomSchemaVersion = 2
+const currentRoomSchemaVersion = 3
 
 var (
 	errRoomNotFound     = errors.New("room not found")
@@ -37,7 +37,7 @@ type RoomRecord struct {
 type RoomMemberRecord struct {
 	ID                   string         `json:"id"`
 	RuntimeSessionID     string         `json:"runtimeSessionId,omitempty"`
-	DisplayName          string         `json:"displayName"`
+	DisplayName          string         `json:"-"`
 	AvatarSeed           string         `json:"avatarSeed"`
 	AvatarColor          string         `json:"avatarColor"`
 	ToolKey              string         `json:"toolKey"`
@@ -63,6 +63,7 @@ type RoomEntryRecord struct {
 	RequestHash          string   `json:"requestHash,omitempty"`
 	ClientMessageID      string   `json:"clientMessageId,omitempty"`
 	MentionedMemberIDs   []string `json:"mentionedMemberIds,omitempty"`
+	TriggerEntryID       string   `json:"triggerEntryId,omitempty"`
 	QuotedEntryIDs       []string `json:"quotedEntryIds,omitempty"`
 	Status               string   `json:"status"`
 	Error                string   `json:"error,omitempty"`
@@ -241,8 +242,28 @@ func migrateRoom(room RoomRecord) (RoomRecord, error) {
 		room.Entries = stripRoomTransportArtifacts(room.Entries)
 		room.SchemaVersion = 2
 	}
+	if room.SchemaVersion == 2 {
+		room.SchemaVersion = 3
+	}
 	if room.SchemaVersion != currentRoomSchemaVersion {
 		return RoomRecord{}, fmt.Errorf("unsupported room schema version %d", room.SchemaVersion)
+	}
+	// Legacy persisted batches contain a command followed by its dispatched replies.
+	command := RoomEntryRecord{}
+	for i := range room.Entries {
+		entry := &room.Entries[i]
+		if entry.Type == "user" {
+			command = *entry
+			continue
+		}
+		if entry.Type == "session" && entry.TriggerEntryID == "" {
+			for _, id := range command.MentionedMemberIDs {
+				if id == entry.MemberID {
+					entry.TriggerEntryID = command.ID
+					break
+				}
+			}
+		}
 	}
 	if room.NextSequence < 1 {
 		room.NextSequence = 1
@@ -292,8 +313,23 @@ func roomTransportEnvelope(text string) (string, string, bool) {
 	if !strings.HasPrefix(trimmed, "You are being addressed as a member of a Glad group chat.") {
 		return "", "", false
 	}
+	// Current envelopes carry JSON so quoted or user-authored XML-like tags
+	// cannot change which command is displayed or indexed.
+	const metaOpen, metaClose = "<glad_group_metadata>", "</glad_group_metadata>"
+	if start := strings.LastIndex(trimmed, metaOpen); start >= 0 {
+		start += len(metaOpen)
+		if end := strings.Index(trimmed[start:], metaClose); end >= 0 {
+			var metadata struct {
+				Message *string `json:"message"`
+				RoomID  string  `json:"roomId"`
+			}
+			if json.Unmarshal([]byte(trimmed[start:start+end]), &metadata) == nil && metadata.Message != nil {
+				return *metadata.Message, metadata.RoomID, true
+			}
+		}
+	}
 	const open, close = "<glad_group_message>", "</glad_group_message>"
-	start := strings.Index(trimmed, open)
+	start := strings.LastIndex(trimmed, open)
 	if start < 0 {
 		return "", "", false
 	}

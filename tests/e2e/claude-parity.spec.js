@@ -197,8 +197,8 @@ test('Claude history supports sorting, pagination and preview before switching',
     const offset = Number(url.searchParams.get('offset') || 0);
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
       success: true,
-      items: offset ? [{ id: '22222222-2222-4222-8222-222222222222', createdAt: 1000, updatedAt: 2000, questions: ['Older session'] }]
-        : [{ id: '11111111-1111-4111-8111-111111111111', createdAt: 3000, updatedAt: 4000, questions: ['Recent session', 'Earlier prompt'] }],
+      items: offset ? [{ id: '22222222-2222-4222-8222-222222222222', createdAt: 1000, updatedAt: 2000, name:'Older session', questions: ['Older session'] }]
+        : [{ id: '11111111-1111-4111-8111-111111111111', createdAt: 3000, updatedAt: 4000, name:'Recent session', questions: ['Recent session', 'Earlier prompt'] }],
       nextOffset: offset ? -1 : 20,
       hasMore: !offset
     }) });

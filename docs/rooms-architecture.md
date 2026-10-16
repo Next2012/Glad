@@ -43,16 +43,17 @@ Every document carries `schemaVersion`. `migrateRoom` is the single ordered
 migration entry point. Glad refuses to load a future schema rather than
 silently dropping fields and overwriting it with an older representation.
 
-Version 2 persists:
+Version 3 persists:
 
 - room metadata and monotonic `nextSequence`;
-- stable member identity and avatar seed;
+- stable member identity and avatar seed; member names are read from session storage and are never persisted in rooms;
 - enough provider configuration to recreate a session;
 - native conversation and turn locators;
 - user-authored room text, mentions, and quoted entry IDs;
 - dispatch status and a small error string.
 - the origin room ID for every group-dispatched provider turn;
-- the draft flag retained for rooms created by older builds.
+- the draft flag retained for rooms created by older builds;
+- reply-to-command entry IDs for recursive reference provenance.
 
 It persists stable source IDs when a room message quotes provider history, but
 not the quoted text. History-only timeline entries use deterministic IDs derived
@@ -71,8 +72,9 @@ member identities, and provider-native locators.
 
 1. Persist the user entry and one pending entry for each mentioned member.
 2. Resolve quoted entries from current session/native history.
-3. Build private `AgentText` containing only the explicit references and the
-   new group message. The transport envelope carries `originRoomId`; public
+3. Build private `AgentText` containing the explicit references, the
+   new group message, and structured command/reference metadata. Group MCP lets
+   the recipient query additional shared history on demand. The transport envelope carries `originRoomId`; public
    `Text` remains the user's new message.
 4. Dispatch to all mentioned sessions concurrently.
 5. Bind each pending entry to its provider conversation/turn.
@@ -127,6 +129,23 @@ explicit `Message unavailable` placeholder.
   Returning to the lobby, reloading, or closing the page preserves it. Only
   explicitly closing the group removes its runtime entry. Saved history remains
   available for Resume/Fork after closing or restarting the daemon.
+
+## Session names
+
+The session layer owns names in `~/.glad/session-names/`, keyed by provider,
+working directory and native conversation ID. Room member `displayName` is a
+read-only projection of that session name. Renaming from a group writes through
+the session rename API. A missing name stays missing; group snapshots, prompts,
+provider display labels and unrelated conversation names are never substitutes.
+Resume reads the target session name. Group Resume only reconstructs bindings,
+without passing a name. Fork copies the source name into the new session's own
+identity; later edits do not change the source. Rename and recovery routes
+serialize to avoid an old recovery overwriting a new manual name. Claude
+snapshot and rename events update the browser title, including empty names.
+
+The v2-to-v3 migration removes stored member name copies and records known
+reply-to-command links. It does not import group snapshots into session storage.
+Older daemons reject v3 room files. Native conversation history stays unchanged.
 
 ## Attachments
 

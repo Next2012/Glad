@@ -65,6 +65,7 @@ func NewServer(baseDir string, port int, assets fs.FS) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	server.sessions.names = &SessionNameStore{directory: filepath.Join(home, ".glad", "session-names")}
 	server.sessions.speeds, err = openSpeedStore(filepath.Join(home, ".glad", "speed"))
 	if err != nil {
 		return nil, err
@@ -305,13 +306,22 @@ func (server *Server) renameSession(writer http.ResponseWriter, request *http.Re
 		respondError(writer, 400, err)
 		return
 	}
+	session.commandMu.Lock()
+	defer session.commandMu.Unlock()
 	name := strings.TrimSpace(input.Name)
-	if name == "" {
-		name = session.Tool.DisplayName
-	}
 	session.mu.Lock()
+	persistID := sessionNativeConversationID(session)
+	if session.forkNameSource != "" {
+		persistID = ""
+	}
+	if err := session.names.write(session.Tool.Key, session.WorkingDirectory, persistID, sessionName{name, true}); err != nil {
+		session.mu.Unlock()
+		respondError(writer, 500, err)
+		return
+	}
 	session.Name = name
 	session.NameManual = true
+	session.nameRevision++
 	session.publishLocked(map[string]any{"type": "session-renamed", "name": name})
 	session.mu.Unlock()
 	result := map[string]any{"success": true, "name": name}

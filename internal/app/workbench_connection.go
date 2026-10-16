@@ -72,6 +72,11 @@ type workbenchBridge struct {
 // 连接只管理自己创建的会话，普通 Glad 的群聊和其他会话保持独立。
 func newWorkbenchServer(baseDir string, assets fs.FS) (*Server, error) {
 	server := &Server{baseDir: baseDir, assets: assets, sessions: NewSessionManager(baseDir), attachments: NewAttachmentStore()}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	server.sessions.names = &SessionNameStore{directory: filepath.Join(home, ".glad", "session-names")}
 	// 未配置的 WSS 目标清除普通页面的路由元数据，子进程也不能继承其他连接身份。
 	server.sessions.environment = []string{"GLAD_WORKBENCH_MCP_URL=", "GLAD_WORKBENCH_MCP_TOKEN_FILE="}
 	empty := &ConfigStore{data: map[string]any{}}

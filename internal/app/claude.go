@@ -897,9 +897,18 @@ func (provider *ClaudeProvider) Fork(ctx context.Context, id string) (string, er
 	}
 	provider.stopLocked()
 	provider.resetConversationLocked()
+	provider.session.mu.Lock()
+	provider.session.forkNameSource = strings.TrimSpace(id)
+	provider.session.forkNameRevision = provider.session.nameRevision
+	provider.session.mu.Unlock()
 	provider.resumeID = strings.TrimSpace(id)
 	err := provider.startLocked(ctx, true)
 	provider.mu.Unlock()
+	if err != nil {
+		provider.session.mu.Lock()
+		provider.session.forkNameSource = ""
+		provider.session.mu.Unlock()
+	}
 	return provider.claudeSessionID, err
 }
 func (provider *ClaudeProvider) Compact(ctx context.Context) error {

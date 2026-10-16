@@ -39,7 +39,7 @@ func codexSupervisorArgs(session *Session) []string {
 	// These local tools enforce the current invocation and target permissions in
 	// the daemon. Permit them without an interactive prompt, including when the
 	// user's shell approval policy is never; other servers and tools keep theirs.
-	for _, tool := range supervisorTools() {
+	for _, tool := range allGladTools() {
 		args = append(args, "-c", "mcp_servers.glad.tools."+stringValue(tool["name"])+".approval_mode=\"approve\"")
 	}
 	return args
@@ -56,6 +56,8 @@ func supervisorTools() []map[string]any {
 	for _, item := range []struct{ name, description string }{
 		{"list_targets", "List monitored sessions and authorized operations for this supervisor invocation."},
 		{"read_session", "Read live output or paginated history, including a session that is still running."},
+		{"session_turns", "Read selected monitor turn summaries. Select arbitrary turnIds or turnNumbers, ranges fromTurn/toTurn, and paginate with offset/limit. Summaries are extracted previews."},
+		{"session_turn_details", "Read complete selected monitor turns, including input, output, tools and available reasoning. Supply turnIds, turnNumbers or a range. Details are paginated JSONL; follow nextOffset while hasMore. offset/limit count bytes."},
 		{"session_history", "Get the original transcript path and a paginated Markdown index. offset counts index rows, limit defaults to 50. No transcript copy is created."},
 		{"read_session_record", "Read original transcript bytes without message truncation. offset and limit are byte positions; follow nextOffset while hasMore. The server resolves the authorized target path."},
 		{"answer_question", "Answer a pending Codex question by questionId and answers keyed by question IDs. Requires Read and Send. Async answers steer the running turn without stopping it; blocking answers resume the waiting request."},
@@ -78,6 +80,10 @@ func supervisorTools() []map[string]any {
 			properties["offset"] = map[string]any{"type": "integer", "minimum": 0}
 			if item.name == "read_session" {
 				properties["history"] = map[string]any{"type": "boolean"}
+			}
+		case "session_turns", "session_turn_details":
+			for k, v := range turnQueryProperties() {
+				properties[k] = v
 			}
 		case "read_session_record":
 			properties["offset"] = map[string]any{"type": "integer", "minimum": 0}
@@ -102,7 +108,10 @@ func supervisorTools() []map[string]any {
 // Reuse the tool definitions as the argument contract. MCP clients may not
 // enforce additionalProperties or types before forwarding calls to the daemon.
 func validateSupervisorArguments(name string, args map[string]any) error {
-	for _, tool := range supervisorTools() {
+	return validateGladArguments(name, args, supervisorTools())
+}
+func validateGladArguments(name string, args map[string]any, definitions []map[string]any) error {
+	for _, tool := range definitions {
 		if tool["name"] != name {
 			continue
 		}
@@ -140,6 +149,10 @@ func validateSupervisorArguments(name string, args map[string]any) error {
 				if _, ok := args[key].(bool); !ok {
 					return fmt.Errorf("Argument %q must be a boolean", key)
 				}
+			case "array":
+				if err := validateGladArray(key, args[key], definition); err != nil {
+					return err
+				}
 			case "object":
 				data, err := json.Marshal(args[key])
 				var value map[string]string
@@ -163,6 +176,40 @@ func validateSupervisorArguments(name string, args map[string]any) error {
 		return nil
 	}
 	return errors.New("Unknown supervisor tool")
+}
+
+func validateGladArray(key string, value any, definition map[string]any) error {
+	values, ok := value.([]any)
+	if !ok {
+		if items, valid := value.([]string); valid {
+			values = make([]any, len(items))
+			for i, item := range items {
+				values[i] = item
+			}
+			ok = true
+		}
+	}
+	if !ok {
+		return fmt.Errorf("Argument %q must be an array", key)
+	}
+	if maximum, exists := definition["maxItems"]; exists && len(values) > int(numberInt64(maximum)) {
+		return fmt.Errorf("Argument %q has too many items", key)
+	}
+	itemType := mapValue(definition["items"])["type"]
+	for _, item := range values {
+		if itemType == "string" {
+			if _, valid := item.(string); !valid {
+				return fmt.Errorf("Argument %q must contain strings", key)
+			}
+			continue
+		}
+		data, err := json.Marshal(item)
+		var number float64
+		if item == nil || err != nil || json.Unmarshal(data, &number) != nil || math.Trunc(number) != number || number < 1 || number > float64(math.MaxInt32) {
+			return fmt.Errorf("Argument %q must contain positive integers", key)
+		}
+	}
+	return nil
 }
 
 // MCP uses newline-delimited stdio. Diagnostics never go to protocol stdout.
@@ -191,7 +238,7 @@ func serveSupervisorMCP(input io.Reader, output io.Writer) error {
 		case "ping":
 			response["result"] = map[string]any{}
 		case "tools/list":
-			response["result"] = map[string]any{"tools": supervisorTools()}
+			response["result"] = map[string]any{"tools": allGladTools()}
 		case "tools/call":
 			body := map[string]any{"sessionId": os.Getenv("GLAD_SUPERVISOR_SESSION"), "tool": request.Params["name"], "arguments": request.Params["arguments"], "callId": connectionID + ":" + string(request.ID)}
 			result, err := callSupervisorDaemon(body)

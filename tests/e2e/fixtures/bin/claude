@@ -3,6 +3,10 @@
 
 // A local structured-protocol fixture; browser tests never require Claude login.
 const readline = require('node:readline');
+const fs = require('node:fs');
+const path = require('node:path');
+const { randomUUID } = require('node:crypto');
+const { spawn } = require('node:child_process');
 if (process.argv.includes('--version')) {
   process.stdout.write('2.1.287 (Claude Code E2E)\n');
   process.exit(0);
@@ -12,6 +16,83 @@ let ready = false;
 let sequence = 0;
 let model = 'claude-sonnet-4-5';
 let failNextStatus = false;
+const resumeAt = process.argv.indexOf('--resume');
+const sourceId = resumeAt >= 0 ? process.argv[resumeAt + 1] : '';
+const sessionId = process.argv.includes('--fork-session') ? randomUUID() : sourceId || randomUUID();
+const project = process.cwd().replace(/[^a-zA-Z0-9]/g, '-');
+const historyDir = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(process.env.HOME, '.claude'), 'projects', project);
+fs.mkdirSync(historyDir, { recursive: true });
+const historyFile = path.join(historyDir, `${sessionId}.jsonl`);
+const sourceFile = path.join(historyDir, `${sourceId}.jsonl`);
+if (sourceId && sourceId !== sessionId && fs.existsSync(sourceFile)) {
+  fs.copyFileSync(sourceFile, historyFile);
+}
+const record = value => fs.appendFileSync(historyFile,
+  JSON.stringify({ timestamp: new Date().toISOString(), sessionId, ...value }) + '\n');
+
+function answer(text) {
+  const message = {
+    id: `claude-e2e-${++sequence}`, role: 'assistant', model,
+    content: [{ type: 'text', text }], usage: { input_tokens: 10, output_tokens: 10 }
+  };
+  record({ type: 'assistant', uuid: randomUUID(), message });
+  write({ type: 'assistant', session_id: sessionId, message });
+  write({
+    type: 'result', subtype: 'success', session_id: sessionId, is_error: false, result: text,
+    duration_ms: 20, duration_api_ms: 10, total_cost_usd: 0, usage: { input_tokens: 10, output_tokens: 10 }
+  });
+}
+
+async function queryGroup(text) {
+  const config = JSON.parse(process.argv[process.argv.indexOf('--mcp-config') + 1]).mcpServers.glad;
+  const child = spawn(config.command, config.args, {
+    env: { ...process.env, ...config.env }, stdio: ['pipe', 'pipe', 'pipe']
+  });
+  const pending = new Map();
+  let id = 0;
+  const lines = readline.createInterface({ input: child.stdout });
+  lines.on('line', line => {
+    const response = JSON.parse(line);
+    const callback = pending.get(response.id);
+    if (callback) {
+      pending.delete(response.id);
+      callback(response);
+    }
+  });
+  const request = (method, params) => new Promise((resolve, reject) => {
+    const key = ++id;
+    const timer = setTimeout(() => {
+      pending.delete(key);
+      reject(new Error('MCP timeout'));
+    }, 10000);
+    pending.set(key, response => {
+      clearTimeout(timer);
+      if (response.error || response.result?.isError) reject(new Error(JSON.stringify(response)));
+      else resolve(response.result);
+    });
+    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: key, method, params }) + '\n');
+  });
+  const call = async (name, args) => {
+    const result = await request('tools/call', { name, arguments: args });
+    return JSON.parse(result.content[0].text);
+  };
+  try {
+    await request('initialize', { protocolVersion: '2025-03-26' });
+    const groups = await call('list_rooms', {});
+    const roomId = groups.rooms[0].roomId;
+    const members = await call('room_members', { roomId });
+    const summaries = await call('room_turns', { roomId, sessionName: 'Worker', limit: 20 });
+    const turnIds = summaries.turns.slice(0, 2).map(turn => turn.turnId);
+    const details = await call('room_turn_details', { roomId, turnIds, limit: 8192 });
+    const metadataStart = text.lastIndexOf('<glad_group_metadata>') + '<glad_group_metadata>'.length;
+    const metadata = JSON.parse(text.slice(metadataStart).split('</glad_group_metadata>')[0]);
+    const references = await call('room_references', { roomId, entryId: metadata.entryId, maxDepth: 8 });
+    answer('GROUP_MCP_RESULT ' + JSON.stringify({ members, summaries, details, references }));
+  } finally {
+    child.stdin.end();
+  }
+}
+
 const input = readline.createInterface({ input:process.stdin, crlfDelay:Infinity });
 input.on('line', line => {
   const message = JSON.parse(line);
@@ -22,7 +103,7 @@ input.on('line', line => {
     write({type:'control_response',response:{subtype:'success',request_id:message.request_id,response}});
     if (!ready) {
       ready = true;
-      write({type:'system',subtype:'init',session_id:'claude-e2e',model});
+      write({type:'system',subtype:'init',session_id:sessionId,model});
     }
     return;
   }
@@ -41,8 +122,11 @@ input.on('line', line => {
       return;
     }
     if (text.includes('__GLAD_E2E_CLAUDE_STATUS_FAIL__')) failNextStatus = true;
-    const answer = `Claude fixture: ${text}`;
-    write({type:'assistant',session_id:'claude-e2e',message:{id:`claude-e2e-${++sequence}`,role:'assistant',model,content:[{type:'text',text:answer}],usage:{input_tokens:10,output_tokens:10}}});
-    write({type:'result',subtype:'success',session_id:'claude-e2e',is_error:false,result:answer,duration_ms:20,duration_api_ms:10,total_cost_usd:0,usage:{input_tokens:10,output_tokens:10}});
+    record({ type: 'user', uuid: randomUUID(), message: { role: 'user', content: text } });
+    if (text.includes('__GLAD_E2E_GROUP_QUERY__')) {
+      queryGroup(text).catch(error => answer('GROUP_MCP_ERROR ' + error.message));
+      return;
+    }
+    answer(`Claude fixture: ${text}`);
   }
 });

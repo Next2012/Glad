@@ -94,7 +94,7 @@ func TestSupervisorSendMessageAliasThroughRealMCPBridge(t *testing.T) {
 }
 
 func TestSupervisorSendSchemaAdvertisesBothContentFields(t *testing.T) {
-	for _, tool := range supervisorTools() {
+	for _, tool := range allGladTools() {
 		if tool["name"] != "send_to_session" {
 			continue
 		}
@@ -109,7 +109,7 @@ func TestSupervisorSendSchemaAdvertisesBothContentFields(t *testing.T) {
 }
 
 func TestSupervisorSchemasUsePortableObjectRoots(t *testing.T) {
-	for _, tool := range supervisorTools() {
+	for _, tool := range allGladTools() {
 		schema := mapValue(tool["inputSchema"])
 		if schema["type"] != "object" || schema["additionalProperties"] != false {
 			t.Fatalf("invalid object contract for %s", tool["name"])
@@ -149,12 +149,12 @@ func TestSupervisorCodexApprovalOverridesOnlyGladTools(t *testing.T) {
 		}
 		settings[pair[0]] = pair[1]
 	}
-	for _, tool := range supervisorTools() {
+	for _, tool := range allGladTools() {
 		if settings["mcp_servers.glad.tools."+stringValue(tool["name"])+".approval_mode"] != `"approve"` {
 			t.Fatalf("Glad tool %s would require interactive approval", tool["name"])
 		}
 	}
-	if len(settings) != 3+len(supervisorTools()) {
+	if len(settings) != 3+len(allGladTools()) {
 		t.Fatal("unexpected server-wide or unrelated overrides")
 	}
 }

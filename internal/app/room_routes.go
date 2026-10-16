@@ -115,7 +115,7 @@ func (server *Server) roomOperationStatus(writer http.ResponseWriter, request *h
 			reason = "No provider conversation is available"
 		}
 		items = append(items, map[string]any{
-			"memberId": member.ID, "displayName": member.DisplayName,
+			"memberId": member.ID, "displayName": server.sessions.memberName(member),
 			"toolKey": member.ToolKey, "live": live,
 			"canResume": live || member.NativeConversationID != "",
 			"canFork":   member.NativeConversationID != "", "reason": reason,
@@ -350,7 +350,6 @@ func (server *Server) recreateRoomMember(ctx context.Context, member RoomMemberR
 	}
 	request := CreateSessionRequest{
 		ToolKey: member.ToolKey, WorkingDirectory: member.WorkingDirectory,
-		Name: member.DisplayName,
 	}
 	if member.ToolKey == "codex" {
 		request.CodexOptions = cloneMap(member.SessionOptions)
@@ -361,6 +360,8 @@ func (server *Server) recreateRoomMember(ctx context.Context, member RoomMemberR
 	if err != nil {
 		return nil, err
 	}
+	session.commandMu.Lock()
+	defer session.commandMu.Unlock()
 	server.rooms.trackOperationSession(runtimeID, session.ID)
 	cleanup := func(err error) (*Session, error) {
 		server.sessions.Delete(context.Background(), session.ID)
@@ -436,7 +437,7 @@ func roomUnavailableMembers(room RoomRecord, excluded map[string]bool, fork bool
 		}
 		if !available {
 			items = append(items, map[string]any{
-				"memberId": member.ID, "displayName": member.DisplayName,
+				"memberId": member.ID, "displayName": sessions.memberName(member),
 				"reason": "No provider conversation is available",
 			})
 		}

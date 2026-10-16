@@ -10,6 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Query selected conversation turns through Supervisor and group MCP tools, with extracted summaries, session-name filtering, paginated original details and live output.
+- Follow nested group references through stable command and reply locators, including links recovered from existing dispatch batches.
+
+### Changed
+
+- Store conversation names only in the session layer. Group members read and rename the same session-owned name; Resume and Fork do not use group name snapshots or other fallbacks.
+- Migrate group records to schema 3, removing member name copies and retaining reply-to-command references. Earlier Glad versions cannot open these records.
+
+### Fixed
+
+- Restore Claude names during individual and group recovery, update browser titles on reconnect and rename, and preserve independent names after Fork.
+- Keep repeated Claude prompts as separate turns while new output is still waiting to reach native history.
+
 ## [2.12.0] - 2026-10-16
 
 ### Added

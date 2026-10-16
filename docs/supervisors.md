@@ -26,12 +26,14 @@ Monitored sessions cannot include the executor. A session cannot simultaneously 
 
 ## Instructions and tools
 
-The supervisor receives your prompt with its current invocation ID and available target permissions. Glad supplies eight MCP tools:
+Each wake supplies your prompt, its current invocation ID, and a fresh list of monitored session names, identities, states and permissions. Monitor content is read on demand. Glad supplies ten supervisor MCP tools:
 
 | Tool | Purpose |
 | --- | --- |
 | `list_targets` | List target identities, permissions and located original transcript paths. |
 | `read_session` | Read live output or paginated in-memory history. Pending questions are returned separately from the message page. |
+| `session_turns` | Read summaries for arbitrary `turnIds`, `turnNumbers` such as `[1,3,9]`, or `fromTurn`/`toTurn`. `offset`/`limit` paginate the matching turns. |
+| `session_turn_details` | Read selected complete turns as native JSONL plus labeled live snapshots, including tools and available reasoning. `offset`/`limit` count bytes; continue with `nextOffset` and `snapshotId` while `hasMore`. |
 | `session_history` | Obtain the original transcript path and a Markdown index containing timestamps, previews and byte ranges. Index pagination uses row offsets. |
 | `read_session_record` | Read original transcript chunks, following `nextOffset` while `hasMore` is true. Offsets and limits count bytes; default 32 KiB, maximum 128 KiB. |
 | `answer_question` | Answer a pending Codex question using its question ID and answers keyed by question field IDs. Requires both Read and Send. |
@@ -40,6 +42,24 @@ The supervisor receives your prompt with its current invocation ID and available
 | `end_supervision` | End the invocation or recurring task as described below. |
 
 Transcript indexes are extracted without another model call, cached in memory within a 16 MiB cache budget, and updated as complete JSONL records are appended. Original transcripts are never copied or rewritten. Indexes contain short previews; follow byte ranges with `read_session_record` to read original content of any length. The index reports its file size and `indexedThrough` boundary. Use `read_session` for the latest live output and question state because native logs may lag behind the provider. Missing native files are reported explicitly and do not prevent live reading.
+
+Turn summaries contain extracted input/output previews, timestamp, status, tool count and reference locators. They are not model-generated semantic summaries. Turn queries read the original history independently of the browser's bounded history buffers and merge live output. Turn indexes have a separate bounded 16 MiB cache. Prefer returned stable turn IDs over chronological numbers across calls. Claude live/native aliases remain selectable after native records arrive. If a running detail snapshot changes between pages, restart at byte offset zero.
+
+## Group history MCP
+
+Every current group member can use these read-only tools without a supervisor invocation:
+
+| Tool | Purpose |
+| --- | --- |
+| `list_rooms` | Discover active groups the calling session belongs to. |
+| `room_members` | Read member IDs and session-owned names. |
+| `room_turns` | Query chronological group turn summaries, including history before joining. Filter by exact `sessionName` or `memberId`, and select arbitrary turn IDs/numbers or ranges. Duplicate names match all corresponding members. |
+| `room_turn_details` | Read selected turns, at most 20 per request. Each result has an independent byte cursor and snapshot ID; continue only the turn IDs with `hasMore`. |
+| `room_references` | Follow direct references and reply-to-command links recursively. Supply the current command's `entryId` or a summary's `commandEntryId`/`replyEntryId`. Missing nodes are explicit. Depth is bounded at eight; truncated graphs can be expanded from a returned node. |
+
+Group turn IDs include member identity. One command dispatched to two members produces two execution turns linked to the same command. Internal supervisor checks stay hidden from group queries. Membership is checked before and after reads; leaving a group revokes access. Saved history IDs and active runtime IDs both resolve only to groups the caller currently belongs to. Departed members' turns remain readable up to their departure time.
+
+Group membership grants shared-history read access independently of the supervisor's per-monitor Read switch. That switch controls supervisor monitor tools; Stop and Send permissions remain separate. Group inputs carry structured command/reference metadata so a recipient can discover that a quoted reply itself depended on earlier references. Existing persisted dispatch batches also recover their reply-to-command link; unavailable legacy sources remain explicit.
 
 Codex async questions can be answered while the worker continues running through `turn/steer`. Blocking questions are answered through their pending RPC. A still-pending async question from a completed main turn can receive its answer as a new user turn. Answers are audited and retries are deduplicated. Pending questions remain discoverable even after later output pushes them out of the recent message page.
 
