@@ -32,30 +32,32 @@ type claudePending struct {
 }
 
 type ClaudeProvider struct {
-	mu              sync.Mutex
-	session         *Session
-	options         map[string]any
-	cmd             *exec.Cmd
-	stdin           io.WriteCloser
-	pending         map[string]chan map[string]any
-	permissions     map[string]claudePending
-	questions       map[string]claudePendingQuestion
-	streams         map[string]*claudeTextStream
-	streamAliases   map[string]string
-	taskPlans       map[string]*claudeTaskPlan
-	expectedStops   map[*exec.Cmd]struct{}
-	turns           []claudeTurn
-	closed          bool
-	initialized     bool
-	readyAnnounced  bool
-	resumeID        string
-	claudeSessionID string
-	allowedTools    map[string]bool
-	localCommand    string
-	statusPending   bool
-	statusUsage     map[string]any
-	statusMessageID string
-	statusLimits    map[string]map[string]any
+	mu               sync.Mutex
+	session          *Session
+	options          map[string]any
+	cmd              *exec.Cmd
+	stdin            io.WriteCloser
+	pending          map[string]chan map[string]any
+	permissions      map[string]claudePending
+	questions        map[string]claudePendingQuestion
+	streams          map[string]*claudeTextStream
+	streamAliases    map[string]string
+	taskPlans        map[string]*claudeTaskPlan
+	expectedStops    map[*exec.Cmd]struct{}
+	turns            []claudeTurn
+	closed           bool
+	initialized      bool
+	readyAnnounced   bool
+	resumeID         string
+	claudeSessionID  string
+	allowedTools     map[string]bool
+	localCommand     string
+	statusPending    bool
+	statusUsage      map[string]any
+	statusMessageID  string
+	statusLimits     map[string]map[string]any
+	statusTimer      *time.Timer
+	statusGeneration uint64
 }
 
 func NewClaudeProvider(session *Session, options map[string]any) *ClaudeProvider {
@@ -180,7 +182,7 @@ func (provider *ClaudeProvider) startLocked(ctx context.Context, fork bool) erro
 		return err
 	}
 	provider.cmd, provider.stdin = command, stdin
-	go provider.readStdout(stdout)
+	go provider.readStdout(stdout, command)
 	go provider.readStderr(stderr)
 	go provider.wait(command)
 	initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -304,10 +306,18 @@ func (provider *ClaudeProvider) Send(ctx context.Context, input ProviderInput) e
 	return nil
 }
 
-func (provider *ClaudeProvider) readStdout(reader io.Reader) {
+func (provider *ClaudeProvider) readStdout(reader io.Reader, commands ...*exec.Cmd) {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 64*1024), 64<<20)
 	for scanner.Scan() {
+		if len(commands) > 0 {
+			provider.mu.Lock()
+			current := provider.cmd == commands[0]
+			provider.mu.Unlock()
+			if !current {
+				return
+			}
+		}
 		var message map[string]any
 		if json.Unmarshal(scanner.Bytes(), &message) != nil {
 			continue
@@ -913,13 +923,13 @@ func (provider *ClaudeProvider) Status(ctx context.Context) error {
 	}
 	provider.statusPending = true
 	provider.statusUsage = nil
+	provider.statusGeneration++
+	generation := provider.statusGeneration
+	provider.statusTimer = time.AfterFunc(60*time.Second, func() { provider.expireStatus(generation) })
 	provider.mu.Unlock()
 	provider.session.setState(map[string]any{"statusReading": true})
 	if err := provider.RunLocalCommand(ctx, "/usage"); err != nil {
-		provider.mu.Lock()
-		provider.statusPending = false
-		provider.mu.Unlock()
-		provider.session.setState(map[string]any{"statusReading": false})
+		provider.finishStatus(nil, err)
 		return err
 	}
 	return nil
@@ -1128,6 +1138,10 @@ func (provider *ClaudeProvider) Close(context.Context) error {
 	return nil
 }
 func (provider *ClaudeProvider) stopLocked() {
+	if provider.statusTimer != nil {
+		provider.statusTimer.Stop()
+		provider.statusTimer = nil
+	}
 	if provider.cmd != nil {
 		provider.expectedStops[provider.cmd] = struct{}{}
 	}

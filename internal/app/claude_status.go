@@ -113,6 +113,10 @@ func claudeStructuredUsage(report map[string]any) map[string]any {
 
 func (provider *ClaudeProvider) finishStatus(contextValue map[string]any, statusErr error) {
 	provider.mu.Lock()
+	if provider.statusTimer != nil {
+		provider.statusTimer.Stop()
+		provider.statusTimer = nil
+	}
 	usage := provider.statusUsage
 	if usage != nil {
 		usage = cloneMap(usage)
@@ -142,6 +146,23 @@ func (provider *ClaudeProvider) finishStatus(contextValue map[string]any, status
 	}
 	provider.session.setState(map[string]any{"status": status, "canAbort": false, "statusReading": false})
 	provider.mu.Unlock()
+}
+
+func (provider *ClaudeProvider) expireStatus(generation uint64) {
+	provider.mu.Lock()
+	if !provider.statusPending || generation != provider.statusGeneration || provider.closed {
+		provider.mu.Unlock()
+		return
+	}
+	usage := provider.statusUsage
+	// A stalled local command must not occupy the provider forever. Restart
+	// lazily on the next request; keep the native conversation identity.
+	provider.resumeID = firstNonEmpty(provider.claudeSessionID, provider.resumeID)
+	provider.stopLocked()
+	provider.localCommand = ""
+	provider.statusPending, provider.statusUsage = true, usage
+	provider.mu.Unlock()
+	provider.finishStatus(nil, errors.New("Claude status query timed out. Retry the query."))
 }
 
 func (provider *ClaudeProvider) mergeStatusLimitsLocked(usage map[string]any) {

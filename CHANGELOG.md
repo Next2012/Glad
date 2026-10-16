@@ -10,6 +10,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.12.0] - 2026-10-16
+
+### Added
+
+- Provide Supervisor MCP tools for original transcript paths, a paginated Markdown index cached in memory, and continued reading of original records without the live-output text limit. Oversized indexes remain pageable without retaining every row.
+- Let Supervisors answer pending Codex questions through `answer_question` with Read and Send permission, including async answers while a worker continues running and blocking RPC answers.
+- Expose pending questions separately from recent output and advance enabled Supervisor checks when new questions arrive, coalescing notifications until the current check settles.
+
+### Changed
+
+- Load group conversations in pages of 48 messages, send bounded WebSocket deltas, and read oversized message bodies in parts while preserving references across pages.
+- Bound group projection, preview and detail caches, release page content when leaving a group, and avoid rebuilding history for unrelated tool or status events.
+- Close idle member sessions when their group closes if no other open group uses them. Preserve busy sessions, pending questions or approvals, active Supervisor reservations, and saved histories; returning to the lobby does not close sessions.
+- Remove the desktop group toolbar's extra tiled-view entry while retaining the regular Back action and session workspace controls.
+
+### Fixed
+
+- Keep Claude usage and context queries visible in a dedicated status panel, handle connection and request errors, and allow retry after a query timeout without losing the native conversation.
+- Reject references exceeding 128 KiB explicitly instead of silently replacing them with an unavailable-message placeholder.
+- Discard stale group context and preview responses after navigation and retain message nodes and reading positions during incremental updates.
+
 ## [2.11.0] - 2026-10-09
 
 ### Added

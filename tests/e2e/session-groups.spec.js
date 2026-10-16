@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 
-test('session groups collapse, share cards, update live, and return ungrouped sessions to the main list', async ({ page }, testInfo) => {
+test('session groups collapse, share cards, update live, and clean idle orphan sessions on close', async ({ page }, testInfo) => {
   test.setTimeout(60000);
   const sessions = [];
   const groups = [];
@@ -84,7 +84,8 @@ test('session groups collapse, share cards, update live, and return ungrouped se
     await page.locator('.room-back-button').click();
     expect((await page.request.delete(`/api/rooms/${first.id}`)).ok()).toBe(true);
     // API deletion is observed by the lobby's ten-second polling cycle.
-    await expect(mainCard(member.id)).toBeVisible({ timeout: 15000 });
+    await expect(mainCard(member.id)).toHaveCount(0, { timeout: 15000 });
+    await expect.poll(async () => (await (await page.request.get('/api/sessions')).json()).some(item => item.id === member.id)).toBe(false);
     await expect(groupSection(first.id)).toHaveCount(0, { timeout: 15000 });
     const history = await (await page.request.get('/api/room-history')).json();
     expect(JSON.stringify(history)).toContain(first.id);

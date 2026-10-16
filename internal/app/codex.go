@@ -276,6 +276,7 @@ func (provider *CodexProvider) send(ctx context.Context, input ProviderInput, re
 			return err
 		}
 		provider.threadID = stringValue(mapValue(started["thread"])["id"])
+		provider.session.rememberTranscriptPath(mapValue(started["thread"]))
 		if provider.threadID == "" {
 			provider.threadID = stringValue(started["threadId"])
 		}
@@ -1642,6 +1643,7 @@ func (provider *CodexProvider) hydrateThread(ctx context.Context, result map[str
 	if !provider.session.replaceMessages(messages) {
 		return errors.New("Codex session is closed")
 	}
+	provider.session.rememberTranscriptPath(thread)
 	return nil
 }
 

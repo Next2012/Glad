@@ -31,6 +31,7 @@ func (server *Server) registerRoomRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/rooms/{id}/members/{memberId}", server.removeRoomMember)
 	mux.HandleFunc("POST /api/rooms/{id}/messages", server.postRoomMessage)
 	mux.HandleFunc("GET /api/rooms/{id}/entries/{entryId}/context", server.roomEntryContext)
+	mux.HandleFunc("GET /api/rooms/{id}/entries/{entryId}/text", server.roomEntryText)
 	mux.HandleFunc("GET /api/rooms/{id}/entries/{entryId}/turns/{turnId}/details", server.roomEntryTurnDetails)
 	mux.HandleFunc("GET /api/rooms/{id}/operation-status", server.roomOperationStatus)
 	mux.HandleFunc("POST /api/rooms/{id}/resume", server.resumeRoom)
@@ -492,7 +493,7 @@ func (server *Server) getRoom(writer http.ResponseWriter, request *http.Request)
 		server.writeRoomError(writer, errRoomNotFound)
 		return
 	}
-	room, err := server.rooms.GetPublic(request.PathValue("id"))
+	room, err := server.rooms.GetPage(request.PathValue("id"), false, roomPageQuery{Before: request.URL.Query().Get("before"), After: request.URL.Query().Get("after"), Around: request.URL.Query().Get("around")})
 	if err != nil {
 		server.writeRoomError(writer, err)
 		return
@@ -501,7 +502,7 @@ func (server *Server) getRoom(writer http.ResponseWriter, request *http.Request)
 }
 
 func (server *Server) getRoomHistory(writer http.ResponseWriter, request *http.Request) {
-	room, err := server.rooms.GetHistoryPublic(request.PathValue("id"))
+	room, err := server.rooms.GetPage(request.PathValue("id"), true, roomPageQuery{})
 	if err != nil {
 		server.writeRoomError(writer, err)
 		return

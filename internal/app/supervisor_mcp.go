@@ -56,6 +56,9 @@ func supervisorTools() []map[string]any {
 	for _, item := range []struct{ name, description string }{
 		{"list_targets", "List monitored sessions and authorized operations for this supervisor invocation."},
 		{"read_session", "Read live output or paginated history, including a session that is still running."},
+		{"session_history", "Get the original transcript path and a paginated Markdown index. offset counts index rows, limit defaults to 50. No transcript copy is created."},
+		{"read_session_record", "Read original transcript bytes without message truncation. offset and limit are byte positions; follow nextOffset while hasMore. The server resolves the authorized target path."},
+		{"answer_question", "Answer a pending Codex question by questionId and answers keyed by question IDs. Requires Read and Send. Async answers steer the running turn without stopping it; blocking answers resume the waiting request."},
 		{"stop_session", "Interrupt the expected target turn. Read again before sending; stop acceptance does not mean the session is ready."},
 		{"send_to_session", "Send a prompt to an idle target session. The command appears in the group."},
 		{"end_supervision", "End supervision. For periodic and configured run-once checks, disable future monitoring (scope: task). For a one-time custom check, revoke only this invocation's tool access and leave recurring monitoring unchanged (scope: invocation). The executor turn must still finish before another check can start."},
@@ -67,11 +70,22 @@ func supervisorTools() []map[string]any {
 			required = append(required, "memberId")
 		}
 		switch item.name {
-		case "read_session":
-			properties["after"] = map[string]any{"type": "integer", "minimum": 0}
+		case "read_session", "session_history":
+			if item.name == "read_session" {
+				properties["after"] = map[string]any{"type": "integer", "minimum": 0}
+			}
 			properties["limit"] = map[string]any{"type": "integer", "minimum": 1, "maximum": 200}
 			properties["offset"] = map[string]any{"type": "integer", "minimum": 0}
-			properties["history"] = map[string]any{"type": "boolean"}
+			if item.name == "read_session" {
+				properties["history"] = map[string]any{"type": "boolean"}
+			}
+		case "read_session_record":
+			properties["offset"] = map[string]any{"type": "integer", "minimum": 0}
+			properties["limit"] = map[string]any{"type": "integer", "minimum": 1, "maximum": 131072}
+		case "answer_question":
+			properties["questionId"] = map[string]any{"type": "string"}
+			properties["answers"] = map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}
+			required = append(required, "questionId", "answers")
 		case "stop_session":
 			properties["expectedTurnId"] = map[string]any{"type": "string"}
 			required = append(required, "expectedTurnId")
@@ -125,6 +139,12 @@ func validateSupervisorArguments(name string, args map[string]any) error {
 			case "boolean":
 				if _, ok := args[key].(bool); !ok {
 					return fmt.Errorf("Argument %q must be a boolean", key)
+				}
+			case "object":
+				data, err := json.Marshal(args[key])
+				var value map[string]string
+				if err != nil || json.Unmarshal(data, &value) != nil || value == nil {
+					return fmt.Errorf("Argument %q must be an object of strings", key)
 				}
 			case "integer":
 				data, err := json.Marshal(args[key])

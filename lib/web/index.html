@@ -123,12 +123,12 @@
             </button>
             <div class="room-heading"><button id="room-title" type="button" onclick="renameActiveRoom()" title="Rename group">Group (0)</button></div>
             <div class="room-header-actions">
-                <button class="icon-btn room-tile-button" type="button" onclick="enterTiledMode()" aria-label="Tile groups"><svg class="action-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button>
                 <button id="room-supervisor-open" class="small-btn room-management-button" type="button" onclick="openSupervisorPanel()" title="Supervisor" aria-label="Supervisor"><svg class="action-icon" aria-hidden="true"><use href="#icon-monitor"></use></svg></button>
                 <button id="room-members-open" class="small-btn room-management-button" type="button" onclick="openRoomMembers()" title="Members" aria-label="Members"><svg class="action-icon" aria-hidden="true"><use href="#icon-members"></use></svg></button>
             </div>
         </header>
         <div id="room-attention-rail" class="room-attention-rail" aria-live="polite"></div>
+        <nav id="room-page-controls" class="room-page-controls" aria-label="Group history pages" hidden></nav>
         <div id="room-message-list" class="room-message-list" aria-live="polite"></div>
         <footer class="room-composer">
             <div id="room-run-status" class="room-run-status" role="status" hidden></div>
@@ -727,6 +727,14 @@
         </section>
     </div>
 
+    <div id="claude-info-overlay" class="room-modal-overlay" onclick="if(event.target===this)closeClaudeInfo()">
+        <section class="room-quotes-modal" role="dialog" aria-modal="true" aria-labelledby="claude-info-title">
+            <header><h2 id="claude-info-title">Claude status</h2><button class="icon-btn" type="button" onclick="closeClaudeInfo()" aria-label="Close Claude status">×</button></header>
+            <div id="claude-info-content" class="room-quotes-list" role="status"></div>
+            <button id="claude-info-retry" class="small-btn primary" type="button" onclick="requestClaudeStatus()">Refresh</button>
+        </section>
+    </div>
+
     <div id="room-quotes-overlay" class="room-modal-overlay" onclick="closeRoomQuoteBundle(event)">
         <section class="room-quotes-modal" role="dialog" aria-modal="true" aria-labelledby="room-quotes-title" onclick="event.stopPropagation()">
             <header><div><h2 id="room-quotes-title">Chat history</h2><p id="room-quotes-subtitle"></p></div><button class="icon-btn" type="button" onclick="closeRoomQuoteBundle()">×</button></header>
@@ -764,6 +772,7 @@
     <script src="claude-history.js"></script>
     <script src="claude-actions.js"></script>
     <script src="claude.js"></script>
+    <script src="claude-info.js"></script>
     <script src="schedules.js"></script>
     <script src="shell.js"></script>
     <script src="codex-history.js"></script>
@@ -776,6 +785,7 @@
     <script src="timed-inputs.js"></script>
     <script src="workspace.js"></script>
     <script src="rooms.js"></script>
+    <script src="room-pages.js"></script>
     <script src="room-controls.js"></script>
     <script src="room-supervisors.js"></script>
     <script src="room-member-controls.js"></script>

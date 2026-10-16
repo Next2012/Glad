@@ -110,3 +110,32 @@ func TestClaudeManualContextErrorIsVisible(t *testing.T) {
 		t.Fatal("错误后未恢复输入")
 	}
 }
+
+func TestClaudeManualStatusTimeoutReleasesProviderAndCanRetry(t *testing.T) {
+	provider, session := claudeFeatureTestProvider()
+	t.Cleanup(session.cancel)
+	provider.cmd = &exec.Cmd{}
+	provider.claudeSessionID = "original-conversation"
+	if err := provider.Status(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	generation := provider.statusGeneration
+	provider.expireStatus(generation)
+	if provider.statusPending || provider.localCommand != "" || session.State["statusReading"] != false || provider.cmd != nil || provider.resumeID != "original-conversation" {
+		t.Fatal("timeout left a busy provider or lost conversation")
+	}
+	last := session.Messages[len(session.Messages)-1]
+	if last["kind"] != "status" || !strings.Contains(stringValue(last["error"]), "timed out") {
+		t.Fatal("timeout was not visible")
+	}
+	provider.cmd = &exec.Cmd{}
+	provider.stdin = nopWriteCloser{Buffer: &bytes.Buffer{}}
+	if err := provider.Status(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	provider.expireStatus(generation)
+	if !provider.statusPending {
+		t.Fatal("stale timeout cancelled a new query")
+	}
+	provider.finishStatus(nil, nil)
+}

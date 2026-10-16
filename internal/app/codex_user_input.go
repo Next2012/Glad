@@ -136,7 +136,11 @@ func (provider *CodexProvider) resolveUserInput(params map[string]any) {
 	provider.refreshPublicState()
 }
 
-func (provider *CodexProvider) AnswerUserInput(ctx context.Context, id, clientID string, answers map[string]string, images []Attachment) error {
+func (provider *CodexProvider) AnswerUserInput(ctx context.Context, id, clientID string, answers map[string]string, images []Attachment, sources ...*SupervisorSource) error {
+	var source *SupervisorSource
+	if len(sources) > 0 {
+		source = sources[0]
+	}
 	provider.mu.Lock()
 	if provider.closed || provider.aborting || provider.resumeInFlight {
 		provider.mu.Unlock()
@@ -202,7 +206,8 @@ func (provider *CodexProvider) AnswerUserInput(ctx context.Context, id, clientID
 		if turnID != "" {
 			provider.session.appendMessage(map[string]any{
 				"kind": "user", "text": displayBody, "agentText": body, "clientMessageId": clientID,
-				"threadId": pending.ThreadID, "turnId": turnID, "attachments": attachments,
+				"supervisorSource": source.values(),
+				"threadId":         pending.ThreadID, "turnId": turnID, "attachments": attachments,
 			})
 			_, err = provider.requestLocked(ctx, "turn/steer", map[string]any{
 				"threadId": pending.ThreadID, "expectedTurnId": turnID,
@@ -211,7 +216,7 @@ func (provider *CodexProvider) AnswerUserInput(ctx context.Context, id, clientID
 		} else if pending.ThreadID == provider.threadID {
 			// A completed async turn can receive the reply as the next user turn.
 			provider.mu.Unlock()
-			err = provider.Send(ctx, ProviderInput{ClientMessageID: clientID, Text: displayBody, AgentText: body, Images: images})
+			err = provider.Send(ctx, ProviderInput{ClientMessageID: clientID, Text: displayBody, AgentText: supervisorAgentText(source, body), Images: images, Source: source})
 			provider.mu.Lock()
 		} else {
 			err = errors.New("The subagent is no longer running")
@@ -235,7 +240,7 @@ func (provider *CodexProvider) AnswerUserInput(ctx context.Context, id, clientID
 	}
 	provider.session.mu.RUnlock()
 	if !recorded {
-		provider.session.appendMessage(map[string]any{"kind": "user", "text": displayBody, "clientMessageId": clientID, "attachments": attachments})
+		provider.session.appendMessage(map[string]any{"kind": "user", "text": displayBody, "clientMessageId": clientID, "attachments": attachments, "supervisorSource": source.values()})
 	}
 	provider.mu.Unlock()
 	provider.refreshPublicState()

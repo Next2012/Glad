@@ -26,7 +26,26 @@ Monitored sessions cannot include the executor. A session cannot simultaneously 
 
 ## Instructions and tools
 
-The supervisor receives your prompt with its current invocation ID and available target permissions. Glad supplies five MCP tools: list targets, read a session, stop an expected turn, send a prompt to an idle target, and end supervision. For periodic and configured run-once checks, `end_supervision` disables future monitoring and returns `scope: task`. For custom checks it revokes only the current invocation’s tool access and returns `scope: invocation`; the monitoring switch stays unchanged. The executor must still finish its turn before another check can start.
+The supervisor receives your prompt with its current invocation ID and available target permissions. Glad supplies eight MCP tools:
+
+| Tool | Purpose |
+| --- | --- |
+| `list_targets` | List target identities, permissions and located original transcript paths. |
+| `read_session` | Read live output or paginated in-memory history. Pending questions are returned separately from the message page. |
+| `session_history` | Obtain the original transcript path and a Markdown index containing timestamps, previews and byte ranges. Index pagination uses row offsets. |
+| `read_session_record` | Read original transcript chunks, following `nextOffset` while `hasMore` is true. Offsets and limits count bytes; default 32 KiB, maximum 128 KiB. |
+| `answer_question` | Answer a pending Codex question using its question ID and answers keyed by question field IDs. Requires both Read and Send. |
+| `stop_session` | Stop an expected target turn. |
+| `send_to_session` | Send a new instruction to an idle target. |
+| `end_supervision` | End the invocation or recurring task as described below. |
+
+Transcript indexes are extracted without another model call, cached in memory within a 16 MiB cache budget, and updated as complete JSONL records are appended. Original transcripts are never copied or rewritten. Indexes contain short previews; follow byte ranges with `read_session_record` to read original content of any length. The index reports its file size and `indexedThrough` boundary. Use `read_session` for the latest live output and question state because native logs may lag behind the provider. Missing native files are reported explicitly and do not prevent live reading.
+
+Codex async questions can be answered while the worker continues running through `turn/steer`. Blocking questions are answered through their pending RPC. A still-pending async question from a completed main turn can receive its answer as a new user turn. Answers are audited and retries are deduplicated. Pending questions remain discoverable even after later output pushes them out of the recent message page.
+
+A new pending question advances an enabled supervisor's next check. If the executor is already checking, notifications coalesce into an early follow-up after its current turn settles. Glad never interrupts the executor, overlaps checks, or restarts paused monitoring. A model already checking can call `read_session` again to discover questions in its current turn.
+
+For periodic and configured run-once checks, `end_supervision` disables future monitoring and returns `scope: task`. For custom checks it revokes only the current invocation’s tool access and returns `scope: invocation`; the monitoring switch stays unchanged. The executor must still finish its turn before another check can start.
 
 For example:
 
@@ -44,8 +63,8 @@ On touch or pen devices, hold a group message to select references. On mouse dev
 
 ## Persistence and access
 
-Closing the browser does not stop monitoring in the daemon. Explicitly closing a group pauses its tasks. Restarting Glad preserves configuration and bounded audit history but pauses monitoring until you restore members and resume it. Unreadable task files are retained and reported without preventing startup.
+Closing the browser does not stop monitoring in the daemon. Explicitly closing a group pauses its tasks and closes its idle member sessions that are not used by another open group. Busy sessions, pending questions or approvals, and active supervisor reservations are preserved; saved histories remain available. Returning to the lobby only leaves the page. Restarting Glad preserves configuration and bounded audit history but pauses monitoring until you restore members and resume it. Unreadable task files are retained and reported without preventing startup.
 
-Credentials and invocation checks apply to the Glad Supervisor tools. They do not isolate the session's existing filesystem, shell, or ordinary HTTP access. Glad preapproves its five local MCP tools in Codex and supplies its tool allowlist to Claude. The daemon still checks the current invocation and per-target permissions on every call. Provider policies continue to govern shell commands and other tools; managed restrictions or Claude deny rules can still block execution. Newly started provider processes receive the Glad MCP configuration, so running processes must be restarted to pick up a configuration update.
+Credentials and invocation checks apply to the Glad Supervisor tools. They do not isolate the session's existing filesystem, shell, or ordinary HTTP access. Glad preapproves its local MCP tools in Codex and supplies its tool allowlist to Claude. The daemon still checks the current invocation and per-target permissions on every call. Provider policies continue to govern shell commands and other tools; managed restrictions or Claude deny rules can still block execution. Newly started provider processes receive the Glad MCP configuration, so running processes must be restarted to pick up a configuration update.
 
 Monitoring consumes model usage on every invocation and extends the supervisor conversation. The default interval is two minutes, with a one-minute minimum. **Skip unchanged idle sessions** is optional and off by default because file changes or time-based conditions may need checks even when conversation output does not change.

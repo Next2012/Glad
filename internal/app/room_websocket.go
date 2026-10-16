@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -30,6 +31,8 @@ func (server *Server) roomWebsocket(writer http.ResponseWriter, request *http.Re
 			}
 		}
 	}()
+	var previous map[string]string
+	previousHistory := ""
 	send := func() error {
 		payload := map[string]any{"type": "room-list"}
 		if id == "" {
@@ -42,11 +45,29 @@ func (server *Server) roomWebsocket(writer http.ResponseWriter, request *http.Re
 			if !server.rooms.IsActive(id) {
 				return errRoomNotFound
 			}
-			room, err := server.rooms.GetPublic(id)
+			room, err := server.rooms.GetPage(id, false, roomPageQuery{})
 			if err != nil {
 				return err
 			}
 			payload["type"], payload["room"] = "room-snapshot", room
+			current := map[string]string{}
+			changed := []map[string]any{}
+			order := []string{}
+			for _, entry := range room["entries"].([]map[string]any) {
+				entryID := stringValue(entry["id"])
+				encoded, _ := json.Marshal(entry)
+				current[entryID] = string(encoded)
+				order = append(order, entryID)
+				if previous[entryID] != string(encoded) {
+					changed = append(changed, entry)
+				}
+			}
+			if previous != nil && previousHistory == stringValue(room["historyId"]) {
+				payload["type"] = "room-delta"
+				room["entries"] = changed
+				room["entryOrder"] = order
+			}
+			previous, previousHistory = current, stringValue(room["historyId"])
 			items, err := server.rooms.TimedInputs(id)
 			if err == nil {
 				payload["timedInputs"] = items
@@ -61,7 +82,7 @@ func (server *Server) roomWebsocket(writer http.ResponseWriter, request *http.Re
 	}
 	keepalive := time.NewTicker(25 * time.Second)
 	defer keepalive.Stop()
-	throttle := time.NewTicker(40 * time.Millisecond)
+	throttle := time.NewTicker(200 * time.Millisecond)
 	defer throttle.Stop()
 	dirty := false
 	for {

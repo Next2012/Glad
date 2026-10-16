@@ -11,6 +11,7 @@ const write = message => process.stdout.write(JSON.stringify(message) + '\n');
 let ready = false;
 let sequence = 0;
 let model = 'claude-sonnet-4-5';
+let failNextStatus = false;
 const input = readline.createInterface({ input:process.stdin, crlfDelay:Infinity });
 input.on('line', line => {
   const message = JSON.parse(line);
@@ -28,6 +29,18 @@ input.on('line', line => {
   if (message.type === 'user') {
     const content = message.message.content;
     const text = typeof content === 'string' ? content : content.filter(item => item.type === 'text').map(item => item.text).join('\n');
+    if (text === '/usage') {
+      if (failNextStatus) {
+        failNextStatus = false;
+        write({ type:'result', subtype:'error_during_execution', is_error:true, errors:['Fixture status failure'] });
+      } else write({ type:'system', subtype:'local_command', usageReport:{ session:{ total_cost_usd:0.25, model_usage:{} }, rate_limits:{ limits:[] } } });
+      return;
+    }
+    if (text === '/context') {
+      write({ type:'system', subtype:'local_command', contextUsage:{ model, total_tokens:1200, raw_max_tokens:200000, percentage:1 } });
+      return;
+    }
+    if (text.includes('__GLAD_E2E_CLAUDE_STATUS_FAIL__')) failNextStatus = true;
     const answer = `Claude fixture: ${text}`;
     write({type:'assistant',session_id:'claude-e2e',message:{id:`claude-e2e-${++sequence}`,role:'assistant',model,content:[{type:'text',text:answer}],usage:{input_tokens:10,output_tokens:10}}});
     write({type:'result',subtype:'success',session_id:'claude-e2e',is_error:false,result:answer,duration_ms:20,duration_api_ms:10,total_cost_usd:0,usage:{input_tokens:10,output_tokens:10}});

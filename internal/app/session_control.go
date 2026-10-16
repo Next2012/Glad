@@ -244,7 +244,11 @@ func sessionOutput(session *Session, after uint64, limit, offset int, history bo
 	}
 	reset := !history && (after == 0 || after < resetRevision || after > revision)
 	messages := []map[string]any{}
+	pendingQuestions := []map[string]any{}
 	for _, item := range session.Messages {
+		if stringValue(item["kind"]) == "question" && stringValue(item["questionStatus"]) == "pending" {
+			pendingQuestions = append(pendingQuestions, publicMessage(item, session.Kind))
+		}
 		if !history && !reset && uint64(numberInt64(item["revision"])) <= after {
 			continue
 		}
@@ -276,7 +280,7 @@ func sessionOutput(session *Session, after uint64, limit, offset int, history bo
 		next = uint64(numberInt64(messages[len(messages)-1]["revision"]))
 	}
 	ready, reason := sessionCanAccept(session)
-	return map[string]any{"success": true, "sessionId": session.ID, "status": status, "currentTurnId": turnID, "nativeConversationId": conversationID, "canAccept": ready, "readinessReason": reason, "revision": revision, "cursor": next, "reset": reset, "messages": messages, "total": total, "hasMore": history && offset+len(messages) < total || !history && !reset && next < revision, "truncated": reset && total > limit}
+	return map[string]any{"success": true, "sessionId": session.ID, "status": status, "currentTurnId": turnID, "nativeConversationId": conversationID, "canAccept": ready, "readinessReason": reason, "revision": revision, "cursor": next, "reset": reset, "messages": messages, "pendingQuestions": pendingQuestions, "total": total, "hasMore": history && offset+len(messages) < total || !history && !reset && next < revision, "truncated": reset && total > limit}
 }
 func (server *Server) sessionOutputRoute(writer http.ResponseWriter, request *http.Request) {
 	session := server.sessions.Get(request.PathValue("id"))

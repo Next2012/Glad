@@ -94,6 +94,12 @@ Frontend assets are compiled into the native binary. The npm package is a small 
 
 See [development.md](development.md) for local commands and [releasing.md](releasing.md) for the release sequence.
 
+## Group conversation pages and supervision
+
+Group HTTP reads and initial WebSocket snapshots contain at most 48 entries. Later WebSocket frames carry changed entries and the ordered IDs of the current page. The browser retains one page plus selected references and bounded preview/detail caches; historical pages stay fixed while current metadata changes. Long message bodies have a byte-paginated endpoint. Closing a group removes only idle, unshared runtime sessions after checking the session command lock, provider readiness, pending interactions, and Supervisor reservations.
+
+Supervisor history reads resolve the provider-owned JSONL path from the current conversation identity. Markdown indexes cache only offsets and short previews, update on completed appended records, and fall back to streaming pages if the index exceeds the cache budget. Raw byte reads provide continuation offsets and preserve UTF-8 boundaries. Neither path copies or rewrites the original transcript. Live output includes pending questions independently of its message page. Authorized Codex answers reuse the provider's RPC or `turn/steer` path, and new questions coalesce into an early check after the executor settles.
+
 ## Effective output speed
 
 Native Codex and Claude sessions collect live root-turn observations in `session_speed.go`; the browser never times WebSocket chunks. The header badge sits before History and retains the last completed turn while another turn runs. Tiles share the same indicator. Its integer value carries `≈`; replies under 50 tokens keep their latest-turn value but are dimmed, with a `Short reply` tooltip and a visible explanation in the panel; the panel shows tok/s with decimals, recent 10/50/100-turn arithmetic means, and 24 hourly bins grouped by completion time in the browser’s timezone. Same-model scope also matches provider, routing profile, effort and Fast mode.

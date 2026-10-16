@@ -150,6 +150,9 @@ type Session struct {
 	sendResults                     map[string]sendResult
 	controlHashes                   map[string]string
 	outputRevision                  uint64
+	roomContentRevision             uint64
+	nativeTranscriptPath            string
+	nativeTranscriptID              string
 	outputResetRevision             uint64
 	currentSource                   *SupervisorSource
 	sourceTurns                     map[string]*SupervisorSource
@@ -489,6 +492,10 @@ func (session *Session) finishPermission(id, status, decision string) (Permissio
 }
 
 func (session *Session) publishLocked(event map[string]any) {
+	message := mapValue(event["message"])
+	if stringValue(event["type"]) == "history-reset" || stringValue(message["kind"]) == "user" || stringValue(message["kind"]) == "assistant" || stringValue(message["kind"]) == "turn-start" || stringValue(message["kind"]) == "turn-end" {
+		session.roomContentRevision++
+	}
 	session.outputRevision++
 	if stringValue(event["type"]) == "history-reset" {
 		session.outputResetRevision = session.outputRevision

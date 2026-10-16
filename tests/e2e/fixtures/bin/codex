@@ -333,7 +333,7 @@ input.on('line', line => {
       result = { thread: { id, ephemeral: true }, sandbox: { type: 'readOnly' } };
     } else {
       activeThreadId = process.cwd().includes('glad-speed-e2e') ? `speed-thread-${process.pid}` : 'thread-e2e'; savedTurns = []; saveMockHistory();
-      result = { thread: { id: activeThreadId } };
+      result = { thread: { id: activeThreadId, path: mockHistoryPath(activeThreadId, '.jsonl') } };
     }
   } else if (request.method === 'turn/start') {
     const text = (request.params?.input || [])
@@ -402,7 +402,8 @@ input.on('line', line => {
     }
     setImmediate(() => {
       write({ method: 'turn/started', params: { threadId: 'thread-e2e', turn: { id: turnId } } });
-      if (text.includes('__GLAD_E2E_SUPERVISOR__') || text.includes('__GLAD_E2E_SUPERVISOR_END__')) {
+      if (text.includes('__GLAD_E2E_SUPERVISOR__') || text.includes('__GLAD_E2E_SUPERVISOR_END__') || text.includes('__GLAD_E2E_SUPERVISOR_ANSWER__')) {
+        const answering = text.includes('__GLAD_E2E_SUPERVISOR_ANSWER__');
         const ending = text.includes('__GLAD_E2E_SUPERVISOR_END__');
         const { spawn } = require('node:child_process');
         const config = process.argv.slice(3).filter(value => value.startsWith('mcp_servers.glad.'));
@@ -430,10 +431,18 @@ input.on('line', line => {
             target = JSON.parse(response.result.content[0].text).targets[0];
             call(3, 'read_session', { memberId: target.memberId });
           }
-          if (response.id === 3) call(4, 'send_to_session', { memberId: target.memberId, text: 'Supervisor requested worker implementation' });
-          if (response.id === 4) {
-            complete(response);
+          if (response.id === 3) {
+            const question = JSON.parse(response.result.content[0].text).pendingQuestions?.[0];
+            if (answering && question) call(4, 'answer_question', { memberId:target.memberId, questionId:question.id, answers:Object.fromEntries(question.questions.map(item => [item.id, 'Supervisor answer'])) });
+            else if (answering) complete(response);
+            else call(4, 'send_to_session', { memberId: target.memberId, text: 'Supervisor requested worker implementation' });
           }
+          if (response.id === 4) {
+            if (answering && !response.result.isError) call(5, 'session_history', { memberId:target.memberId, limit:10 });
+            else complete(response);
+          }
+          if (response.id === 5) call(6, 'read_session_record', { memberId:target.memberId, offset:0, limit:8192 });
+          if (response.id === 6) complete(response);
         });
         child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } } }) + '\n');
         return;

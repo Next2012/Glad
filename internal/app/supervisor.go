@@ -85,6 +85,7 @@ type SupervisorTask struct {
 	failures         int
 	fingerprint      string
 	force            bool
+	questionPending  bool
 }
 
 type SupervisorTriggerInput struct {
@@ -105,23 +106,28 @@ func supervisorInvocationKind(inv *SupervisorInvocation) string {
 }
 
 type SupervisorManager struct {
-	mu           sync.Mutex
-	directory    string
-	tasks        map[string]*SupervisorTask
-	rooms        *RoomManager
-	sessions     *SessionManager
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
-	cached       map[string]map[string]any
-	loadWarnings []string
+	mu              sync.Mutex
+	directory       string
+	tasks           map[string]*SupervisorTask
+	rooms           *RoomManager
+	sessions        *SessionManager
+	ctx             context.Context
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
+	cached          map[string]map[string]any
+	loadWarnings    []string
+	historyMu       sync.Mutex
+	historyIndexes  map[string]*supervisorHistoryIndex
+	questionSignals map[string]bool
 }
 
 func (manager *SupervisorManager) Start(parent context.Context) {
 	manager.ctx, manager.cancel = context.WithCancel(parent)
 	manager.wg.Add(1)
+	subscription := manager.sessions.Events().Subscribe("", 1024)
 	go func() {
 		defer manager.wg.Done()
+		defer subscription.Close()
 		ticker := time.NewTicker(250 * time.Millisecond)
 		defer ticker.Stop()
 		for {
@@ -130,6 +136,13 @@ func (manager *SupervisorManager) Start(parent context.Context) {
 				return
 			case <-ticker.C:
 				manager.tick()
+			case event := <-subscription.Events():
+				message := mapValue(event.Payload["message"])
+				if stringValue(message["kind"]) == "question" && stringValue(message["questionStatus"]) == "pending" {
+					manager.questionArrived(event.SessionID, stringValue(message["id"]))
+				}
+			case <-subscription.Done():
+				return
 			}
 		}
 	}()
@@ -527,6 +540,7 @@ func (manager *SupervisorManager) tick() {
 		}
 		task.fingerprint = fingerprint
 		task.force = false
+		task.questionPending = false
 		kind, invocationPrompt := "check", task.Prompt
 		if task.RunOnce && task.RunOncePrompt != "" {
 			kind, invocationPrompt = "custom", task.RunOncePrompt
@@ -568,7 +582,7 @@ func (manager *SupervisorManager) tick() {
 		if kind == "custom" {
 			endInstruction = "This is a one-time custom check. Call end_supervision when this request is complete to revoke this invocation's tool access only; recurring monitoring remains unchanged. Finish your response afterward; the next periodic check waits for this turn to finish."
 		}
-		prompt := fmt.Sprintf("You are supervising members of a Glad group. Current invocationId: %s. Use the glad MCP tools with this invocationId to list_targets and read_session as authorized. Stop acceptance is not readiness; read before sending. %s Targets and permissions: %s\n\n%s", inv.ID, endInstruction, supervisorTargetJSON(task.Targets), inv.Prompt)
+		prompt := fmt.Sprintf("You are supervising members of a Glad group. Current invocationId: %s. Use the glad MCP tools with this invocationId to list_targets and read_session as authorized. read_session includes pendingQuestions independently of message pagination. Use answer_question to answer an authorized Codex question while it runs; do not stop it just to answer. For earlier history, session_history provides the original transcript path and a Markdown index; read_session_record reads complete original records in chunks using nextOffset. Stop acceptance is not readiness; read before sending. %s Targets and permissions: %s\n\n%s", inv.ID, endInstruction, supervisorTargetJSON(task.Targets), inv.Prompt)
 		manager.wg.Add(1)
 		go manager.launch(task.ID, session, source, prompt)
 	}
@@ -717,6 +731,10 @@ func (manager *SupervisorManager) finishLocked(task *SupervisorTask, inv *Superv
 				delay *= int64(1 << min(task.failures, 3))
 			}
 			task.NextAt = millis() + delay
+			if task.questionPending {
+				task.NextAt = millis()
+				task.force = true
+			}
 		}
 	}
 	if err := manager.appendAuditLocked(task, "end", inv, nil); err != nil {
@@ -876,7 +894,8 @@ func (manager *SupervisorManager) Call(ctx context.Context, caller *Session, too
 			break
 		}
 	}
-	if tool != "list_targets" && tool != "end_supervision" && (!allowed || tool == "read_session" && !permissions.Read || tool == "stop_session" && !permissions.Stop || tool == "send_to_session" && !permissions.Send) {
+	readTool := tool == "read_session" || tool == "session_history" || tool == "read_session_record"
+	if tool != "list_targets" && tool != "end_supervision" && (!allowed || readTool && !permissions.Read || tool == "stop_session" && !permissions.Stop || tool == "send_to_session" && !permissions.Send || tool == "answer_question" && (!permissions.Read || !permissions.Send)) {
 		if len(inv.Calls) < 200 {
 			inv.Calls = append(inv.Calls, SupervisorCall{ID: callID, Tool: tool, MemberID: memberID, CreatedAt: millis(), Success: false, Summary: "Operation is not authorized for this target"})
 			_ = manager.appendAuditLocked(task, "call", inv, &inv.Calls[len(inv.Calls)-1])
@@ -925,11 +944,59 @@ func (manager *SupervisorManager) Call(ctx context.Context, caller *Session, too
 			if exists && s != nil {
 				ready, _ = sessionCanAccept(s)
 			}
-			targets = append(targets, map[string]any{"memberId": target.MemberID, "name": m.DisplayName, "sessionId": m.RuntimeSessionID, "canAccept": ready, "permissions": target})
+			item := map[string]any{"memberId": target.MemberID, "name": m.DisplayName, "sessionId": m.RuntimeSessionID, "canAccept": ready, "permissions": target}
+			if target.Read && s != nil {
+				if path, pathErr := sessionTranscriptPath(s); pathErr == nil {
+					item["rawPath"] = path
+				}
+				item["historyTool"] = "session_history"
+			}
+			targets = append(targets, item)
 		}
 		result["targets"] = targets
 	case "read_session":
 		result = sessionOutput(targetSession, uint64(numberInt64(args["after"])), int(max64(1, numberInt64(firstNonNil(args["limit"], 50)))), int(numberInt64(args["offset"])), boolValue(args["history"]))
+	case "session_history", "read_session_record":
+		manager.mu.Unlock()
+		if tool == "session_history" {
+			result, err = manager.sessionHistory(ctx, targetSession, int(numberInt64(args["offset"])), int(numberInt64(args["limit"])))
+		} else {
+			result, err = readSessionRecord(ctx, targetSession, numberInt64(args["offset"]), int(numberInt64(args["limit"])))
+		}
+		manager.mu.Lock()
+		if !manager.invocationTargetValidLocked(task, invocationID, memberID, targetSession.ID, false) {
+			manager.mu.Unlock()
+			return nil, errors.New("Supervisor authorization changed while reading history")
+		}
+		inv = activeInvocation(task)
+	case "answer_question":
+		provider, ok := targetSession.Provider.(*CodexProvider)
+		if !ok {
+			err = errors.New("This target does not support Codex question answers")
+			break
+		}
+		data, _ := json.Marshal(args["answers"])
+		answers := map[string]string{}
+		_ = json.Unmarshal(data, &answers)
+		manager.mu.Unlock()
+		targetSession.commandMu.Lock()
+		manager.mu.Lock()
+		valid := manager.invocationTargetValidLocked(task, invocationID, memberID, targetSession.ID, true)
+		manager.mu.Unlock()
+		if valid {
+			source := &SupervisorSource{Version: 1, TaskID: task.ID, InvocationID: invocationID, Kind: "command"}
+			err = provider.AnswerUserInput(ctx, stringValue(args["questionId"]), commandID, answers, nil, source)
+		} else {
+			err = errors.New("Supervisor authorization changed before answering")
+		}
+		targetSession.commandMu.Unlock()
+		manager.mu.Lock()
+		if manager.tasks[task.ID] != task || activeInvocation(task) == nil || activeInvocation(task).ID != invocationID {
+			manager.mu.Unlock()
+			return nil, errors.New("Invocation ended while answering")
+		}
+		inv = activeInvocation(task)
+		result["accepted"] = err == nil
 	case "end_supervision":
 		result["scope"] = "invocation"
 		if inv.Kind != "custom" {
@@ -995,7 +1062,7 @@ func (manager *SupervisorManager) Call(ctx context.Context, caller *Session, too
 		task.Enabled = false
 		err = saveErr
 	}
-	if err == nil && tool != "read_session" && tool != "list_targets" {
+	if err == nil && !readTool && tool != "list_targets" {
 		manager.cached[key] = result
 	}
 	manager.mu.Unlock()

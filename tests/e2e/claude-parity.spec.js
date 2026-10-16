@@ -139,6 +139,20 @@ test('Claude renders structured questions, tasks, subagents and status cards', a
   }))).toEqual({ status: 'thinking', count: 0, permissions: 0 });
 });
 
+test('reopening Claude status during a pending query keeps loading feedback without sending twice', async ({ page }) => {
+  await openClaudeHarness(page);
+  await page.locator('#claude-status-btn').click();
+  await expect(page.locator('#claude-info-content')).toContainText('Loading usage and context');
+  await page.getByRole('button', { name: 'Close Claude status', exact: true }).click();
+  await page.evaluate(() => requestClaudeStatus());
+  await expect(page.locator('#claude-info-overlay')).toBeVisible();
+  await expect(page.locator('#claude-info-content')).toContainText('Loading usage and context');
+  expect(await page.evaluate(() => window.__claudeSent.filter(item => item.type === 'claude-status').length)).toBe(1);
+  await page.evaluate(() => failClaudeInfo('Synthetic query failure'));
+  await expect(page.locator('#claude-info-content')).toContainText('Synthetic query failure');
+  await expect(page.locator('#claude-info-retry')).toBeEnabled();
+});
+
 test('Claude action panels expose prompts, skills and commands', async ({ page }) => {
   await openClaudeHarness(page);
   await page.evaluate(() => {

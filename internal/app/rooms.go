@@ -34,6 +34,7 @@ type RoomManager struct {
 	operations  map[string]*sync.Mutex
 	runtimes    map[string]*roomRuntime
 	events      *sessioncore.EventHub
+	projections map[string]roomProjectionCache
 }
 
 // RoomTurnResolver keeps persistence independent from provider history. A
@@ -169,7 +170,7 @@ func (manager *RoomManager) syncSessionConversation(sessionID, conversationID st
 		_ = manager.mutateHistory(roomID, func(room *RoomRecord) error {
 			changed := false
 			for index := range room.Members {
-				if room.Members[index].RuntimeSessionID == sessionID && room.Members[index].LeftAt == 0 {
+				if room.Members[index].RuntimeSessionID == sessionID && room.Members[index].LeftAt == 0 && room.Members[index].NativeConversationID != conversationID {
 					room.Members[index].NativeConversationID = conversationID
 					changed = true
 				}
@@ -334,7 +335,7 @@ func (manager *RoomManager) list(activeOnly bool) ([]map[string]any, error) {
 				}
 			}
 		}
-		messageCount := len(manager.projectRoomEntriesLocked(room))
+		messageCount := len(manager.cachedRoomEntriesLocked(room))
 		sort.Strings(runtimeIDs)
 		for _, runtimeID := range runtimeIDs {
 			item := manager.runtimeFieldsLocked(runtimeID, room)
@@ -450,9 +451,14 @@ func (manager *RoomManager) roomIDLocked(id string) string {
 // Close removes the runtime group while preserving its saved history and members.
 func (manager *RoomManager) Close(id string) error {
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 	if manager.activeIDs[id] == "" {
+		manager.mu.Unlock()
 		return errRoomNotFound
+	}
+	room, err := manager.store.Get(manager.roomIDLocked(id))
+	if err != nil {
+		manager.mu.Unlock()
+		return err
 	}
 	runtime := manager.runtimeLocked(id)
 	runtime.cancel()
@@ -467,6 +473,9 @@ func (manager *RoomManager) Close(id string) error {
 	delete(manager.runtimes, id)
 	delete(manager.activeIDs, id)
 	manager.publishLocked(id)
+	delete(manager.projections, room.ID)
+	manager.mu.Unlock()
+	manager.closeOrphanSessions(room)
 	return nil
 }
 
@@ -679,6 +688,10 @@ func (manager *RoomManager) GetHistoryPublic(id string) (map[string]any, error) 
 }
 
 func (manager *RoomManager) getPublic(id string, history bool) (map[string]any, error) {
+	return manager.roomView(id, history, nil)
+}
+
+func (manager *RoomManager) roomView(id string, history bool, page *roomPageQuery) (map[string]any, error) {
 	manager.mu.Lock()
 	historyID := id
 	if !history {
@@ -725,10 +738,26 @@ func (manager *RoomManager) getPublic(id string, history bool) (map[string]any, 
 			}(),
 		})
 	}
-	projected := manager.projectRoomEntriesLocked(room)
+	var projected []RoomEntryRecord
+	if page == nil {
+		projected = manager.projectRoomEntriesLocked(room)
+	} else {
+		projected = manager.cachedRoomEntriesLocked(room)
+	}
+	pageFields := map[string]any{}
+	if page != nil {
+		projected, pageFields = selectRoomPage(projected, *page)
+	}
 	entries := make([]map[string]any, 0, len(projected))
 	for _, entry := range projected {
-		entries = append(entries, manager.publicEntryLocked(room, memberByID, entry))
+		item := manager.publicEntryLocked(room, memberByID, entry)
+		if page != nil {
+			if text := stringValue(item["text"]); len(text) > roomPageTextLimit {
+				item["text"] = codexPreviewText(text, roomPageTextLimit)
+				item["textTruncated"] = true
+			}
+		}
+		entries = append(entries, item)
 	}
 	runtimeID := id
 	if history {
@@ -743,6 +772,9 @@ func (manager *RoomManager) getPublic(id string, history bool) (map[string]any, 
 		"members":                       members, "entries": entries,
 	}
 	for key, value := range fields {
+		result[key] = value
+	}
+	for key, value := range pageFields {
 		result[key] = value
 	}
 	return result, nil
@@ -1180,6 +1212,10 @@ func (manager *RoomManager) AddSession(roomID, sessionID string) (RoomMemberReco
 		return RoomMemberRecord{}, fmt.Errorf("a room can have at most %d active sessions", maxRoomMemberCount)
 	}
 	session.mu.RLock()
+	if session.closed {
+		session.mu.RUnlock()
+		return RoomMemberRecord{}, errors.New("Session is closed")
+	}
 	avatarSeed := newUUID()
 	member := RoomMemberRecord{
 		ID: newUUID(), RuntimeSessionID: session.ID, DisplayName: session.Name,
@@ -1245,7 +1281,7 @@ func (manager *RoomManager) PostMessage(ctx context.Context, roomID string, inpu
 				if entry.RequestHash != requestHash {
 					return nil, errors.New("message ID was already used for different content")
 				}
-				return manager.GetPublic(roomID)
+				return manager.GetPage(roomID, false, roomPageQuery{})
 			}
 		}
 	}
@@ -1271,8 +1307,15 @@ func (manager *RoomManager) PostMessage(ctx context.Context, roomID string, inpu
 		}
 		targets = append(targets, member)
 	}
-	projected := manager.projectRoomEntriesLocked(room)
-	references, missing := manager.referenceTextLocked(room, projected, input.QuotedEntryIDs)
+	var projected []RoomEntryRecord
+	if len(input.QuotedEntryIDs) > 0 {
+		projected = manager.cachedRoomEntriesLocked(room)
+	}
+	references, missing, referenceErr := manager.referenceTextLocked(room, projected, input.QuotedEntryIDs)
+	if referenceErr != nil {
+		manager.mu.Unlock()
+		return nil, referenceErr
+	}
 	now := millis()
 	userEntry := RoomEntryRecord{
 		ID: newUUID(), Sequence: room.NextSequence, Type: "user", UserText: input.Text,
@@ -1314,7 +1357,7 @@ func (manager *RoomManager) PostMessage(ctx context.Context, roomID string, inpu
 		}()
 	}
 	wait.Wait()
-	return manager.GetPublic(roomID)
+	return manager.GetPage(roomID, false, roomPageQuery{})
 }
 
 func (manager *RoomManager) dispatch(
@@ -1484,7 +1527,7 @@ func (manager *RoomManager) publicEntryLocked(
 	return result
 }
 
-func (manager *RoomManager) referenceTextLocked(room RoomRecord, projected []RoomEntryRecord, ids []string) ([]string, []string) {
+func (manager *RoomManager) referenceTextLocked(room RoomRecord, projected []RoomEntryRecord, ids []string) ([]string, []string, error) {
 	entries := map[string]RoomEntryRecord{}
 	members := map[string]RoomMemberRecord{}
 	for _, entry := range projected {
@@ -1519,13 +1562,12 @@ func (manager *RoomManager) referenceTextLocked(room RoomRecord, projected []Roo
 		}
 		item := fmt.Sprintf("[%s · %s]\n%s", id, label, text)
 		if bytes+len(item) > maxRoomReferenceBytes {
-			missing = append(missing, id)
-			continue
+			return nil, nil, errors.New("Selected references exceed 128 KiB. Select fewer or shorter messages.")
 		}
 		bytes += len(item)
 		resolved = append(resolved, item)
 	}
-	return resolved, missing
+	return resolved, missing, nil
 }
 
 func buildRoomAgentText(text string, references, missing []string) string {
