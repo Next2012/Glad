@@ -170,7 +170,23 @@ Group controls follow single-session behavior while membership stays independent
 - Group views, the lobby and desktop tiles subscribe to `/ws/rooms`. Bounded
   event streams push member messages, approvals, state, timers and completions.
   Updates are coalesced and carry snapshot revisions so delayed HTTP responses
-  cannot replace newer state. Reconnecting starts with a complete snapshot.
+  cannot replace newer state. Lobby and session-group HTTP requests share a
+  request generation and reject responses older than the latest lobby socket
+  update, so closed groups cannot reappear from a delayed refresh. Reconnecting
+  starts with a complete snapshot.
+- The timeline initially loads the newest 48 entries. Scrolling within 240 px
+  of the top loads another page and prepends it without moving the visible
+  message anchor. Loaded pages remain resident as live messages append; errors
+  expose a retry action rather than a page switcher.
+- Only each member's latest question and answer are expanded and sent in full.
+  Other entries carry at most three logical lines and a bounded text prefix;
+  the browser displays three lines without rendering their Markdown, images or
+  diagrams. Expanding an entry fetches its complete text in UTF-8-safe chunks,
+  checks the text version across requests, and caches the explicitly read body.
+  Reference previews also load full text when requested. Manual expansion and
+  selection survive new history and live updates.
+- The existing-session chooser remains open after additions and refreshes its
+  remaining candidates. Duplicate clicks are suppressed while an add is pending.
 - Stop interrupts all running members. During Resume/Fork it also cancels the
   recovery context and any newly created member providers. Cancellation leaves
   the current runtime group bound to its previous history.

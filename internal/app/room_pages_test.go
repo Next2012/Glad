@@ -2,10 +2,98 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestRoomPagesExpandOnlyEachMembersLatestQuestionAndAnswer(t *testing.T) {
+	manager, first, _, room, _ := newRuntimeRoomTest(t)
+	second := newSession("second", "Second", "codex-structured", ToolInfo{Key: "codex"}, t.TempDir())
+	second.Provider = &stubProvider{}
+	manager.sessions.sessions[second.ID] = second
+	if _, err := manager.AddSession(room.ID, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	for index, session := range []*Session{first, second} {
+		for turn := 0; turn < 2; turn++ {
+			for _, kind := range []string{"user", "assistant"} {
+				text := fmt.Sprintf("%s line one\nline two\nline three\nHidden detail %d %d", kind, index, turn)
+				session.appendMessage(map[string]any{"kind": kind, "turnId": fmt.Sprint(turn), "text": text, "createdAt": int64(10*index + 2*turn + 1)})
+			}
+		}
+	}
+	page, err := manager.GetPage(room.ID, false, roomPageQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, deferred := 0, 0
+	for _, entry := range page["entries"].([]map[string]any) {
+		text := stringValue(entry["text"])
+		if boolValue(entry["defaultExpanded"]) {
+			full++
+			if boolValue(entry["textDeferred"]) || !strings.Contains(text, "Hidden detail") {
+				t.Fatal("latest turn was shortened", entry)
+			}
+		} else {
+			deferred++
+			if !boolValue(entry["textDeferred"]) || strings.Contains(text, "Hidden detail") || strings.Count(text, "\n") > 2 {
+				t.Fatal("old content loaded eagerly", entry)
+			}
+		}
+	}
+	if full != 4 || deferred != 4 {
+		t.Fatalf("full=%d, deferred=%d", full, deferred)
+	}
+}
+
+func TestRoomDeferredMessageTextChecksVersionAndReadsCompleteChunks(t *testing.T) {
+	manager, session, _, room, member := newRuntimeRoomTest(t)
+	text := strings.Repeat("完整历史内容", 10000)
+	session.appendMessage(map[string]any{"kind": "user", "turnId": "old", "text": "question", "createdAt": int64(1)})
+	session.appendMessage(map[string]any{"id": "answer", "kind": "assistant", "turnId": "old", "text": text, "createdAt": int64(2)})
+	id := roomHistoryEntryID(member.ID, "old", "assistant")
+	server := &Server{rooms: manager}
+	var result strings.Builder
+	offset := 0
+	for {
+		request := httptest.NewRequest("GET", fmt.Sprintf("/text?offset=%d&version=%s", offset, roomTextVersion(text)), nil)
+		request.SetPathValue("id", room.ID)
+		request.SetPathValue("entryId", id)
+		response := httptest.NewRecorder()
+		server.roomEntryText(response, request)
+		if response.Code != 200 {
+			t.Fatal(response.Code, response.Body.String())
+		}
+		var data map[string]any
+		if err := json.Unmarshal(response.Body.Bytes(), &data); err != nil {
+			t.Fatal(err)
+		}
+		result.WriteString(stringValue(data["text"]))
+		if !boolValue(data["hasMore"]) {
+			break
+		}
+		next := int(numberInt64(data["nextOffset"]))
+		if next <= offset {
+			t.Fatal("text cursor did not advance")
+		}
+		offset = next
+	}
+	if result.String() != text {
+		t.Fatal("deferred text was truncated")
+	}
+	session.patchMessage("answer", map[string]any{"text": "changed"})
+	request := httptest.NewRequest("GET", "/text?version="+roomTextVersion(text), nil)
+	request.SetPathValue("id", room.ID)
+	request.SetPathValue("entryId", id)
+	response := httptest.NewRecorder()
+	server.roomEntryText(response, request)
+	if response.Code != 409 {
+		t.Fatal("changed body accepted an old version", response.Code)
+	}
+}
 
 func TestRoomPagesBoundHistoryAndKeepReferenceResolution(t *testing.T) {
 	manager, session, _, room, member := newRuntimeRoomTest(t)
@@ -21,8 +109,11 @@ func TestRoomPagesBoundHistoryAndKeepReferenceResolution(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries := latest["entries"].([]map[string]any)
-	if len(entries) != roomPageSize || !boolValue(latest["hasBefore"]) || boolValue(latest["hasAfter"]) || !boolValue(entries[len(entries)-1]["textTruncated"]) {
-		t.Fatalf("unbounded/incorrect page: %d", len(entries))
+	if len(entries) != roomPageSize || !boolValue(latest["hasBefore"]) || boolValue(latest["hasAfter"]) || boolValue(entries[len(entries)-1]["textDeferred"]) || !boolValue(entries[len(entries)-1]["defaultExpanded"]) || stringValue(entries[len(entries)-1]["text"]) != strings.Repeat("answer", 6000) {
+		t.Fatalf("incorrect latest page: %d", len(entries))
+	}
+	if !boolValue(entries[0]["textDeferred"]) || len(stringValue(entries[0]["text"])) > roomPreviewTextLimit+3 {
+		t.Fatal("old message body was sent eagerly")
 	}
 	page, err := manager.GetPage(room.ID, false, roomPageQuery{Before: stringValue(entries[0]["id"])})
 	if err != nil {

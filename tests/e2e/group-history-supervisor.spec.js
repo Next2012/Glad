@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 
-test('long groups page history, keep references, and stream bounded deltas', async ({ page }, testInfo) => {
+test('long groups load earlier pages on scroll, retain references, and append live messages', async ({ page }, testInfo) => {
   test.setTimeout(90000);
   const room = await (await page.request.post('/api/rooms', { data:{name:'Long group validation'} })).json();
   const frames = [];
@@ -20,16 +20,16 @@ test('long groups page history, keep references, and stream bounded deltas', asy
     await expect(page.locator('#room-view [aria-label="Tile groups"]')).toHaveCount(0);
     await expect(page.locator('#room-message-list > .room-entry')).toHaveCount(48);
     expect(await page.evaluate(() => activeRoom.totalEntries)).toBe(125);
-    await page.getByRole('button',{name:'Earlier messages',exact:true}).click();
-    await expect.poll(() => page.evaluate(() => roomBrowsingHistory)).toBe(true);
+    await expect(page.getByRole('button', {name:'Earlier messages',exact:true})).toHaveCount(0);
+    await page.locator('#room-message-list').evaluate(list => list.scrollTo({top:0,behavior:'instant'}));
+    await expect(page.locator('#room-message-list > .room-entry')).toHaveCount(96);
     const quoteId = await page.evaluate(() => activeRoom.entries[0].id);
     await page.evaluate(id => toggleRoomQuote(id),quoteId);
     const before = await page.evaluate(() => activeRoom.entries.map(entry => entry.id));
     expect((await page.request.post(`/api/rooms/${room.id}/messages`,{data:{text:'New live message'}})).ok()).toBe(true);
     await expect.poll(() => frames.filter(frame => frame.type==='room-delta').length).toBeGreaterThan(0);
-    expect(await page.evaluate(() => activeRoom.entries.map(entry => entry.id))).toEqual(before);
-    await page.getByRole('button',{name:'Latest',exact:true}).click();
-    await expect.poll(() => page.evaluate(() => roomBrowsingHistory)).toBe(false);
+    await expect(page.locator('#room-message-list > .room-entry')).toHaveCount(97);
+    expect(await page.evaluate(() => activeRoom.entries.slice(0,-1).map(entry => entry.id))).toEqual(before);
     await expect(page.locator('.room-context-chip.quote')).toHaveCount(1);
     await page.getByRole('button',{name:'Preview 1',exact:true}).click();
     await expect(page.locator('.room-selection-preview-item')).toContainText('Message 29');
@@ -37,7 +37,7 @@ test('long groups page history, keep references, and stream bounded deltas', asy
     await page.locator('#room-input').fill('Use the earlier reference');
     await page.locator('#room-send-button').click();
     await expect(page.locator('#room-input')).toHaveValue('');
-    await expect(page.locator('#room-message-list > .room-entry')).toHaveCount(48);
+    await expect(page.locator('#room-message-list > .room-entry')).toHaveCount(98);
     const deltas = frames.filter(frame => frame.type==='room-delta');
     expect(deltas.every(frame => frame.room.entries.length<=2)).toBe(true);
     await page.screenshot({path:testInfo.outputPath('paged-group.png')});

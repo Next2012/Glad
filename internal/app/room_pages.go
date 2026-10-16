@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 const roomPageSize = 48
-const roomPageTextLimit = 24 << 10
+const roomPreviewTextLimit = 480
 
 type roomPageQuery struct {
 	Before, After, Around string
@@ -18,6 +19,56 @@ type roomPageQuery struct {
 type roomProjectionCache struct {
 	Key     string
 	Entries []RoomEntryRecord
+}
+
+// Keep only the newest question/answer of each session expanded. A shared
+// command can be the latest question for several members at once.
+func latestRoomEntryIDs(entries []RoomEntryRecord) map[string]bool {
+	latest := map[string]RoomEntryRecord{}
+	for _, entry := range entries {
+		if entry.MemberID != "" {
+			latest[entry.MemberID] = entry
+		}
+	}
+	result := map[string]bool{}
+	for _, turn := range latest {
+		result[turn.ID] = true
+		if turn.TriggerEntryID != "" {
+			result[turn.TriggerEntryID] = true
+		}
+		if turn.NativeTurnID == "" {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.MemberID == turn.MemberID && entry.NativeConversationID == turn.NativeConversationID && entry.NativeTurnID == turn.NativeTurnID {
+				result[entry.ID] = true
+			}
+		}
+	}
+	return result
+}
+
+func roomTextVersion(text string) string {
+	digest := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(digest[:])
+}
+
+func roomEntryPreview(text string) string {
+	lines := strings.SplitN(text, "\n", 4)
+	if len(lines) > 3 {
+		lines = lines[:3]
+	}
+	return codexPreviewText(strings.Join(lines, "\n"), roomPreviewTextLimit)
+}
+
+func roomPageEntry(item map[string]any, expanded bool) {
+	text := stringValue(item["text"])
+	item["textVersion"] = roomTextVersion(text)
+	item["defaultExpanded"] = expanded
+	if !expanded {
+		item["text"] = roomEntryPreview(text)
+		item["textDeferred"] = text != ""
+	}
 }
 
 // Cache the provider projection across list, HTTP and websocket consumers.
@@ -120,6 +171,11 @@ func (server *Server) roomEntryText(writer http.ResponseWriter, request *http.Re
 		if entry.ID == request.PathValue("entryId") {
 			item := manager.publicEntryLocked(room, members, entry)
 			text := stringValue(item["text"])
+			version := roomTextVersion(text)
+			if expected := request.URL.Query().Get("version"); expected != "" && expected != version {
+				respondError(writer, http.StatusConflict, fmt.Errorf("Message changed; refresh before expanding it"))
+				return
+			}
 			offset := max(0, atoiDefault(request.URL.Query().Get("offset"), 0))
 			offset = min(offset, len(text))
 			for offset > 0 && offset < len(text) && text[offset]&0xc0 == 0x80 {
@@ -132,8 +188,9 @@ func (server *Server) roomEntryText(writer http.ResponseWriter, request *http.Re
 			}
 			chunk := text[offset:end]
 			item["text"] = chunk
+			item["textVersion"] = version
 			item["textTruncated"] = end < len(text)
-			respondJSON(writer, 200, map[string]any{"entry": item, "text": chunk, "nextOffset": end, "hasMore": end < len(text)})
+			respondJSON(writer, 200, map[string]any{"entry": item, "text": chunk, "textVersion": version, "nextOffset": end, "hasMore": end < len(text)})
 			return
 		}
 	}

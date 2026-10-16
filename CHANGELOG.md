@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.13.0] - 2026-10-16
+
 ### Added
 
 - Query selected conversation turns through Supervisor and group MCP tools, with extracted summaries, session-name filtering, paginated original details and live output.
@@ -17,11 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Automatically load earlier group messages near the top of the timeline. Load only each session's latest question and answer in full; older messages use three-line previews and fetch their bodies when expanded.
 - Store conversation names only in the session layer. Group members read and rename the same session-owned name; Resume and Fork do not use group name snapshots or other fallbacks.
 - Migrate group records to schema 3, removing member name copies and retaining reply-to-command references. Earlier Glad versions cannot open these records.
 
 ### Fixed
 
+- Discard delayed lobby and session-list responses after newer socket updates so resuming a group cannot visually revive a closed group.
+- Keep the existing-session picker open after adding a member so several sessions can be added consecutively.
 - Restore Claude names during individual and group recovery, update browser titles on reconnect and rename, and preserve independent names after Fork.
 - Keep repeated Claude prompts as separate turns while new output is still waiting to reach native history.
 

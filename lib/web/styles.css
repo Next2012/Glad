@@ -1643,7 +1643,10 @@ body.tile-focus-open #room-view .room-composer { padding-left:14px; padding-righ
 .usage-refresh-status { margin:8px 0 16px; color:var(--text-dim); font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
 .usage-refresh-status.error { color:var(--danger,#ff453a); }
 
-.room-page-controls { display:flex; align-items:center; justify-content:center; gap:8px; padding:6px 10px; flex:0 0 auto; border-bottom:1px solid var(--line); font-size:11px; color:var(--text-dim); }
-.room-page-controls[hidden] { display:none; }
+.room-history-status { display:flex; align-items:center; justify-content:center; gap:8px; padding:6px 10px; flex:0 0 auto; border-bottom:1px solid var(--line); font-size:11px; color:var(--text-dim); }
+.room-history-status[hidden] { display:none; }
 .room-full-text { padding:12px; white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; }
 .room-full-text-actions { display:flex; justify-content:space-between; padding:12px; }
+
+.room-entry.deferred .room-entry-text { white-space:pre-wrap; overflow-wrap:anywhere; }
+.room-entry-loading { display:block; margin-top:8px; font-size:12px; opacity:.7; }

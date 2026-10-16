@@ -127,6 +127,10 @@ input.on('line', line => {
       queryGroup(text).catch(error => answer('GROUP_MCP_ERROR ' + error.message));
       return;
     }
+    if (text.includes('__GLAD_E2E_LONG_REPLY__')) {
+      answer('Old answer line 1\nOld answer line 2\nOld answer line 3\n' + 'Additional answer detail. '.repeat(5000) + '\nHidden answer ending');
+      return;
+    }
     answer(`Claude fixture: ${text}`);
   }
 });

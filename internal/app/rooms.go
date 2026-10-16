@@ -704,11 +704,13 @@ func (manager *RoomManager) roomView(id string, history bool, page *roomPageQuer
 		session := manager.sessions.Get(member.RuntimeSessionID)
 		available := member.LeftAt == 0 && session != nil
 		status, pendingPermissions, pendingQuestions := "unavailable", 0, 0
+		var historyRevision uint64
 		if session != nil {
 			session.mu.RLock()
 			status = session.StatusValue
 			pendingPermissions = len(session.Permissions)
 			pendingQuestions = int(numberInt64(session.State["pendingQuestionCount"]))
+			historyRevision = session.outputResetRevision
 			if member.ToolName == "" {
 				member.ToolName = session.Tool.DisplayName
 			}
@@ -719,6 +721,7 @@ func (manager *RoomManager) roomView(id string, history bool, page *roomPageQuer
 			"displayName": member.DisplayName, "avatarSeed": member.AvatarSeed, "avatarColor": member.AvatarColor,
 			"toolKey": member.ToolKey, "toolName": firstNonEmpty(member.ToolName, member.ToolKey), "workingDirectory": member.WorkingDirectory,
 			"nativeConversationId": member.NativeConversationID,
+			"historyRevision":      historyRevision,
 			"joinedAt":             member.JoinedAt, "leftAt": member.LeftAt,
 			"available": available, "status": status,
 			"pendingPermissionCount": pendingPermissions, "pendingQuestionCount": pendingQuestions,
@@ -737,18 +740,25 @@ func (manager *RoomManager) roomView(id string, history bool, page *roomPageQuer
 	} else {
 		projected = manager.cachedRoomEntriesLocked(room)
 	}
+	var expanded map[string]bool
+	if page != nil {
+		expanded = latestRoomEntryIDs(projected)
+	}
 	pageFields := map[string]any{}
 	if page != nil {
 		projected, pageFields = selectRoomPage(projected, *page)
+		ids := []string{}
+		for id := range expanded {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		pageFields["expandedEntryIds"] = ids
 	}
 	entries := make([]map[string]any, 0, len(projected))
 	for _, entry := range projected {
 		item := manager.publicEntryLocked(room, memberByID, entry)
 		if page != nil {
-			if text := stringValue(item["text"]); len(text) > roomPageTextLimit {
-				item["text"] = codexPreviewText(text, roomPageTextLimit)
-				item["textTruncated"] = true
-			}
+			roomPageEntry(item, expanded[entry.ID])
 		}
 		entries = append(entries, item)
 	}
