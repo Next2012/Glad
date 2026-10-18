@@ -7,11 +7,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
 // Session names belong to provider conversation identities, never to rooms.
-// A missing name is an empty name; callers must not substitute room snapshots.
+// Missing names use the provider's default here, never in room or UI code.
 type SessionNameStore struct {
 	mu        sync.Mutex
 	directory string
@@ -22,6 +23,16 @@ type sessionName struct {
 	Manual bool   `json:"manual"`
 }
 
+func sessionNameOrDefault(tool, name string) string {
+	if strings.TrimSpace(name) != "" {
+		return name
+	}
+	if tool == "claude-code" {
+		return "claude"
+	}
+	return tool
+}
+
 func (store *SessionNameStore) path(tool, cwd, id string) string {
 	key := sha256.Sum256([]byte(tool + "\x00" + filepath.Clean(cwd) + "\x00" + id))
 	return filepath.Join(store.directory, hex.EncodeToString(key[:])+".json")
@@ -29,6 +40,7 @@ func (store *SessionNameStore) path(tool, cwd, id string) string {
 
 func (store *SessionNameStore) read(tool, cwd, id string) (sessionName, error) {
 	name, _, err := store.lookup(tool, cwd, id)
+	name.Name = sessionNameOrDefault(tool, name.Name)
 	return name, err
 }
 
@@ -201,8 +213,8 @@ func (session *Session) copyForkName(source, destination string) error {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	if sessionNativeConversationID(session) == destination {
-		session.Name, session.NameManual = value.Name, value.Manual
-		session.publishLocked(map[string]any{"type": "session-renamed", "name": value.Name})
+		session.Name, session.NameManual = sessionNameOrDefault(session.Tool.Key, value.Name), value.Manual
+		session.publishLocked(map[string]any{"type": "session-renamed", "name": session.Name})
 	}
 	return nil
 }

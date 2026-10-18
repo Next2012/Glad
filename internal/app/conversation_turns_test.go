@@ -139,7 +139,7 @@ func TestSessionNamesPersistAcrossResumeWithoutRoomFallback(t *testing.T) {
 		t.Fatal("resume retained previous session name", session.Name)
 	}
 	session.setState(map[string]any{"claudeSessionId": "missing"})
-	if session.Name != "" || session.NameManual {
+	if session.Name != "claude" || session.NameManual {
 		t.Fatal("missing name was filled from previous session")
 	}
 	session.setState(map[string]any{"claudeSessionId": "source"})
@@ -153,7 +153,7 @@ func TestSessionNamesPersistAcrossResumeWithoutRoomFallback(t *testing.T) {
 		t.Fatal(name)
 	}
 	member.NativeConversationID = "missing"
-	if name := manager.memberName(member); name != "" {
+	if name := manager.memberName(member); name != "claude" {
 		t.Fatal("group name fallback", name)
 	}
 	data, _ := json.Marshal(member)
@@ -189,7 +189,7 @@ func TestNativeSessionNamesRegisterOnceAndNeverReplaceExplicitNames(t *testing.T
 		t.Fatal(err)
 	}
 	name, err = store.read("codex", "/project", "existing")
-	if err != nil || name.Name != "" || !name.Manual {
+	if err != nil || name.Name != "codex" || !name.Manual {
 		t.Fatal("native discovery replaced explicit name", name, err)
 	}
 	session := newSession("resume", "Temporary window", "codex-structured", ToolInfo{Key: "codex"}, "/project")
@@ -198,7 +198,7 @@ func TestNativeSessionNamesRegisterOnceAndNeverReplaceExplicitNames(t *testing.T
 	if err = session.restoreConversationName("existing"); err != nil {
 		t.Fatal(err)
 	}
-	if session.Name != "" {
+	if session.Name != "codex" {
 		t.Fatal("Resume used the temporary window name", session.Name)
 	}
 }

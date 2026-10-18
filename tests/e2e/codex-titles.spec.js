@@ -15,6 +15,7 @@ test('Codex automatically titles unnamed windows and persists titles without lea
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   try {
+    await expect(page.locator('#session-title')).toHaveText('codex');
     await page.locator('#cmd-input').fill('检查项目为什么构建失败');
     await page.locator('#send-btn').click();
     await expect(page.locator('#session-title')).toHaveText('修复项目构建');
@@ -47,7 +48,7 @@ test('Codex manual naming wins during generation and title errors leave the chat
   try {
     await page.locator('#cmd-input').fill('__GLAD_E2E_TITLE_SLOW__ 检查构建');
     await page.locator('#send-btn').click();
-    await expect(page.locator('#session-title')).toContainText('__GLAD_E2E_TITLE_SLOW__');
+    await expect(page.locator('#session-title')).toHaveText('codex');
     await page.waitForTimeout(350);
     await expect.poll(() => page.evaluate(() => codexState.status)).toBe('idle');
     await page.request.patch(`/api/sessions/${id}`, { data: { name: '用户指定名称' } });
@@ -61,29 +62,30 @@ test('Codex manual naming wins during generation and title errors leave the chat
   try {
     await page.locator('#cmd-input').fill('__GLAD_E2E_TITLE_FAIL__ build');
     await page.locator('#send-btn').click();
-    await expect(page.locator('#session-title')).toHaveText('__GLAD_E2E_TITLE_FAIL__ build');
+    await expect(page.locator('#session-title')).toHaveText('codex');
     await page.waitForTimeout(350);
     await expect.poll(() => page.evaluate(() => codexState.status)).toBe('idle');
+    await expect(page.locator('#session-title')).toHaveText('codex');
     await page.locator('#cmd-input').fill('继续');
     await expect(page.locator('#send-btn')).toBeEnabled();
   } finally { await page.request.delete(`/api/sessions/${failedId}`); }
 });
 
-test('Codex resume and fork preserve unnamed history and session-owned names', async ({ page }) => {
+test('Codex resume and fork use defaults for unnamed history and preserve session-owned names', async ({ page }) => {
   const id = await titleSession(page);
   try {
     await page.evaluate(() => selectCodexResumeThread('untitled-history-e2e'));
-    await expect(page.locator('#session-title')).toHaveText('');
+    await expect(page.locator('#session-title')).toHaveText('codex');
     const listing = await (await page.request.get(`/api/sessions/${id}/codex-resume-threads`)).json();
-    expect(listing.items.find(item => item.id === 'untitled-history-e2e').title).toBe('');
+    expect(listing.items.find(item => item.id === 'untitled-history-e2e').title).toBe('codex');
   } finally { await page.request.delete(`/api/sessions/${id}`); }
 
   const forkId = await titleSession(page);
   try {
     await page.evaluate(() => selectCodexForkThread('untitled-history-e2e'));
-    await expect(page.locator('#session-title')).toHaveText('');
+    await expect(page.locator('#session-title')).toHaveText('codex');
     const listing = await (await page.request.get(`/api/sessions/${forkId}/codex-resume-threads`)).json();
-    expect(listing.items.find(item => item.id === 'fork-of-untitled-history-e2e').title).toBe('');
+    expect(listing.items.find(item => item.id === 'fork-of-untitled-history-e2e').title).toBe('codex');
     expect(listing.items.find(item => item.id === 'untitled-history-e2e')).toBeUndefined();
   } finally { await page.request.delete(`/api/sessions/${forkId}`); }
 

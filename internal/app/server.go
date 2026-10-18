@@ -319,12 +319,13 @@ func (server *Server) renameSession(writer http.ResponseWriter, request *http.Re
 		respondError(writer, 500, err)
 		return
 	}
-	session.Name = name
+	session.Name = sessionNameOrDefault(session.Tool.Key, name)
 	session.NameManual = true
 	session.nameRevision++
-	session.publishLocked(map[string]any{"type": "session-renamed", "name": name})
+	displayName := session.Name
+	session.publishLocked(map[string]any{"type": "session-renamed", "name": displayName})
 	session.mu.Unlock()
-	result := map[string]any{"success": true, "name": name}
+	result := map[string]any{"success": true, "name": displayName}
 	if provider, ok := session.Provider.(*CodexProvider); ok {
 		if err := provider.titles.rename(request.Context(), name); err != nil {
 			result["warning"] = "Window name saved, but Codex history name could not be synchronized: " + err.Error()

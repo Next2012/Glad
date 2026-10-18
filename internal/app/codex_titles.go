@@ -187,8 +187,10 @@ func (titles *codexTitles) run(ctx context.Context, id string, revision uint64, 
 		}
 		return nil
 	}
-	prompt := codexFirstTitlePrompt(first)
-	provisional := codexTitleText(first)
+	prompt := ""
+	if strings.TrimSpace(first) != "" {
+		prompt = codexFirstTitlePrompt(first)
+	}
 	if recent {
 		titles.setStage(revision, "reading-recent-messages")
 		page, err := titles.rpc(ctx, "thread/turns/list", map[string]any{
@@ -197,16 +199,9 @@ func (titles *codexTitles) run(ctx context.Context, id string, revision uint64, 
 		if err != nil {
 			return err
 		}
-		prompt, provisional = codexRecentTitlePrompt(sliceValue(page["data"]))
+		prompt, _ = codexRecentTitlePrompt(sliceValue(page["data"]))
 	}
-	if provisional == "" {
-		return nil
-	}
-	titles.setStage(revision, "writing-provisional-name")
-	if err := titles.writeAutomaticName(ctx, id, revision, "", provisional); err != nil {
-		return err
-	}
-	if !titles.current(ctx, id, revision) {
+	if prompt == "" {
 		return nil
 	}
 	titles.setStage(revision, "generating-title")
@@ -219,7 +214,7 @@ func (titles *codexTitles) run(ctx context.Context, id string, revision uint64, 
 		return err
 	}
 	titles.setStage(revision, "writing-generated-name")
-	return titles.writeAutomaticName(ctx, id, revision, provisional, name)
+	return titles.writeAutomaticName(ctx, id, revision, "", name)
 }
 
 func (titles *codexTitles) writeAutomaticName(ctx context.Context, id string, revision uint64, expected, name string) error {

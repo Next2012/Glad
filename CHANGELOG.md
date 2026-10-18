@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.13.1] - 2026-10-19
+
+### Changed
+
+- Use session-owned `codex` and `claude` defaults until a name is specified or generated, including unnamed Resume/Fork histories. Keep the default while Codex generates a title, and retain it if generation fails.
+
 ## [2.13.0] - 2026-10-16
 
 ### Added

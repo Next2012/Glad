@@ -36,6 +36,31 @@ async function deleteFixtures(page, groups, sessions) {
   for (const session of sessions) await page.request.delete(`/api/sessions/${session.id}`);
 }
 
+for (const [toolKey, defaultName] of [['codex', 'codex'], ['claude-code', 'claude']]) {
+  test(`${defaultName} default name is shared by session and group views`, async ({ page }) => {
+    const session = await createSession(page, toolKey);
+    const group = await createGroup(page, 'Default names');
+    try {
+      const metadata = await checkedJSON(await page.request.get(`/api/sessions/${session.id}/metadata`));
+      expect(metadata.name).toBe(defaultName);
+      await addMember(page, group, session);
+      expect((await getGroup(page, group.id)).members[0].displayName).toBe(defaultName);
+      await page.goto('/', { waitUntil: 'networkidle' });
+      await expect(page.locator(`.session-card[data-session-id="${session.id}"] .session-name`)).toHaveText(defaultName);
+      await page.evaluate(session => joinSession(session.id, session.name, session.toolKey), metadata);
+      await expect(page.locator('#session-title')).toHaveText(defaultName);
+      await checkedJSON(await page.request.patch(`/api/sessions/${session.id}`, { data: { name: 'Explicit name' } }));
+      await expect(page.locator('#session-title')).toHaveText('Explicit name');
+      const cleared = await checkedJSON(await page.request.patch(`/api/sessions/${session.id}`, { data: { name: '' } }));
+      expect(cleared.name).toBe(defaultName);
+      await expect(page.locator('#session-title')).toHaveText(defaultName);
+      expect((await getGroup(page, group.id)).members[0].displayName).toBe(defaultName);
+    } finally {
+      await deleteFixtures(page, [group], [session]);
+    }
+  });
+}
+
 test('Claude group member queries real MCP summaries, details and C to B to A references', async ({ page }) => {
   test.setTimeout(60000);
   const group = await createGroup(page, 'Context MCP validation');

@@ -280,6 +280,39 @@ func TestCodexManualRenameWinsDuringTitleGeneration(t *testing.T) {
 	}
 }
 
+func TestCodexDefaultNameRemainsWhileGeneratingAndAfterFailure(t *testing.T) {
+	provider, peer := newTitleTestPeer(t, true, true)
+	provider.session.Name = "codex"
+	provider.titles.schedule("current", "Do not use this prompt as a name", false)
+	select {
+	case <-peer.started:
+	case <-time.After(time.Second):
+		t.Fatal("title generation did not start")
+	}
+	checkDefault := func() {
+		t.Helper()
+		provider.session.mu.RLock()
+		name := provider.session.Name
+		provider.session.mu.RUnlock()
+		peer.mu.Lock()
+		nativeName := peer.names["current"]
+		peer.mu.Unlock()
+		if name != "codex" || nativeName != "" {
+			t.Fatal("unfinished title replaced the default", name, nativeName)
+		}
+	}
+	checkDefault()
+	close(peer.release)
+	deadline := time.Now().Add(time.Second)
+	for provider.titles.diagnostics()["status"] != "failed" {
+		if time.Now().After(deadline) {
+			t.Fatal("invalid title did not fail")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	checkDefault()
+}
+
 func TestCodexExistingTitleIsReusedAndOldHistoryGetsRecentPrompt(t *testing.T) {
 	provider, peer := newTitleTestPeer(t, false, false)
 	peer.mu.Lock()

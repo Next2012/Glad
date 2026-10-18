@@ -174,7 +174,7 @@ func newSession(id, name, kind string, tool ToolInfo, workingDirectory string) *
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Session{
 		ctx: ctx, cancel: cancel,
-		ID: id, Name: name, Kind: kind, Tool: tool, WorkingDirectory: workingDirectory,
+		ID: id, Name: sessionNameOrDefault(tool.Key, name), Kind: kind, Tool: tool, WorkingDirectory: workingDirectory,
 		StartTime: millis(), StatusValue: "idle", State: map[string]any{"status": "idle"},
 		Messages: []map[string]any{}, Permissions: map[string]Permission{},
 		CompletedPermissions: []Permission{}, TimedInputs: map[string]*TimedInput{},
@@ -187,12 +187,15 @@ func newSession(id, name, kind string, tool ToolInfo, workingDirectory string) *
 func (session *Session) setAutomaticName(name string) {
 	session.mu.Lock()
 	defer session.mu.Unlock()
-	if session.closed || session.NameManual || name == "" || session.Name == name {
+	if session.closed || session.NameManual || strings.TrimSpace(name) == "" {
 		return
 	}
 	if err := session.names.write(session.Tool.Key, session.WorkingDirectory, sessionNativeConversationID(session), sessionName{name, false}); err != nil {
 		session.State["nameError"] = err.Error()
 		session.publishLocked(map[string]any{"type": "state", "state": cloneMap(session.State)})
+		return
+	}
+	if session.Name == name {
 		return
 	}
 	session.Name = name
