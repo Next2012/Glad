@@ -388,11 +388,20 @@ func (server *Server) recreateRoomMember(ctx context.Context, member RoomMemberR
 			}
 			session.replaceClaudeConversation(messages)
 		} else {
-			if len(sourceMessages) > 0 {
-				session.replaceMessages(sourceMessages)
-			}
 			if _, err := provider.Fork(ctx, member.NativeConversationID); err != nil {
 				return cleanup(err)
+			}
+			if len(sourceMessages) > 0 {
+				session.mu.RLock()
+				empty := len(session.Messages) == 0
+				session.mu.RUnlock()
+				// This caller has already read the selected member's source.
+				// A new runtime has no current thread to authorize the generic
+				// single-session fallback; restore only this verified source,
+				// after Fork commits its native identity, if no history arrived.
+				if empty {
+					session.replaceMessages(sourceMessages)
+				}
 			}
 		}
 		return session, nil

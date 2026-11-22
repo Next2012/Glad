@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Preserve message identities after native history trimming, and reject stale history pages, message revisions, and session initialization responses.
 - Bind recovered Codex histories to their native thread atomically and refresh paging cursors when a late native session identity arrives.
+- Preserve verified source transcripts when group forks omit native history, without reusing an unrelated current conversation.
 - Keep long historical tool results and system messages readable when expanding paged text, and bound malformed native-log warnings and oversized child-history windows.
 - Retain reading positions, rendered diagrams, and expanded child histories during incremental updates without double-counting child usage.
 
