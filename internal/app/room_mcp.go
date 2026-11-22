@@ -152,9 +152,13 @@ func (manager *SessionManager) historySession(member RoomMemberRecord) *Session 
 	}
 	s := newSession(member.RuntimeSessionID, "", member.ToolKey+"-structured", ToolInfo{Key: member.ToolKey}, member.WorkingDirectory)
 	s.turnIndexes = manager.turnIndexes
-	if member.ToolKey == "codex" {
+	switch member.ToolKey {
+	case "codex":
 		s.State["threadId"] = member.NativeConversationID
-	} else {
+	case "antigravity":
+		s.State["antigravitySessionId"] = member.NativeConversationID
+		s.State["nativeConversationId"] = member.NativeConversationID
+	default:
 		s.State["claudeSessionId"] = member.NativeConversationID
 	}
 	return s

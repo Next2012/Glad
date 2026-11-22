@@ -586,6 +586,13 @@ func (bridge *workbenchBridge) serveRequest(writer *httptest.ResponseRecorder, m
 
 // 与 Glad 本地界面相同的权限枚举；设置最终由对应后端处理。
 func workbenchSettingsAllowed(settings map[string]any) bool {
+	if mode, ok := settings["mode"]; ok {
+		switch mode {
+		case "default", "accept-edits", "auto", "plan":
+		default:
+			return false
+		}
+	}
 	if mode, ok := settings["permissionMode"]; ok {
 		switch mode {
 		case "default", "on-request", "on-failure", "untrusted", "never", "manual", "auto", "acceptEdits", "bypassPermissions", "dontAsk", "plan":
@@ -605,7 +612,7 @@ func workbenchSettingsAllowed(settings map[string]any) bool {
 
 func workbenchPayloadAllowed(payload map[string]any) bool {
 	kind := stringValue(payload["type"])
-	if kind == "codex-settings" || kind == "claude-settings" {
+	if kind == "codex-settings" || kind == "claude-settings" || kind == "antigravity-settings" {
 		return workbenchSettingsAllowed(mapValue(payload["settings"]))
 	}
 	return true
@@ -628,10 +635,7 @@ func (bridge *workbenchBridge) openStream(message workbenchMessage) {
 	bridge.streams[message.ID] = stream
 	bridge.mu.Unlock()
 	subscription, snapshot := session.subscribeWithSnapshot(256)
-	kind := "claude-snapshot"
-	if session.Kind == "codex-structured" {
-		kind = "codex-snapshot"
-	}
+	kind := structuredMessageType(session.Kind, "snapshot")
 	_ = bridge.streamData(message.ID, map[string]any{"type": kind, "snapshot": snapshot})
 	bridge.tasks.Add(1)
 	go func() {
@@ -641,10 +645,7 @@ func (bridge *workbenchBridge) openStream(message workbenchMessage) {
 		for {
 			select {
 			case event := <-subscription.Events():
-				kind := "claude-event"
-				if event.Kind == "codex-structured" {
-					kind = "codex-event"
-				}
+				kind := structuredMessageType(event.Kind, "event")
 				if bridge.streamData(message.ID, map[string]any{"type": kind, "event": event.Payload}) != nil {
 					return
 				}

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -70,6 +71,11 @@ func NewServer(baseDir string, port int, assets fs.FS) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	server.sessions.antigravityUsage, err = openAntigravityUsageStore(filepath.Join(home, ".glad", "antigravity-usage"))
+	if err != nil {
+		return nil, err
+	}
+	server.usage.antigravityUsage = server.sessions.antigravityUsage
 	server.supervisors, err = OpenSupervisorManager(filepath.Join(home, ".glad", "supervisors"), server.rooms, sessions)
 	if err != nil {
 		return nil, err
@@ -177,6 +183,7 @@ func (server *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/sessions/{id}/attachments/files/{attachmentId}", server.deleteAttachment)
 	mux.HandleFunc("GET /ws", server.websocket)
 	server.registerProviderRoutes(mux)
+	server.registerAntigravityRoutes(mux)
 	server.registerWorkspaceRoutes(mux)
 	server.registerScheduleRoutes(mux)
 	server.registerNotificationRoutes(mux)
@@ -222,6 +229,8 @@ func (server *Server) sessionMetadata(writer http.ResponseWriter, request *http.
 	session.mu.RLock()
 	item["threadId"] = session.State["threadId"]
 	item["claudeSessionId"] = session.State["claudeSessionId"]
+	item["antigravitySessionId"] = session.State["antigravitySessionId"]
+	item["nativeConversationId"] = sessionNativeConversationID(session)
 	item["settings"] = workbenchSessionSettings(session.State)
 	session.mu.RUnlock()
 	respondJSON(writer, http.StatusOK, item)
@@ -266,14 +275,16 @@ func (server *Server) sendSessionInput(writer http.ResponseWriter, request *http
 		Text            string `json:"text"`
 		AutoStart       bool   `json:"autoStart"`
 		ClientMessageID string `json:"clientMessageId"`
+		Delivery        string `json:"delivery"`
+		ExpectedTurnID  string `json:"expectedTurnId"`
 	}
 	if err := decodeJSON(request, &input); err != nil {
 		respondError(writer, http.StatusBadRequest, err)
 		return
 	}
 	if input.AutoStart {
-		if strings.TrimSpace(input.Text) != "" || (session.Tool.Key != "codex" && session.Tool.Key != "claude-code") {
-			respondError(writer, http.StatusBadRequest, errors.New("autoStart requires Codex or Claude and no text"))
+		if strings.TrimSpace(input.Text) != "" || input.Delivery != "" || input.ExpectedTurnID != "" || (session.Tool.Key != "codex" && session.Tool.Key != "claude-code" && session.Tool.Key != "antigravity") {
+			respondError(writer, http.StatusBadRequest, errors.New("autoStart requires a supported structured provider and no text or steering"))
 			return
 		}
 	} else if strings.TrimSpace(input.Text) == "" || len(input.Text) > 16<<10 {
@@ -282,9 +293,10 @@ func (server *Server) sendSessionInput(writer http.ResponseWriter, request *http
 	}
 	session.commandMu.Lock()
 	defer session.commandMu.Unlock()
-	message := ProviderInput{ClientMessageID: firstNonEmpty(input.ClientMessageID, newUUID()), Text: input.Text, AgentText: input.Text}
+	message := ProviderInput{ClientMessageID: firstNonEmpty(input.ClientMessageID, newUUID()), Text: input.Text, AgentText: input.Text, Delivery: input.Delivery, ExpectedTurnID: input.ExpectedTurnID}
 	if input.AutoStart {
 		message = sessionBootstrapInput(session)
+		message.ClientMessageID = firstNonEmpty(input.ClientMessageID, newUUID())
 	}
 	if err := sendSessionControlledLocked(request.Context(), session, message); err != nil {
 		respondError(writer, http.StatusConflict, err)
@@ -451,10 +463,7 @@ func (server *Server) websocket(writer http.ResponseWriter, request *http.Reques
 		subscription.Close()
 		_ = connection.Close(websocket.StatusNormalClosure, "")
 	}()
-	snapshotType := "claude-snapshot"
-	if session.Kind == "codex-structured" {
-		snapshotType = "codex-snapshot"
-	}
+	snapshotType := structuredMessageType(session.Kind, "snapshot")
 	writeCtx, writeCancel := context.WithTimeout(ctx, 5*time.Second)
 	err = writeWSJSON(writeCtx, connection, map[string]any{"type": snapshotType, "snapshot": snapshot})
 	writeCancel()
@@ -479,10 +488,7 @@ func (server *Server) websocket(writer http.ResponseWriter, request *http.Reques
 				}
 				continue
 			case event := <-subscription.Events():
-				typeName := "claude-event"
-				if event.Kind == "codex-structured" {
-					typeName = "codex-event"
-				}
+				typeName := structuredMessageType(event.Kind, "event")
 				message = map[string]any{"type": typeName, "event": event.Payload}
 			case message = <-outbound:
 			case <-subscription.Done():
@@ -543,18 +549,37 @@ func (server *Server) handleWebsocketMessage(
 	defer cancel()
 	messageType := stringValue(payload["type"])
 	switch messageType {
-	case "claude-input", "codex-input":
+	case "claude-input", "codex-input", "antigravity-input":
+		if messageType != structuredMessageType(session.Kind, "input") {
+			server.writeSendResult(send, stringValue(payload["clientMessageId"]), sendResult{Error: "Input provider does not match this session"})
+			return
+		}
+		for _, field := range []string{"delivery", "expectedTurnId"} {
+			if value, exists := payload[field]; exists {
+				if _, ok := value.(string); !ok {
+					server.writeSendResult(send, stringValue(payload["clientMessageId"]), sendResult{Error: field + " must be a string"})
+					return
+				}
+			}
+		}
 		clientMessageID := strings.TrimSpace(stringValue(payload["clientMessageId"]))
+		encodedInput, _ := json.Marshal(payload)
+		fingerprint := fmt.Sprintf("%x", sha256.Sum256(encodedInput))
 		if clientMessageID != "" {
 			session.mu.RLock()
 			cached, ok := session.sendResults[clientMessageID]
 			session.mu.RUnlock()
 			if ok {
+				if cached.Fingerprint != "" && cached.Fingerprint != fingerprint {
+					server.writeSendResult(send, clientMessageID, sendResult{Error: "message ID was already used for different content"})
+					return
+				}
 				server.writeSendResult(send, clientMessageID, cached)
 				return
 			}
 		}
 		finish := func(result sendResult) {
+			result.Fingerprint = fingerprint
 			if clientMessageID != "" {
 				session.mu.Lock()
 				if len(session.sendResults) >= 512 {
@@ -597,6 +622,8 @@ func (server *Server) handleWebsocketMessage(
 			ctx, session,
 			ProviderInput{
 				ClientMessageID: clientMessageID,
+				Delivery:        stringValue(payload["delivery"]),
+				ExpectedTurnID:  stringValue(payload["expectedTurnId"]),
 				Text:            text,
 				AgentText:       agentText,
 				Images:          images,
@@ -620,11 +647,11 @@ func (server *Server) handleWebsocketMessage(
 		if provider, ok := session.Provider.(ApprovalProvider); ok {
 			_ = provider.Approve(ctx, stringValue(payload["id"]), decision, payload)
 		}
-	case "claude-user-input":
+	case "claude-user-input", "antigravity-user-input":
 		if provider, ok := session.Provider.(UserInputProvider); ok {
 			_ = provider.RespondUserInput(ctx, stringValue(payload["id"]), payload)
 		}
-	case "codex-permission":
+	case "codex-permission", "antigravity-permission":
 		decision := stringValue(payload["decision"])
 		if decision == "" && boolValue(payload["approved"]) {
 			decision = "approved"
@@ -632,13 +659,13 @@ func (server *Server) handleWebsocketMessage(
 		if provider, ok := session.Provider.(ApprovalProvider); ok {
 			_ = provider.Approve(ctx, stringValue(payload["id"]), decision, payload)
 		}
-	case "claude-settings", "codex-settings":
+	case "claude-settings", "codex-settings", "antigravity-settings":
 		if provider, ok := session.Provider.(SettingsProvider); ok {
 			if err := provider.UpdateSettings(ctx, mapValue(payload["settings"])); err != nil {
 				send(map[string]any{"type": "error", "error": err.Error(), "message": err.Error()})
 			}
 		}
-	case "claude-abort", "codex-abort":
+	case "claude-abort", "codex-abort", "antigravity-abort":
 		if _, ok := session.Provider.(InterruptProvider); ok {
 			_ = stopSessionControlledLocked(ctx, session, "")
 		}
@@ -649,7 +676,7 @@ func (server *Server) handleWebsocketMessage(
 			result["error"] = err.Error()
 		}
 		send(result)
-	case "codex-status":
+	case "codex-status", "antigravity-status":
 		if provider, ok := session.Provider.(StatusProvider); ok {
 			_ = provider.Status(ctx)
 		}
@@ -667,7 +694,7 @@ func (server *Server) handleWebsocketMessage(
 		if provider, ok := session.Provider.(*ClaudeProvider); ok {
 			_ = provider.RunLocalCommand(ctx, "/context")
 		}
-	case "codex-compact":
+	case "codex-compact", "antigravity-compact":
 		if provider, ok := session.Provider.(CompactProvider); ok {
 			_ = provider.Compact(ctx)
 		}
@@ -675,10 +702,10 @@ func (server *Server) handleWebsocketMessage(
 		if provider, ok := session.Provider.(CompactProvider); ok {
 			_ = provider.Compact(ctx)
 		}
-	case "codex-detail-request":
+	case "codex-detail-request", "antigravity-detail-request":
 		send(
 			map[string]any{
-				"type":      "codex-detail-response",
+				"type":      structuredMessageType(session.Kind, "detail-response"),
 				"requestId": payload["requestId"],
 				"detail":    session.detail(stringsFromAny(payload["ids"]), stringValue(payload["threadId"])),
 			},

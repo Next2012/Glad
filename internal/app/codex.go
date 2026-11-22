@@ -110,6 +110,8 @@ type CodexProvider struct {
 	appliedSettingsRevision uint64
 
 	sending                 bool
+	steering                bool
+	uncertainSteering       map[string]struct{}
 	capacityRetryTimer      *time.Timer
 	capacityRetryGeneration uint64
 	capacityRetryAttempts   int
@@ -243,7 +245,7 @@ func (provider *CodexProvider) send(ctx context.Context, input ProviderInput, re
 		provider.mu.Unlock()
 		return errors.New("Codex session is unavailable")
 	}
-	if provider.turnID != "" || provider.sending {
+	if provider.turnID != "" || provider.sending || provider.steering {
 		provider.mu.Unlock()
 		return errors.New("Codex session is busy")
 	}
@@ -260,6 +262,7 @@ func (provider *CodexProvider) send(ctx context.Context, input ProviderInput, re
 		provider.mu.Lock()
 		provider.sending = false
 		provider.mu.Unlock()
+		provider.refreshPublicState()
 	}()
 	if provider.cmd == nil {
 		if err := provider.startLocked(ctx); err != nil {
@@ -513,7 +516,7 @@ func (provider *CodexProvider) handleRPC(message map[string]any) {
 		provider.titles.receivedResponse(id, mapValue(message["result"]), channel == nil)
 		if channel != nil {
 			if rawError := mapValue(message["error"]); len(rawError) > 0 {
-				channel <- codexRPCResult{Err: errors.New(stringValue(rawError["message"]))}
+				channel <- codexRPCResult{Err: codexRPCError{stringValue(rawError["message"])}}
 			} else {
 				channel <- codexRPCResult{Result: mapValue(message["result"])}
 			}
@@ -927,6 +930,11 @@ func (provider *CodexProvider) applyItem(raw map[string]any, inferred string) {
 		provider.session.mu.RLock()
 		for index := len(provider.session.Messages) - 1; index >= 0; index-- {
 			message := provider.session.Messages[index]
+			if clientID := firstNonEmpty(stringValue(raw["clientUserMessageId"]), providerID); stringValue(message["kind"]) == "user" && clientID != "" && clientID == stringValue(message["clientMessageId"]) {
+				existingID = stringValue(message["id"])
+				preserveUserText = true
+				break
+			}
 			if stringValue(message["kind"]) == "user" && message["providerId"] == nil &&
 				(stringValue(message["text"]) == stringValue(patch["text"]) ||
 					stringValue(message["agentText"]) == stringValue(patch["text"])) {
@@ -2156,6 +2164,8 @@ func (provider *CodexProvider) updatePublicStateLocked(status string) {
 		"serviceTier":             provider.serviceTierLocked(),
 		"status":                  status,
 		"threadId":                nilIfEmpty(provider.threadID),
+		"turnId":                  nilIfEmpty(provider.turnID),
+		"canSteer":                provider.canSteerLocked(),
 		"aborting":                aborting,
 		"resuming":                resuming,
 		"forking":                 forking,

@@ -42,6 +42,29 @@ var supportedTools = []ToolInfo{
 		Description: "Official OpenAI Codex CLI",
 		Website:     "https://developers.openai.com/codex",
 	},
+	{
+		Key:         "antigravity",
+		Command:     "agy",
+		Args:        []string{},
+		DisplayName: "Antigravity",
+		Description: "Google Antigravity CLI",
+		Website:     "https://antigravity.google",
+	},
+}
+
+// Structured transport names stay provider-specific. Keeping this small mapping
+// in one place avoids routing a third provider through a Claude fallback.
+func structuredMessageType(kind, suffix string) string {
+	switch kind {
+	case "codex-structured":
+		return "codex-" + suffix
+	case "antigravity-structured":
+		return "antigravity-" + suffix
+	case "claude-structured":
+		return "claude-" + suffix
+	default:
+		return "structured-" + suffix
+	}
 }
 
 func detectTools(ctx context.Context) []ToolInfo {

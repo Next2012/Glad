@@ -2,7 +2,7 @@
   "name": "glad-web",
   "private": true,
   "version": "2.13.1",
-  "description": "A native, local-first Web interface for Codex and Claude.",
+  "description": "A native, local-first Web interface for Codex, Claude, and Antigravity.",
   "scripts": {
     "start": "go run .",
     "test:e2e": "playwright test",

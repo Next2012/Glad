@@ -1,0 +1,99 @@
+#!/usr/bin/env node
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const readline = require('node:readline');
+const args = process.argv.slice(2);
+if (args.includes('--version')) { console.log('Antigravity CLI 1.5.14-e2e'); process.exit(0); }
+if (args.includes('/usage')) {
+ console.log(JSON.stringify({status:'SUCCESS',command:{name:'usage',data:{groups:[{name:'Fixture models',buckets:[{id:'fixture-weekly',name:'Weekly Remaining',window:'weekly',remaining_fraction:0.75,reset_time:'2027-01-01T00:00:00Z'}]}]}}}));process.exit(0);
+}
+if (args[0] !== 'acp') { console.error('Unsupported fake agy command');process.exit(1); }
+const root = process.env.ANTIGRAVITY_HOME || path.join(process.env.HOME || os.tmpdir(), '.glad-e2e-agy-fixture');
+const historyPath = id => path.join(root, encodeURIComponent(id)+'.json');
+let sessionID='agy-session-e2e', sequence=0, history=[], cwd=process.cwd(), active=new Map(), background=null;
+const interactions=new Map();
+const configOptions=[
+ {id:'model',name:'Model',category:'model',type:'select',currentValue:'gemini-3.1-pro',options:[{value:'gemini-3.1-pro',name:'Gemini 3.1 Pro'},{value:'claude-sonnet-4.6',name:'Claude Sonnet 4.6'}]},
+ {id:'thought_level',name:'Thinking',category:'thought_level',type:'select',currentValue:'high',options:[{value:'low',name:'Low'},{value:'medium',name:'Medium'},{value:'high',name:'High'}]},
+ {id:'mode',name:'Mode',category:'mode',type:'select',currentValue:'default',options:[{value:'default',name:'Default'},{value:'accept-edits',name:'Accept edits'},{value:'auto',name:'Auto'},{value:'plan',name:'Plan'}]},
+];
+const modes=()=>({currentModeId:configOptions[2].currentValue,availableModes:configOptions[2].options.map(o=>({id:o.value,name:o.name}))});
+const send=message=>process.stdout.write(JSON.stringify({jsonrpc:'2.0',...message})+'\n');
+function save(){fs.mkdirSync(root,{recursive:true});fs.writeFileSync(historyPath(sessionID),JSON.stringify({sessionID,cwd,history}));}
+function update(update,remember=true){if(remember){history.push(update);save();}send({method:'session/update',params:{sessionId:sessionID,update}});}
+function text(text,kind='agent_message_chunk'){update({sessionUpdate:kind,messageId:`${kind}-${sequence}`,content:{type:'text',text}});}
+function done(id,stopReason='end_turn',usageMultiplier=1){const item=active.get(id);if(item){clearTimeout(item.timer);active.delete(id);}update({sessionUpdate:'usage_update',used:1200,size:100000},false);send({id,result:{stopReason,...(usageMultiplier==null?{}:{usage:{inputTokens:100*usageMultiplier,outputTokens:80*usageMultiplier,cachedReadTokens:20*usageMultiplier,cachedWriteTokens:0,thoughtTokens:10*usageMultiplier,totalTokens:200*usageMultiplier}})}});}
+function commands(){update({sessionUpdate:'available_commands_update',availableCommands:[{name:'compact',description:'Compact conversation'},{name:'plan',description:'Plan the work'},{name:'fixture-skill',description:'Fixture skill',input:{hint:'task'}}]},false);}
+function reply(id,textValue){text(textValue);done(id);}
+function closeBackground(){if(!background)return;clearTimeout(background.timer);update({sessionUpdate:'tool_call_update',toolCallId:background.id,status:'completed',rawOutput:{output:'Background tool finished'}});background=null;}
+readline.createInterface({input:process.stdin,crlfDelay:Infinity}).on('line',line=>{
+ let message;try{message=JSON.parse(line);}catch{return;}
+ const {id,method,params={}}=message;
+ if(!method){
+  const interaction=interactions.get(String(id));if(!interaction)return;interactions.delete(String(id));
+  if(interaction.type==='approval'){
+   const selected=message.result?.outcome?.optionId;
+   update({sessionUpdate:'tool_call_update',toolCallId:interaction.tool,status:selected?.startsWith('allow')?'completed':'failed',rawOutput:{output:selected?.startsWith('allow')?'Approved fixture tool':'Denied fixture tool'}});
+   reply(interaction.prompt,selected?.startsWith('allow')?'AGY approval accepted':'AGY approval denied');
+  }else reply(interaction.prompt,'AGY question answered: '+JSON.stringify(message.result));
+  return;
+ }
+ switch(method){
+ case 'initialize':send({id,result:{protocolVersion:1,agentInfo:{name:'antigravity',version:'1.5.14'},agentCapabilities:{loadSession:true,sessionCapabilities:{list:{},load:{},resume:{},close:{},additionalDirectories:{}},promptCapabilities:{image:true,embeddedContext:true},_meta:{antigravity:{systemPrompt:{append:true}}}}}});break;
+ case 'session/new':cwd=params.cwd||cwd;send({id,result:{sessionId:sessionID,configOptions,modes:modes()}});setTimeout(commands,20);break;
+ case 'session/list':{
+  let sessions=[];try{sessions=fs.readdirSync(root).filter(n=>n.endsWith('.json')).map(n=>JSON.parse(fs.readFileSync(path.join(root,n),'utf8'))).filter(s=>!params.cwd||s.cwd===params.cwd).map(s=>({sessionId:s.sessionID,cwd:s.cwd,title:'Fixture '+s.sessionID,updatedAt:new Date().toISOString()}));}catch{}
+  if(!sessions.length)sessions=[{sessionId:sessionID,cwd,title:'Antigravity fixture',updatedAt:new Date().toISOString()}];
+  send({id,result:{sessions,nextCursor:null}});break;
+ }
+ case 'session/load':{
+  const target=params.sessionId;
+  if(target?.includes('slow-load')){send({method:'session/update',params:{sessionId:target,update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'partial slow replay'}}}});setTimeout(()=>send({id,result:{sessionId:target,configOptions,modes:modes()}}),15000);break;}
+  if(!target||target.includes('missing')){send({method:'session/update',params:{sessionId:target,update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'partial failed replay'}}}});send({id,error:{code:-32001,message:'Fixture session not found'}});break;}
+  let loaded;try{loaded=JSON.parse(fs.readFileSync(historyPath(target),'utf8'));}catch{loaded={sessionID:target,cwd,history:[{sessionUpdate:'user_message_chunk',messageId:'history-user',content:{type:'text',text:'Historical fixture prompt'}},{sessionUpdate:'agent_message_chunk',messageId:'history-assistant',content:{type:'text',text:'Historical fixture reply'}}]};}
+  sessionID=target;history=loaded.history;cwd=loaded.cwd;for(const update of history)send({method:'session/update',params:{sessionId:sessionID,update}});
+  send({id,result:{sessionId:sessionID,configOptions,modes:modes()}});setTimeout(commands,20);break;
+ }
+ case 'session/set_config_option':{
+  const option=configOptions.find(o=>o.id===params.configId);if(!option||!option.options.some(o=>o.value===params.value)){send({id,error:{code:-32602,message:'Unknown config option'}});break;}
+  option.currentValue=params.value;update({sessionUpdate:'config_option_update',configOptions},false);send({id,result:{configOptions}});break;
+ }
+ case 'session/set_mode':configOptions[2].currentValue=params.modeId;send({id,result:{}});break;
+ case 'session/prompt':{
+  sequence++;const value=(params.prompt||[]).filter(p=>p.type==='text').map(p=>p.text).join('\n');
+  const steering=active.size>0||background!==null;
+  update({sessionUpdate:'user_message_chunk',messageId:`user-${sequence}`,content:{type:'text',text:value}});
+  if(steering){if(value.includes('agy-steer-reject')){send({id,error:{code:-32003,message:'Fixture rejected steering'}});return;}for(const [pending,item] of active){if(!item.ignoreCancel)done(pending,'end_turn',null);}active.set(id,{});text('AGY steering accepted: '+value);active.get(id).timer=setTimeout(()=>{if(background){closeBackground();text('AGY background completed after steering');}text('AGY original turn completed after steering');done(id,'end_turn',2);},120);break;}
+  active.set(id,{});
+  if(value.trim()==='/compact'){update({sessionUpdate:'compaction_update',compactionId:'fixture-compaction',status:'in_progress'});update({sessionUpdate:'compaction_update',compactionId:'fixture-compaction',status:'completed',summary:'Fixture compaction complete'});done(id);break;}
+  if(value.includes('agy-metrics')){active.get(id).timer=setTimeout(()=>reply(id,'AGY metrics fixture completed'),150);break;}
+  if(value.includes('agy-error')){active.delete(id);send({id,error:{code:-32002,message:'Fixture prompt failed'}});break;}
+  if(value.includes('agy-approval')){
+   const tool=`approval-tool-${sequence}`;update({sessionUpdate:'tool_call',toolCallId:tool,name:'run_command',title:'Fixture protected command',status:'pending',rawInput:{CommandLine:'echo approved'}});
+   const request=`approval-${sequence}`;interactions.set(request,{type:'approval',prompt:id,tool});send({id:request,method:'session/request_permission',params:{sessionId:sessionID,toolCall:{toolCallId:tool,name:'run_command',title:'Fixture protected command',rawInput:{CommandLine:'echo approved'}},options:[{optionId:'allow-once-exact',name:'Allow once',kind:'allow_once'},{optionId:'allow-always-exact',name:'Always allow',kind:'allow_always'},{optionId:'reject-once-exact',name:'Reject',kind:'reject_once'}]}});setTimeout(commands,10);break;
+  }
+  if(value.includes('agy-question')){
+   const request=`question-${sequence}`;interactions.set(request,{type:'question',prompt:id});send({id:request,method:'elicitation/create',params:{sessionId:sessionID,mode:'form',message:'Choose fixture destination',requestedSchema:{type:'object',properties:{destination:{type:'string',title:'Destination',enum:['Local','Remote']},count:{type:'integer',title:'Count',minimum:1,default:1},enabled:{type:'boolean',title:'Enabled',default:true}},required:['destination']}}});setTimeout(commands,10);break;
+  }
+  if(value.includes('agy-background')||value.includes('agy-daemon')){
+   const daemon=value.includes('agy-daemon'),tool=`background-${sequence}`;update({sessionUpdate:'tool_call',toolCallId:tool,name:'run_command',title:daemon?'Fixture daemon':'Fixture background work',status:'in_progress',rawInput:{CommandLine:'sleep 2',IsDaemon:daemon}});
+   background={id:tool,timer:setTimeout(()=>{closeBackground();text('AGY background finished');update({sessionUpdate:'usage_update',used:1500,size:100000},false);},2000)};done(id);if(daemon){clearTimeout(background.timer);background=null;}break;
+  }
+  if(value.includes('agy-long')||value.includes('agy-ignore-cancel')){
+   const item=active.get(id);item.ignoreCancel=value.includes('agy-ignore-cancel');text('AGY working before steering');item.timer=setTimeout(()=>reply(id,'AGY long turn complete'),30000);break;
+  }
+  if(value.includes('agy-plan')){update({sessionUpdate:'plan',entries:[{content:'Inspect fixture',priority:'high',status:'completed'},{content:'Implement fixture',priority:'medium',status:'in_progress'}]});}
+  if(value.includes('agy-tool')){
+   const tool=`tool-${sequence}`;update({sessionUpdate:'tool_call',toolCallId:tool,name:'write_file',kind:'edit',title:'Edit fixture.txt',status:'in_progress',rawInput:{Path:'fixture.txt',Content:'new'},locations:[{path:'fixture.txt'}],content:[{type:'diff',path:'fixture.txt',oldText:'old',newText:'new'}]});update({sessionUpdate:'tool_call_update',toolCallId:tool,status:'completed',rawOutput:{output:'Fixture file changed'}});
+  }
+  text('Fixture reasoning','agent_thought_chunk');text('AGY fixture reply: '+value);done(id);break;
+ }
+ case 'session/cancel':
+  for(const [pending,item] of active){if(!item.ignoreCancel){clearTimeout(item.timer);done(pending,'cancelled');}}
+  closeBackground();interactions.clear();if(id!==undefined)send({id,result:{}});break;
+ case 'session/close':send({id,result:{}});break;
+ default:if(id!==undefined)send({id,error:{code:-32601,message:'Unsupported fixture ACP method '+method}});
+ }
+});

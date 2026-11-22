@@ -128,6 +128,7 @@ func (manager *RoomManager) Start(ctx context.Context) {
 				if stringValue(event.Payload["type"]) == "state" {
 					state := mapValue(event.Payload["state"])
 					manager.syncSessionConversation(event.SessionID, firstNonEmpty(
+						stringValue(state["nativeConversationId"]), stringValue(state["antigravitySessionId"]),
 						stringValue(state["threadId"]), stringValue(state["claudeSessionId"]), stringValue(state["resumeSessionId"]),
 					))
 				}
@@ -1672,17 +1673,21 @@ func sessionTurnLocator(session *Session, clientID string) (string, string) {
 
 // sessionNativeConversationID requires session.mu to be held by the caller.
 func sessionNativeConversationID(session *Session) string {
-	if session.Tool.Key == "codex" {
+	switch session.Tool.Key {
+	case "codex":
 		return stringValue(session.State["threadId"])
+	case "antigravity":
+		return firstNonEmpty(stringValue(session.State["nativeConversationId"]), stringValue(session.State["antigravitySessionId"]))
+	default:
+		return firstNonEmpty(stringValue(session.State["claudeSessionId"]), stringValue(session.State["resumeSessionId"]))
 	}
-	return firstNonEmpty(stringValue(session.State["claudeSessionId"]), stringValue(session.State["resumeSessionId"]))
 }
 
 // Only recreate settings which define provider identity/behaviour. Volatile
 // runtime fields and message content are intentionally excluded.
 func roomSessionOptions(session *Session) map[string]any {
 	options := map[string]any{}
-	for _, key := range []string{"model", "effort", "permissionMode", "sandboxMode"} {
+	for _, key := range []string{"model", "effort", "mode", "permissionMode", "sandboxMode"} {
 		if value := session.State[key]; value != nil && stringValue(value) != "" {
 			options[key] = value
 		}

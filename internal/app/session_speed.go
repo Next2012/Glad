@@ -34,6 +34,10 @@ type SpeedSample struct {
 	EndedAt            int64    `json:"endedAt"`
 	Status             string   `json:"status"`
 	OutputTokens       *int64   `json:"outputTokens"`
+	InputTokens        *int64   `json:"inputTokens,omitempty"`
+	CachedInputTokens  *int64   `json:"cachedInputTokens,omitempty"`
+	CacheWriteTokens   *int64   `json:"cacheWriteTokens,omitempty"`
+	ThoughtTokens      *int64   `json:"thoughtTokens,omitempty"`
 	WallMs             int64    `json:"wallMs"`
 	BlockedMs          int64    `json:"blockedMs"`
 	ObservedMs         int64    `json:"observedMs"`
@@ -200,18 +204,20 @@ type speedReply struct {
 	start, stop, first, last int64
 }
 type speedRun struct {
-	sample      SpeedSample
-	started     time.Time
-	blocks      map[string]int64
-	intervals   []speedSpan
-	replies     map[string]*speedReply
-	replyID     string
-	tokens      int64
-	known       bool
-	bad         bool
-	lastTotal   int64
-	totalKnown  bool
-	first, last int64
+	antigravityDaemons map[string]bool
+	antigravitySegment int
+	sample             SpeedSample
+	started            time.Time
+	blocks             map[string]int64
+	intervals          []speedSpan
+	replies            map[string]*speedReply
+	replyID            string
+	tokens             int64
+	known              bool
+	bad                bool
+	lastTotal          int64
+	totalKnown         bool
+	first, last        int64
 }
 type SpeedTracker struct {
 	mu            sync.Mutex
@@ -224,10 +230,7 @@ type SpeedTracker struct {
 }
 
 func (session *Session) speedConversationLocked() string {
-	if session.Tool.Key == "codex" {
-		return stringValue(session.State["threadId"])
-	}
-	return stringValue(session.State["claudeSessionId"])
+	return sessionNativeConversationID(session)
 }
 func (tracker *SpeedTracker) begin(conversation, turn, model, profile, effort string, fast bool) {
 	tracker.mu.Lock()
@@ -266,7 +269,14 @@ func (tracker *SpeedTracker) state(status string) {
 	if tracker.run == nil {
 		return
 	}
-	tracker.run.block("human-wait", status == "waiting_approval" || status == "waiting_input")
+	waiting := status == "waiting_approval" || status == "waiting_input"
+	if tracker.run.sample.Provider == "antigravity" {
+		_, blocked := tracker.run.blocks["human-wait"]
+		if blocked != waiting {
+			tracker.run.antigravitySegment++
+		}
+	}
+	tracker.run.block("human-wait", waiting)
 }
 func speedUnion(spans []speedSpan, end int64) int64 {
 	clipped := []speedSpan{}
@@ -306,15 +316,15 @@ func speedRate(tokens *int64, duration int64) *float64 {
 	}
 	return &rate
 }
-func (tracker *SpeedTracker) finish(status string, apiMs int64) {
+func (tracker *SpeedTracker) finish(status string, apiMs int64) *SpeedSample {
 	if tracker == nil {
-		return
+		return nil
 	}
 	tracker.mu.Lock()
 	run := tracker.run
 	if run == nil {
 		tracker.mu.Unlock()
-		return
+		return nil
 	}
 	tracker.run = nil
 	sample := run.sample
@@ -396,6 +406,7 @@ func (tracker *SpeedTracker) finish(status string, apiMs int64) {
 		}
 	}
 	tracker.session.setState(map[string]any{"lastSpeed": tracker.store.last(sample.Provider, sample.ConversationID)})
+	return &sample
 }
 func (tracker *SpeedTracker) codex(method string, params map[string]any, thread, model, profile, effort string, fast bool) {
 	if tracker == nil {

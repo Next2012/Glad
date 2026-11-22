@@ -1019,9 +1019,9 @@ func (manager *SupervisorManager) Call(ctx context.Context, caller *Session, too
 		}
 		inv = activeInvocation(task)
 	case "answer_question":
-		provider, ok := targetSession.Provider.(*CodexProvider)
+		provider, ok := targetSession.Provider.(SupervisorQuestionProvider)
 		if !ok {
-			err = errors.New("This target does not support Codex question answers")
+			err = errors.New("This target does not support supervisor question answers")
 			break
 		}
 		data, _ := json.Marshal(args["answers"])

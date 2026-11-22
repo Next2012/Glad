@@ -20,6 +20,7 @@ import (
 const usageVersion = "20.0.26"
 
 type UsageService struct {
+	antigravityUsage  *AntigravityUsageStore
 	mu                sync.Mutex
 	cached            map[string]any
 	loadedAt          time.Time
@@ -123,8 +124,9 @@ func (service *UsageService) SetOfflineOnly(value bool) error {
 }
 
 var usageSources = map[string]map[string]any{
-	"codex":  {"id": "codex", "label": "Codex", "badge": "CX"},
-	"claude": {"id": "claude", "label": "Claude", "badge": "CL"},
+	"codex":       {"id": "codex", "label": "Codex", "badge": "CX"},
+	"claude":      {"id": "claude", "label": "Claude", "badge": "CL"},
+	"antigravity": {"id": "antigravity", "label": "Antigravity", "badge": "AG", "description": "Usage recorded by Glad"},
 }
 
 func (service *UsageService) findBinary() (string, error) {
@@ -323,6 +325,15 @@ func (service *UsageService) sources(ctx context.Context, refresh bool) (map[str
 			sources = append(sources, usageSources[id])
 		}
 	}
+	_, antigravityErr := exec.LookPath("agy")
+	if antigravityErr == nil || len(service.antigravitySamples()) > 0 {
+		sources = append(sources, usageSources["antigravity"])
+		metadata["hasData"] = true
+		if message := stringValue(metadata["lastError"]); message != "" {
+			metadata["sourceErrors"] = map[string]any{"ccusage": message}
+			metadata["lastError"] = ""
+		}
+	}
 	metadata["sources"] = sources
 	return metadata, nil
 }
@@ -450,6 +461,9 @@ func (service *UsageService) dashboard(
 	source, scope, period string,
 	refresh bool,
 ) (map[string]any, error) {
+	if source == "antigravity" {
+		return service.antigravityDashboard(scope, period)
+	}
 	if usageSources[source] == nil {
 		return nil, errors.New("Unsupported usage source")
 	}

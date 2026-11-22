@@ -104,6 +104,7 @@ test('each finished plan moves between its command and first reply, including af
     await expect(card.locator('.codex-plan-step.completed')).toHaveCount(4);
     await expect(card.locator('.spinning')).toHaveCount(0);
     await expectConversationOrder(page, ['user', 'plan', 'assistant', 'assistant']);
+    await page.waitForFunction(() => codexState.status === 'idle');
     await expect(page.locator('#send-btn')).toBeEnabled();
     await page.locator('#cmd-input').fill('__GLAD_E2E_PLAN_SECOND__');
     await page.locator('#send-btn').click();

@@ -15,6 +15,13 @@ import (
 // Readiness is a snapshot only. Send must check again under the provider lock.
 type ReadinessProvider interface{ CanAccept() (bool, string) }
 
+// SteeringProvider appends instructions to an identified running turn. It must
+// recheck that turn under its own lock and must never fall back to Send.
+type SteeringProvider interface {
+	Steer(context.Context, ProviderInput, string) error
+}
+type SteeringReadinessProvider interface{ CanSteer() (bool, string) }
+
 type SupervisorSource struct {
 	Version      int    `json:"version"`
 	TaskID       string `json:"taskId"`
@@ -116,7 +123,7 @@ func sessionCanAccept(session *Session) (bool, string) {
 func (provider *CodexProvider) CanAccept() (bool, string) {
 	provider.mu.Lock()
 	defer provider.mu.Unlock()
-	if provider.closed || provider.turnID != "" || provider.sending || provider.aborting || provider.resumeInFlight || provider.resuming || provider.forking || provider.capacityRetryTimer != nil {
+	if provider.closed || provider.turnID != "" || provider.sending || provider.steering || provider.aborting || provider.resumeInFlight || provider.resuming || provider.forking || provider.capacityRetryTimer != nil {
 		return false, "Codex session is busy or recovering"
 	}
 	return true, ""
@@ -136,12 +143,21 @@ func sendSessionControlled(ctx context.Context, session *Session, input Provider
 	return sendSessionControlledLocked(ctx, session, input)
 }
 func sendSessionControlledLocked(ctx context.Context, session *Session, input ProviderInput) error {
+	if input.Delivery != "" && input.Delivery != "steer" {
+		return errors.New("Unsupported message delivery")
+	}
+	if input.Delivery == "steer" && strings.TrimSpace(input.ExpectedTurnID) == "" {
+		return errors.New("Steering requires an expected turn ID")
+	}
+	if input.Delivery != "steer" && input.ExpectedTurnID != "" {
+		return errors.New("An expected turn ID requires steering delivery")
+	}
 	encoded, _ := json.Marshal(input)
 	digest := sha256.Sum256(encoded)
 	hash := hex.EncodeToString(digest[:])
 	session.mu.RLock()
 	savedHash, exists := session.controlHashes[input.ClientMessageID]
-	lease := session.supervisorLease
+	lease, closed, recovering := session.supervisorLease, session.closed, session.recovering
 	session.mu.RUnlock()
 	if input.ClientMessageID != "" && exists {
 		if savedHash != hash {
@@ -152,10 +168,31 @@ func sendSessionControlledLocked(ctx context.Context, session *Session, input Pr
 	if lease != "" && (input.Source == nil || input.Source.Kind != "trigger" || input.Source.InvocationID != lease) {
 		return errors.New("Session is reserved by an active supervisor invocation")
 	}
-	if ok, reason := providerReadiness(session); !ok {
-		return errors.New(reason)
+	if closed {
+		return errors.New("Session is closed")
 	}
-	if err := session.Provider.Send(ctx, input); err != nil {
+	if recovering {
+		return errors.New("Session conversation is recovering")
+	}
+	var err error
+	if input.Delivery == "steer" {
+		provider, ok := session.Provider.(SteeringProvider)
+		if !ok {
+			return errors.New("Provider does not support running-turn instructions")
+		}
+		if readiness, ok := session.Provider.(SteeringReadinessProvider); ok {
+			if ready, reason := readiness.CanSteer(); !ready {
+				return errors.New(reason)
+			}
+		}
+		err = provider.Steer(ctx, input, input.ExpectedTurnID)
+	} else {
+		if ok, reason := providerReadiness(session); !ok {
+			return errors.New(reason)
+		}
+		err = session.Provider.Send(ctx, input)
+	}
+	if err != nil {
 		return err
 	}
 	if input.ClientMessageID != "" {
@@ -185,6 +222,14 @@ func (session *Session) beginInput(input ProviderInput) {
 func (session *Session) tagSourceLocked(event map[string]any) {
 	message := mapValue(event["message"])
 	if len(message) == 0 {
+		return
+	}
+	// A steering message has its own provenance; it must not relabel the
+	// running turn or inherit the original instruction's supervisor source.
+	if stringValue(message["delivery"]) == "steer" {
+		if source := sourceValue(message["supervisorSource"]); source != nil {
+			event["supervisorSource"] = source.values()
+		}
 		return
 	}
 	if root, exists := message["isRootTurn"]; exists && !boolValue(root) {

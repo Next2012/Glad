@@ -295,7 +295,7 @@
                     <textarea id="cmd-input" rows="1" placeholder="Type a message..."></textarea>
                     <button id="attachment-btn" class="composer-action-btn" type="button" title="Attachment" aria-label="Attachment"><svg class="action-icon" aria-hidden="true"><use href="#icon-file"></use></svg></button>
                     <button id="schedule-send-btn" class="composer-action-btn" type="button" title="Schedule" aria-label="Schedule"><svg class="action-icon" aria-hidden="true"><use href="#icon-schedule"></use></svg></button>
-                    <button id="send-btn" type="button" title="Send" aria-label="Send">
+                    <button id="send-btn" type="button" title="Send" aria-label="Send"><span class="action-label">Send</span>
                         <svg class="action-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                     </button>
                 </div>
@@ -363,6 +363,21 @@
                     <div id="claude-skill-panel"></div>
                     <div id="claude-command-panel"></div>
                 </div>
+                <div id="antigravity-control-panel">
+                    <div id="antigravity-control-rail" class="codex-control-rail">
+                        <button id="antigravity-model-btn" class="claude-ctrl-btn" type="button" onclick="toggleAntigravityModelPanel()" title="Model and thinking" aria-label="Model and thinking" aria-expanded="false" aria-controls="antigravity-model-panel"><svg class="action-icon" aria-hidden="true"><use href="#icon-model"></use></svg><span class="action-label">Model</span></button>
+                        <label id="antigravity-mode-control" class="codex-select-control" title="Mode" hidden><span class="codex-select-label" aria-hidden="true"><svg class="action-icon"><use href="#icon-shield"></use></svg><span class="action-label">Mode</span></span></label>
+                        <button id="antigravity-status-btn" class="claude-ctrl-btn" onclick="requestAntigravityStatus()" title="Show Antigravity status" aria-label="Show Antigravity status"><svg class="action-icon" aria-hidden="true"><use href="#icon-status"></use></svg><span class="action-label">Status</span></button>
+                        <button id="antigravity-abort-btn" class="claude-ctrl-btn danger" onclick="abortAntigravitySession()" title="Abort current Antigravity turn" aria-label="Abort current Antigravity turn"><svg class="action-icon" aria-hidden="true"><use href="#icon-stop"></use></svg><span class="action-label">Abort</span></button>
+                        <button id="antigravity-resume-btn" class="claude-ctrl-btn primary" onclick="toggleAntigravityResumePanel()" title="Resume an Antigravity conversation" aria-label="Resume an Antigravity conversation" aria-expanded="false" aria-controls="antigravity-resume-panel"><svg class="action-icon" aria-hidden="true"><use href="#icon-resume"></use></svg><span class="action-label">Resume</span></button>
+                        <button id="antigravity-commands-btn" class="claude-ctrl-btn" onclick="toggleAntigravityCommands()" title="Antigravity commands" aria-label="Antigravity commands" aria-expanded="false" aria-controls="antigravity-command-panel"><svg class="action-icon" aria-hidden="true"><use href="#icon-command"></use></svg><span class="action-label">Commands</span></button>
+                        <button id="antigravity-compact-btn" class="claude-ctrl-btn" onclick="compactAntigravityContext()" aria-label="Compact Antigravity context" hidden><svg class="action-icon" aria-hidden="true"><use href="#icon-compact"></use></svg><span class="action-label">Compact</span></button>
+                    </div>
+                    <div id="antigravity-state-bar" role="status"></div>
+                    <div id="antigravity-model-panel" class="antigravity-aux-panel" role="group" aria-label="Antigravity model settings" hidden><div class="antigravity-picker-heading"><svg class="action-icon" aria-hidden="true"><use href="#icon-model"></use></svg><span>Model &amp; thinking</span></div><div id="antigravity-config-controls"></div></div>
+                    <div id="antigravity-resume-panel" class="antigravity-aux-panel" hidden></div>
+                    <div id="antigravity-command-panel" class="antigravity-aux-panel" hidden></div>
+                </div>
                 <div id="codex-control-panel">
                     <div id="codex-control-rail" class="codex-control-rail">
                         <div class="agent-control-group primary">
@@ -426,6 +441,7 @@
         <div id="terminal-container"><div id="terminal"></div></div>
         <div id="claude-chat-container"></div>
         <div id="codex-chat-container"></div>
+        <div id="antigravity-chat-container"></div>
     </div>
 
     <!-- Plain Text History View -->
@@ -779,6 +795,7 @@
     <script src="codex-questions.js"></script>
     <script src="codex-plans.js"></script>
     <script src="codex.js"></script>
+    <script src="antigravity.js"></script>
     <script src="session-speed.js"></script>
     <script src="session.js"></script>
     <script src="composer.js"></script>

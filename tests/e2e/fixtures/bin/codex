@@ -24,6 +24,17 @@ let capacityDisconnectOnRetry = false;
 const approvalRequests = new Map();
 let inputQuestion = null;
 let taskPlan = null;
+let steeringTurn = null;
+function finishSteeringTurn(text, status = 'completed') {
+  if (!steeringTurn) return;
+  const { turnId, timer } = steeringTurn;
+  steeringTurn = null;
+  clearTimeout(timer);
+  if (text) write({ method: 'item/completed', params: { threadId: 'thread-e2e', turnId,
+    item: { id: `steering-response-${turnId}`, type: 'agentMessage', text }
+  } });
+  write({ method: 'turn/completed', params: { threadId: 'thread-e2e', turn: { id: turnId, status } } });
+}
 function finishTaskPlan(status = 'completed') {
   if (!taskPlan) return;
   const { turnId, steps, timers } = taskPlan;
@@ -296,10 +307,33 @@ input.on('line', line => {
       result = { data: [], nextCursor: null };
     }
   } else if (request.method === 'turn/interrupt') {
+    if (steeringTurn?.turnId === request.params?.turnId) finishSteeringTurn('', 'interrupted');
     if (inputQuestion?.turnId === request.params?.turnId) finishInputQuestion('', 'interrupted');
     if (taskPlan?.turnId === request.params?.turnId) finishTaskPlan('interrupted');
     result = {};
   } else if (request.method === 'turn/steer') {
+    if (steeringTurn) {
+      if (request.params?.expectedTurnId !== steeringTurn.turnId || request.params?.threadId !== 'thread-e2e'
+        || request.params?.model || request.params?.cwd || !request.params?.clientUserMessageId) {
+        write({ id: request.id, error: { message: 'invalid running-turn steer' } });
+        return;
+      }
+      const turnId = steeringTurn.turnId;
+      const instruction = (request.params.input || []).filter(item => item.type === 'text').map(item => item.text || '').join('\n');
+      if (instruction.includes('__GLAD_E2E_REJECT_STEER__')) {
+        write({ id: request.id, error: { message: 'forced steering failure' } });
+        return;
+      }
+      write({ id: request.id, result: { turnId } });
+      setImmediate(() => {
+        write({ method: 'item/completed', params: { threadId: 'thread-e2e', turnId,
+          item: { id: `steering-echo-${request.params.clientUserMessageId}`, type: 'userMessage',
+            clientUserMessageId: request.params.clientUserMessageId, content: request.params.input }
+        } });
+        finishSteeringTurn(`Received steering instruction: ${instruction}`);
+      });
+      return;
+    }
     if (!inputQuestion?.async || request.params?.expectedTurnId !== inputQuestion.turnId
       || request.params?.threadId !== 'thread-e2e' || request.params?.model || request.params?.cwd) {
       write({ id: request.id, error: { message: 'invalid question steer' } });
@@ -408,6 +442,14 @@ input.on('line', line => {
     }
     setImmediate(() => {
       write({ method: 'turn/started', params: { threadId: 'thread-e2e', turn: { id: turnId } } });
+      if (text.includes('__GLAD_E2E_STEER__')) {
+        write({ method: 'item/completed', params: { threadId: 'thread-e2e', turnId,
+          item: { id: `steering-original-${turnId}`, type: 'userMessage', content: request.params.input }
+        } });
+        const timer = setTimeout(() => finishSteeringTurn('Steering fixture completed without additional instructions.'), 120000);
+        steeringTurn = { turnId, timer };
+        return;
+      }
       if (text.includes('__GLAD_E2E_SUPERVISOR__') || text.includes('__GLAD_E2E_SUPERVISOR_END__') || text.includes('__GLAD_E2E_SUPERVISOR_ANSWER__')) {
         const answering = text.includes('__GLAD_E2E_SUPERVISOR_ANSWER__');
         const turnsQuery = text.includes('__GLAD_E2E_TURN_QUERY__');

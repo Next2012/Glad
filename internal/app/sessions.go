@@ -31,6 +31,12 @@ type UserInputProvider interface {
 	RespondUserInput(context.Context, string, map[string]any) error
 }
 
+// Supervisor question answers preserve the invocation provenance and the
+// provider's own question lifecycle. Implemented only by supporting providers.
+type SupervisorQuestionProvider interface {
+	AnswerUserInput(context.Context, string, string, map[string]string, []Attachment, ...*SupervisorSource) error
+}
+
 type SettingsProvider interface {
 	UpdateSettings(context.Context, map[string]any) error
 }
@@ -66,6 +72,8 @@ type StatusProvider interface {
 
 type ProviderInput struct {
 	ClientMessageID string
+	Delivery        string
+	ExpectedTurnID  string
 	Text            string
 	AgentText       string
 	Images          []Attachment
@@ -84,22 +92,23 @@ type Attachment struct {
 }
 
 type Permission struct {
-	ID           string         `json:"id"`
-	Status       string         `json:"status"`
-	Title        string         `json:"title"`
-	ToolName     string         `json:"toolName"`
-	ThreadID     string         `json:"threadId,omitempty"`
-	TurnID       string         `json:"turnId,omitempty"`
-	DisplayName  string         `json:"displayName,omitempty"`
-	Description  string         `json:"description,omitempty"`
-	Reason       string         `json:"reason,omitempty"`
-	BlockedPath  string         `json:"blockedPath,omitempty"`
-	CanAllowTool bool           `json:"canAllowTool"`
-	CanAllowEdit bool           `json:"canAllowEdits,omitempty"`
-	Input        map[string]any `json:"input"`
-	Suggestions  []any          `json:"suggestions,omitempty"`
-	ToolUseID    string         `json:"toolUseId,omitempty"`
-	CreatedAt    int64          `json:"createdAt"`
+	ID           string           `json:"id"`
+	Status       string           `json:"status"`
+	Title        string           `json:"title"`
+	ToolName     string           `json:"toolName"`
+	ThreadID     string           `json:"threadId,omitempty"`
+	TurnID       string           `json:"turnId,omitempty"`
+	DisplayName  string           `json:"displayName,omitempty"`
+	Description  string           `json:"description,omitempty"`
+	Reason       string           `json:"reason,omitempty"`
+	BlockedPath  string           `json:"blockedPath,omitempty"`
+	CanAllowTool bool             `json:"canAllowTool"`
+	CanAllowEdit bool             `json:"canAllowEdits,omitempty"`
+	Input        map[string]any   `json:"input"`
+	Suggestions  []any            `json:"suggestions,omitempty"`
+	Options      []map[string]any `json:"options,omitempty"`
+	ToolUseID    string           `json:"toolUseId,omitempty"`
+	CreatedAt    int64            `json:"createdAt"`
 }
 
 type TimedInput struct {
@@ -114,8 +123,9 @@ type TimedInput struct {
 }
 
 type sendResult struct {
-	Accepted bool
-	Error    string
+	Accepted    bool
+	Error       string
+	Fingerprint string
 }
 
 type Session struct {
@@ -168,6 +178,7 @@ type Session struct {
 	supervisorLease                 string
 	mcpURL, mcpExecutable, mcpToken string
 	speed                           *SpeedTracker
+	antigravityUsage                *AntigravityUsageStore
 }
 
 func newSession(id, name, kind string, tool ToolInfo, workingDirectory string) *Session {
@@ -304,9 +315,13 @@ func publicMessage(message map[string]any, kind string) map[string]any {
 		delete(copy, "raw")
 	}
 	hasDetail := false
-	if kind == "codex-structured" {
+	if kind == "codex-structured" || kind == "antigravity-structured" {
 		if copy["kind"] == "tool" {
-			for _, key := range []string{"result", "input", "changes", "error", "agentsStates"} {
+			keys := []string{"result", "input", "changes", "error", "agentsStates"}
+			if kind == "antigravity-structured" {
+				keys = append(keys, "content", "rawInput", "rawOutput", "output", "text")
+			}
+			for _, key := range keys {
 				if copy[key] != nil && stringValue(copy[key]) != "" {
 					hasDetail = true
 				}
@@ -573,6 +588,7 @@ type SessionManager struct {
 	events                *sessioncore.EventHub
 	mcpURL, mcpExecutable string
 	speeds                *SpeedStore
+	antigravityUsage      *AntigravityUsageStore
 	names                 *SessionNameStore
 	turnIndexes           *turnIndexCache
 }
@@ -608,11 +624,11 @@ func (manager *SessionManager) Get(id string) *Session {
 }
 
 func (manager *SessionManager) Create(ctx context.Context, request CreateSessionRequest) (*Session, error) {
-	if request.Instructions != "" && request.ToolKey != "codex" && request.ToolKey != "claude-code" {
-		return nil, fmt.Errorf("session instructions require Codex or Claude")
+	if request.Instructions != "" && request.ToolKey != "codex" && request.ToolKey != "claude-code" && request.ToolKey != "antigravity" {
+		return nil, fmt.Errorf("session instructions require a supported structured provider")
 	}
-	if request.AutoStart && ((request.ToolKey != "codex" && request.ToolKey != "claude-code") || strings.TrimSpace(request.InitialMessage) != "") {
-		return nil, fmt.Errorf("autoStart requires Codex or Claude and no initialMessage")
+	if request.AutoStart && ((request.ToolKey != "codex" && request.ToolKey != "claude-code" && request.ToolKey != "antigravity") || strings.TrimSpace(request.InitialMessage) != "") {
+		return nil, fmt.Errorf("autoStart requires a supported structured provider and no initialMessage")
 	}
 	if len(request.Instructions) > 64<<10 || len(request.InitialMessage) > 16<<10 {
 		return nil, fmt.Errorf("session instructions or initial message is too long")
@@ -661,13 +677,15 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 	session.environment = append([]string(nil), manager.environment...)
 	session.names = manager.names
 	session.turnIndexes = manager.turnIndexes
-	if manager.speeds != nil {
+	session.antigravityUsage = manager.antigravityUsage
+	if manager.speeds != nil || request.ToolKey == "antigravity" {
 		session.speed = &SpeedTracker{session: session, store: manager.speeds}
 	}
 	session.mcpURL, session.mcpExecutable, session.mcpToken = manager.mcpURL, manager.mcpExecutable, newUUID()
 	session.NameManual = strings.TrimSpace(request.Name) != ""
 	session.events = manager.events
-	if request.ToolKey == "codex" {
+	switch request.ToolKey {
+	case "codex":
 		options := manager.codexOptions(request.CodexOptions)
 		if request.Instructions != "" {
 			options["developerInstructions"] = request.Instructions
@@ -675,12 +693,21 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 		provider := NewCodexProvider(session, options)
 		provider.defaultsStore = manager.config
 		session.Provider = provider
-	} else {
+	case "claude-code":
 		options := cloneMap(request.ClaudeOptions)
 		if request.Instructions != "" {
 			options["developerInstructions"] = request.Instructions
 		}
 		session.Provider = NewClaudeProvider(session, options)
+	case "antigravity":
+		options := cloneMap(request.AntigravityOptions)
+		if request.Instructions != "" {
+			options["developerInstructions"] = request.Instructions
+		}
+		session.Provider = NewAntigravityProvider(session, options)
+	default:
+		session.cancel()
+		return nil, fmt.Errorf("unsupported structured provider: %s", request.ToolKey)
 	}
 	if err := session.Provider.Start(ctx); err != nil {
 		_ = session.Provider.Close(context.Background())
@@ -712,8 +739,9 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 const claudeWorkbenchBootstrap = "请根据工作台开发指令主动开始对话，先询问用户当前阶段需要确认的问题。"
 
 func sessionBootstrapInput(session *Session) ProviderInput {
-	if session.Tool.Key == "claude-code" {
-		// Claude 需要非空输入；内部开场不添加到 Glad 的用户聊天记录。
+	if session.Tool.Key == "claude-code" || session.Tool.Key == "antigravity" {
+		// Message-oriented providers need nonempty input. Internal bootstrap
+		// instructions are not displayed as a user-authored message.
 		return ProviderInput{Internal: true, AgentText: claudeWorkbenchBootstrap}
 	}
 	return ProviderInput{}
@@ -785,15 +813,16 @@ func (manager *SessionManager) Close(ctx context.Context) {
 }
 
 type CreateSessionRequest struct {
-	ID               string         `json:"-"`
-	ToolKey          string         `json:"toolKey"`
-	WorkingDirectory string         `json:"workingDirectory"`
-	Name             string         `json:"name"`
-	ClaudeOptions    map[string]any `json:"claudeOptions"`
-	CodexOptions     map[string]any `json:"codexOptions"`
-	Instructions     string         `json:"instructions"`
-	InitialMessage   string         `json:"initialMessage"`
-	AutoStart        bool           `json:"autoStart"`
+	ID                 string         `json:"-"`
+	ToolKey            string         `json:"toolKey"`
+	WorkingDirectory   string         `json:"workingDirectory"`
+	Name               string         `json:"name"`
+	ClaudeOptions      map[string]any `json:"claudeOptions"`
+	CodexOptions       map[string]any `json:"codexOptions"`
+	AntigravityOptions map[string]any `json:"antigravityOptions"`
+	Instructions       string         `json:"instructions"`
+	InitialMessage     string         `json:"initialMessage"`
+	AutoStart          bool           `json:"autoStart"`
 }
 
 func cloneMap(source map[string]any) map[string]any {

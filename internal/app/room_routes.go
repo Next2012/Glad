@@ -334,6 +334,9 @@ func (server *Server) roomOperationSource(runtimeID, sourceID string) (RoomRecor
 }
 
 func (server *Server) recreateRoomMember(ctx context.Context, member RoomMemberRecord, fork bool, runtimeID string) (*Session, error) {
+	if fork && member.ToolKey == "antigravity" {
+		return nil, errors.New("Antigravity does not advertise native ACP conversation forking")
+	}
 	var sourceMessages []map[string]any
 	if fork && member.ToolKey == "codex" {
 		if source := server.sessions.Get(member.RuntimeSessionID); source != nil {
@@ -351,9 +354,12 @@ func (server *Server) recreateRoomMember(ctx context.Context, member RoomMemberR
 	request := CreateSessionRequest{
 		ToolKey: member.ToolKey, WorkingDirectory: member.WorkingDirectory,
 	}
-	if member.ToolKey == "codex" {
+	switch member.ToolKey {
+	case "codex":
 		request.CodexOptions = cloneMap(member.SessionOptions)
-	} else {
+	case "antigravity":
+		request.AntigravityOptions = cloneMap(member.SessionOptions)
+	default:
 		request.ClaudeOptions = cloneMap(member.SessionOptions)
 	}
 	session, err := server.sessions.Create(ctx, request)

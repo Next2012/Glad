@@ -60,7 +60,7 @@ func supervisorTools() []map[string]any {
 		{"session_turn_details", "Read complete selected monitor turns, including input, output, tools and available reasoning. Supply turnIds, turnNumbers or a range. Details are paginated JSONL; follow nextOffset while hasMore. offset/limit count bytes."},
 		{"session_history", "Get the original transcript path and a paginated Markdown index. offset counts index rows, limit defaults to 50. No transcript copy is created."},
 		{"read_session_record", "Read original transcript bytes without message truncation. offset and limit are byte positions; follow nextOffset while hasMore. The server resolves the authorized target path."},
-		{"answer_question", "Answer a pending Codex question by questionId and answers keyed by question IDs. Requires Read and Send. Async answers steer the running turn without stopping it; blocking answers resume the waiting request."},
+		{"answer_question", "Answer a pending question on a supporting provider by questionId and answers keyed by question field IDs. Requires Read and Send. Async answers steer the running turn without stopping it; blocking answers resume the waiting request."},
 		{"stop_session", "Interrupt the expected target turn. Read again before sending; stop acceptance does not mean the session is ready."},
 		{"send_to_session", "Send a prompt to an idle target session. The command appears in the group."},
 		{"end_supervision", "End supervision. For periodic and configured run-once checks, disable future monitoring (scope: task). For a one-time custom check, revoke only this invocation's tool access and leave recurring monitoring unchanged (scope: invocation). The executor turn must still finish before another check can start."},

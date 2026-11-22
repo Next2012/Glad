@@ -1,6 +1,6 @@
 # Glad architecture
 
-Glad is a local Go daemon with an embedded browser UI. The daemon coordinates the official Codex and Claude CLIs already installed and authenticated on the host. Provider CLIs own model execution; optional group Supervisors schedule checks and authorize inter-session operations through Glad MCP tools.
+Glad is a local Go daemon with an embedded browser UI. The daemon coordinates the official Codex, Claude and Antigravity CLIs already installed and authenticated on the host. Provider CLIs own model execution; optional group Supervisors schedule checks and authorize inter-session operations through Glad MCP tools.
 
 ## Runtime layers
 
@@ -18,7 +18,8 @@ Go application (internal/app)
   ├─ schedules, notifications and usage
   ├─ SkillHub session preparation
   ├─ Codex provider ── codex app-server --stdio
-  └─ Claude provider ─ claude --print --input-format stream-json
+  ├─ Claude provider ─ claude --print --input-format stream-json
+  └─ Antigravity provider ─ agy acp
 
 Session contracts (internal/session)
   └─ bounded, transport-independent event fan-out
@@ -28,7 +29,7 @@ The repository root contains only the native entrypoint and its `go:embed` decla
 
 ## Browser contract
 
-The HTTP and WebSocket contracts are implemented entirely by the Go daemon. Structured sessions receive a `codex-snapshot` or `claude-snapshot` on connection and incremental provider events afterward.
+The HTTP and WebSocket contracts are implemented entirely by the Go daemon. Structured sessions receive a `codex-snapshot`, `claude-snapshot`, or `antigravity-snapshot` on connection and incremental provider events afterward.
 
 Structured user inputs carry a `clientMessageId`. The daemon serializes commands per session, validates every attachment, and replies with `send-result`; repeated IDs return the cached result without starting a second provider turn. The browser keeps its draft and attachments until the daemon accepts the message.
 
@@ -102,7 +103,7 @@ Supervisor history reads resolve the provider-owned JSONL path from the current 
 
 ## Effective output speed
 
-Native Codex and Claude sessions collect live root-turn observations in `session_speed.go`; the browser never times WebSocket chunks. The header badge sits before History and retains the last completed turn while another turn runs. Tiles share the same indicator. Its integer value carries `≈`; replies under 50 tokens keep their latest-turn value but are dimmed, with a `Short reply` tooltip and a visible explanation in the panel; the panel shows tok/s with decimals, recent 10/50/100-turn arithmetic means, and 24 hourly bins grouped by completion time in the browser’s timezone. Same-model scope also matches provider, routing profile, effort and Fast mode.
+Native Codex, Claude and Antigravity sessions collect live root-turn observations in `session_speed.go`; the browser never times WebSocket chunks. The header badge sits before History and retains the last completed turn while another turn runs. Tiles share the same indicator. Its integer value carries `≈`; replies under 50 tokens keep their latest-turn value but are dimmed, with a `Short reply` tooltip and a visible explanation in the panel; the panel shows tok/s with decimals, recent 10/50/100-turn arithmetic means, and 24 hourly bins grouped by completion time in the browser’s timezone. Same-model scope also matches provider, routing profile, effort and Fast mode where supported.
 
 The panel is named **Effective output speed** and explicitly states that the estimate includes waiting for the first output and thinking. The common metric is reported root output tokens divided by the monotonic turn duration after observed blocking tool and human-wait intervals. Intervals are clipped and unioned, and confirmed overlap with root-model stream activity is retained. Asynchronous agent work, service queuing and hidden activity cannot be fully separated by CLI events, so this is an observed estimate rather than a pure decoding benchmark. Codex thread-wide cumulative counters are differenced per root turn, including the inferred pre-turn baseline after Resume; child-thread events are ignored. Claude root response usage is deduplicated by provider message ID across streamed and final assistant messages. Root tool calls and thinking can contribute output tokens. Codex collaboration operations (including spawn, wait and resume) remove only the root invocation’s own interval, never the background child’s full lifetime. Claude repeated usage for one reply retains the maximum value. `result.usage` is retained only as a diagnostic scope comparison: a difference does not make the root sample incomplete. Automatic compaction is recorded as an annotation without silently changing the counting window.
 
@@ -126,3 +127,73 @@ These are individual observations, not a cross-model performance ranking. Codex 
 | claude-code | interrupted | — | 1.5 | 0.0 | — | — | — | — |
 
 The Codex reasoning sample illustrates why visible-event timing must not be presented as complete generation time. Raw native usage also reported reasoning output as a subset of output tokens (`input + output = total`); it is not added twice. Claude root message usage was successfully collected from streamed and final messages. Both interrupted workloads lacked a complete output count and are excluded from averages. This data informed the conservative common adjusted-turn estimate; partial-message stream and Claude API timing remain diagnostics with separate denominators.
+
+## Antigravity provider and running-turn instructions
+
+Antigravity has an independent ACP transport, reducer, native settings catalog,
+interaction handling and lifecycle under `antigravity*.go`. It does not inherit
+Codex state or route ACP through another CLI. The browser has its own
+`antigravity.js` controller and reuses existing Markdown, plan/context rendering,
+attachments, session event fan-out, and layout primitives. Existing Codex and
+Claude wire contracts remain available.
+
+Antigravity sessions use tool key `antigravity`, command `agy`, and kind
+`antigravity-structured`. Native identity is exposed as `nativeConversationId`
+and `antigravitySessionId`; group, name and workbench identity helpers recognize
+it explicitly. Model, thinking level and execution mode come from ACP's session
+configuration catalog. Unsupported Fork and Fast operations are not presented
+as equivalent Codex features. Instructions use the advertised Antigravity system
+prompt append capability and MCP servers are supplied per session without
+rewriting global CLI configuration.
+
+ACP `session/prompt` normally remains pending during inference; steering can
+acknowledge an earlier prompt while the root turn continues. Sending a prompt
+does not hold the session command lock until completion: the session context owns the
+reader and result worker, so browser disconnection does not cancel inference.
+Native permissions retain the original option IDs; elicitation forms are
+questions with their own lifecycle. Native updates normalize to existing Glad
+message kinds. Large tool/reasoning details use the existing lazy-detail path.
+The adapter tracks outstanding prompt requests and running non-daemon tools
+before concluding a root turn, and cancels with bounded process-tree recovery.
+
+Codex and Antigravity implement the optional `SteeringProvider` contract.
+Running-turn inputs explicitly carry `delivery: "steer"`, `expectedTurnId` and a
+client message ID through HTTP or WebSocket. Providers recheck the active turn
+under their own lock. A stale turn never falls back to a new user turn; a
+rejection preserves the browser draft and attachments. Input deduplication
+includes delivery and target identity. New-turn readiness stays idle-only for
+schedules and supervisor dispatch. Blocking interactions, recovery and stopping
+keep steering unavailable. Steering source metadata belongs to the appended
+message and does not replace the source of the original invocation.
+
+Antigravity history loading stages replay away from the visible conversation,
+then swaps it atomically. Preview uses an isolated ACP reader and never switches
+the active process. The original history stays owned by agy. ACP history does
+not claim to be Codex/Claude JSONL: native byte-record APIs may be unavailable,
+while live normalized output and turn detail remain readable by authorized
+supervisors. Quota status uses a cached, separate `agy -p /usage --output-format
+json` query. Context occupancy, quota, output-token speed and historical cost
+reports remain distinct; unknown token counts never become invented speed data.
+
+Message metadata shares the existing conversation styles: sent times for user
+messages, completion times for live replies, and one context snapshot under the
+last reply in each root turn. Context occupancy is not kept in the input toolbar.
+ACP replay omits timestamps, so `antigravity_times.go` reads native
+`brain/<session>/.system_generated/logs/transcript_full.jsonl` without modifying
+it. Unique exact content matches restore `created_at`; file modification and
+replay times are never substituted. Historical replies with only a creation
+time identify it as their start time. Missing or ambiguous times remain unknown.
+
+Antigravity's final ACP usage is a snapshot of the active root turn. An early
+steering acknowledgement can omit usage; later snapshots replace earlier ones
+instead of being added. Native output includes thinking tokens. The provider
+feeds these counts and observed stream/tool/human boundaries to the shared speed
+tracker through a small independent adapter in `antigravity_metrics.go`.
+
+`AntigravityUsageStore` persists compact token records in daily ledgers separately
+from speed history, with stable root IDs, 90-day retention, restart deduplication,
+and interrupted-tail recovery. Speed log rotation cannot remove dashboard
+totals. `usage_antigravity.go` aggregates this store by model and local day/week/
+month without depending on ccusage or private agy SQLite/protobuf formats.
+Dashboard coverage begins with recorded live usage; incomplete records and
+unknown pricing are explicit, and native history is not backfilled.

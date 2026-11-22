@@ -38,7 +38,8 @@ test('async questions accept an answer during work and preserve the draft across
     const inlineCard = page.locator('#codex-chat-container .codex-question-card').last();
     const card = await editableQuestionCard(page);
     await expect(card).toContainText('You can answer while Codex continues working');
-    await expect(page.locator('#send-btn')).toBeDisabled();
+    await expect(page.locator('#send-btn')).toBeEnabled();
+    await expect(page.locator('#send-btn')).toHaveAttribute('aria-label', 'Add instruction');
     await card.getByRole('button', { name: '1000次独立动作', exact: true }).click();
     await card.locator('textarea').nth(1).fill('2位');
     await page.waitForTimeout(800);
@@ -158,11 +159,13 @@ test('completed async questions accept a late reply and aborted questions close'
   const id = await openSession(page, '__GLAD_E2E_ASYNC_QUESTION_IDLE__');
   try {
     const card = page.locator('.codex-question-card');
+    await page.waitForFunction(() => codexState.status === 'idle');
     await expect(page.locator('#send-btn')).toBeEnabled();
     await card.locator('textarea').first().fill('1000次');
     await card.locator('textarea').nth(1).fill('2位');
     await card.getByRole('button', { name: 'Submit answer' }).click();
     await expect(card).toContainText('Answer sent');
+    await page.waitForFunction(() => codexState.status === 'idle');
     await expect(page.locator('#send-btn')).toBeEnabled();
     await expect(page.locator('.codex-message-block.user')).toHaveCount(2);
     await page.locator('#cmd-input').fill('__GLAD_E2E_SYNC_QUESTION__');

@@ -2,6 +2,12 @@
 
 Glad uses ccusage 20.0.26 to read local Codex and Claude usage history. Costs are model-price estimates, not provider invoices or subscription charges. A model without pricing is shown as **Unknown**. If only some models have prices, the total is a **Known-price estimate** and lists the excluded models. If no model has a price, Glad shows **Cannot estimate**. A known zero cost remains $0.
 
+Antigravity usage comes from native ACP prompt results recorded by Glad, independently of ccusage. The dashboard groups these persisted records by model and day, week, or month. Collection starts with this update. Glad does not import historical counters from native conversation logs or ACP replay, so earlier usage is not backfilled. Input, cached input, and output are counted separately. Output already includes thinking tokens, so thinking is not added again. Missing counters remain unknown, and no subscription price or model cost is inferred. The pricing preference applies to ccusage sources.
+
+These Antigravity records are kept for 90 days in `~/.glad/antigravity-usage/`, separately from the bounded speed history. Only token counters, model, completion time, status, and a deduplication ID are stored; prompts and tool output are omitted. Reopening a session does not record its consumption again.
+
+Antigravity also uses Glad's existing effective output speed tracker: reported output tokens divided by turn time after observed tool and human waits, with overlapping model activity retained. This includes first-output waiting and thinking. Appended prompts contribute to the same turn sample. A turn without a complete output counter has no numeric speed; reconnecting or replaying history does not create another sample.
+
 ## Price downloads
 
 The default is online-preferred pricing. ccusage downloads public price catalogs from LiteLLM and, when needed, models.dev. It does not upload usage history. If downloading fails, ccusage can continue with its built-in prices. Glad describes the selected policy rather than claiming that a download succeeded; missing prices are reported separately.

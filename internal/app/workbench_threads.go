@@ -41,7 +41,7 @@ func (bridge *workbenchBridge) knowsThread(threadID string) bool {
 
 func (bridge *workbenchBridge) rememberThread(session *Session, notify bool) {
 	session.mu.RLock()
-	threadID := firstNonEmpty(stringValue(session.State["threadId"]), stringValue(session.State["claudeSessionId"]))
+	threadID := sessionNativeConversationID(session)
 	settings := workbenchSessionSettings(session.State)
 	session.mu.RUnlock()
 	if threadID == "" {
@@ -117,7 +117,7 @@ func (bridge *workbenchBridge) rememberAllThreads() {
 // 只保存恢复会话所需的选项，避免将用量、工具输出等临时状态写入工作台。
 func workbenchSessionSettings(state map[string]any) map[string]any {
 	settings := map[string]any{}
-	for _, key := range []string{"model", "effort", "permissionMode", "sandboxMode", "serviceTier", "personality"} {
+	for _, key := range []string{"model", "effort", "mode", "permissionMode", "sandboxMode", "serviceTier", "personality"} {
 		if value, ok := state[key]; ok {
 			settings[key] = value
 		}

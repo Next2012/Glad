@@ -5,7 +5,7 @@
 
 Glad is a local-first Web interface for terminal-based AI coding tools.
 
-It runs the official **Claude Code** and **Codex** CLIs on your machine, then exposes their structured sessions through a clean browser UI on desktop or mobile devices.
+It runs the official **Codex**, **Claude Code**, and **Antigravity** CLIs on your machine, then exposes their structured sessions through a clean browser UI on desktop or mobile devices.
 
 ![Glad AI mobile interface](./assets/demo.jpg)
 
@@ -23,7 +23,7 @@ Watch how Glad brings terminal AI tools to your mobile device seamlessly:
 ![Glad Architecture](./assets/architecture.svg)
 
 Glad's core working principle:
-1. Glad runs on the machine where the official Claude and/or Codex CLI is installed.
+1. Glad runs on the machine where the official Codex, Claude, or Antigravity CLI is installed and authenticated.
 2. Once started, Glad is accessible on your local machine and LAN via port 3000 (or a port selected with `--port`).
 3. If you use Tailscale or ZeroTier for intranet penetration, you can control it remotely from anywhere.
 4. All terminal tasks run locally within the Glad daemon, so your mobile device disconnecting won't affect task execution.
@@ -36,15 +36,15 @@ Our design philosophy is **Easy to use, Stable, and Restrained**. Glad focuses s
 
 - **Session management:** Run multiple sessions from a single dashboard with per-session working directories.
 - **Long conversations:** Load group history automatically in pages of 48 messages near the top, preserving the current reading position. Each session's latest question and answer load in full; older messages show three-line previews and fetch full text when expanded. Closing a group cleans up idle sessions that are not shared with another open group while preserving active work and saved histories.
-- **Multi-session group chat:** Start an empty group, add live Codex and Claude sessions, explicitly @mention targets, and quote selected messages. Resume saved group history into the current group or Fork an independent copy. Groups support live updates, Stop/recovery cancellation, scheduled messages, completion indicators, and desktop tiles without drag reordering; provider histories and attachments remain owned by the member sessions.
+- **Multi-session group chat:** Start an empty group, add live Codex, Claude, and Antigravity sessions, explicitly @mention targets, and quote selected messages. Resume saved group history into the current group or Fork an independent copy. Groups support live updates, Stop/recovery cancellation, scheduled messages, completion indicators, and desktop tiles without drag reordering; provider histories and attachments remain owned by the member sessions.
 - **Group supervision:** Use the group Supervisor panel to schedule a session to inspect and direct selected members through Glad MCP tools. Choose read/stop/send permissions per target, and set the delay after the **supervisor's own check completes**. Query selected turn summaries and complete details, inspect original transcripts, answer Codex questions during work, and wake checks early for new questions. Pause recurring monitoring, run a single check, or stop the current run independently. Read live output, stop, and send commands manually from Members → Controls. [Supervisor guide](docs/supervisors.md).
 - **Message references:** Hold a group message to enter selection mode, tap messages to toggle references, and use Cancel or Preview at the top. Group MCP tools can read shared history, filter by session name, and follow nested references. Other group members may keep running while you send to idle targets.
 - **Session ordering:** Hold a lobby card for three seconds to drag it, with automatic edge scrolling for long lists. Drag a tiled session's header to reorder its current page. Both views share the order, saved as a browser-local layout preference.
 - **Responsive workspace:** Use a resizable session sidebar or a live tiled multi-session dashboard on wide screens, and focused lobby/chat pages on mobile, with light and dark themes.
-- **Diagrams and formulas:** Render Mermaid code blocks and inline/display LaTeX in Codex and Claude conversations, including restored messages and tiled previews. Mermaid, KaTeX, and fonts are bundled locally; diagrams follow the theme and keep their source available.
+- **Diagrams and formulas:** Render Mermaid code blocks and inline/display LaTeX in Codex, Claude, and Antigravity conversations, including restored messages and tiled previews. Mermaid, KaTeX, and fonts are bundled locally; diagrams follow the theme and keep their source available.
 - **Markdown formatting:** Nested lists, task checkboxes, strikethrough, aligned tables, reference links, automatic URL/email links, and full heading levels. Relative file and image links resolve inside the conversation's working directory.
 - **File attachments:** Upload images or arbitrary local files from the composer; Glad stores them privately for the active session and cleans them up automatically.
-- **Local usage dashboard:** Select a week or month, compare per-model and daily token totals, and inspect model-stacked token and cost charts through the bundled read-only `ccusage` engine. Costs use `ccusage` model-price estimates, with unknown prices and partial totals identified. Reports are cached in memory and refreshed in the background; public price downloads are enabled by default and can be disabled with Only offline. [Usage and pricing configuration](docs/usage.md).
+- **Local usage dashboard:** For Codex and Claude, select a week or month, compare per-model and daily token totals, and inspect model-stacked token and cost charts through the bundled read-only `ccusage` engine. Costs use `ccusage` model-price estimates, with unknown prices and partial totals identified. Reports are cached in memory and refreshed in the background; public price downloads are enabled by default and can be disabled with Only offline. [Usage and pricing configuration](docs/usage.md).
 - **Structured provider sessions:** Native streaming, approvals, resume, fork, model, effort, sandbox, and context controls for Codex and Claude. Codex model, effort, and permission choices persist as Glad defaults for new sessions, with a separate explicit action to update Codex's global defaults. Supported Codex models offer a Fast switch that applies to the next turn; new Glad sessions start with Fast off.
 - **Grouped session list:** Sessions belonging to live groups appear in a collapsed section at the bottom of the Sessions list. Expand a group to connect to its sessions. Shared sessions appear under each group, and sessions return to the main list when they leave their last live group.
 - **Codex question replies:** Answer pending questions in cards or a bottom reply panel on phones. Async replies can include up to five images and remain available after the turn completes until a new turn starts.
@@ -53,11 +53,13 @@ Our design philosophy is **Easy to use, Stable, and Restrained**. Glad focuses s
 - **Claude history browsing:** Sort and paginate current-directory Claude sessions, preview recent messages, then explicitly resume or fork the selected conversation.
 - **Codex history browsing:** Sort current-directory history by creation or update time, load older sessions, and preview recent messages before explicitly resuming or forking.
 - **Codex task lists:** Glad enables the planning tool for its Codex conversation threads. When Codex creates a plan, a collapsible floating card tracks its progress; after the turn ends, the card appears between the user's message and the first reply. Resuming or forking a conversation restores recoverable plans from its local Codex rollout log. Missing records and plans with dynamically computed arguments that cannot be parsed statically are skipped.
-- **Automatic Codex titles:** Generate short titles through isolated temporary turns using the existing Codex provider, while preserving manual names. Unnamed sessions use `codex` or `claude` until a name is specified or generated; Codex keeps its default while generating a title or if generation fails. Title generation may consume additional model usage; failures do not block the conversation.
+- **Running-turn instructions:** Codex and Antigravity show **Add instruction** when the current turn can accept more input. A stale turn, stopping, recovery, or blocking interaction rejects the instruction and preserves the draft. Scheduled and ordinary new-turn sends remain idle-only.
+- **Antigravity sessions:** A separate provider uses official `agy acp` for streamed replies, tools, native approvals, question forms, plans, model/thinking settings, execution modes, and history loading. Controls follow available native capabilities; unverified Fork and Fast controls are not offered. Native token usage is recorded in a separate 90-day ledger, with model/day summaries and effective output speed; quota and unknown pricing remain separate.
+- **Automatic Codex titles:** Generate short titles through isolated temporary turns using the existing Codex provider, while preserving manual names. Unnamed Codex and Claude sessions use `codex` or `claude` until a name is specified or generated; Codex keeps its default while generating a title or if generation fails. Title generation may consume additional model usage; failures do not block the conversation.
 - **Fast history viewing:** Responsive structured conversation history with lazy tool details.
 - **Simple but effective change checking:** Integrated Git changes preview.
 - **Resilient execution:** Client (mobile) disconnections will not interrupt running tasks on the host machine.
-- **Simplicity:** One-command Web UI with built-in detection for Codex and Claude.
+- **Simplicity:** One-command Web UI with built-in detection for Codex, Claude, and Antigravity.
 - **Standalone binaries:** Linux, macOS, and Windows standalone packaging available.
 
 ## Quick Start
@@ -67,7 +69,7 @@ Our design philosophy is **Easy to use, Stable, and Restrained**. Glad focuses s
 Requirements:
 
 - Node.js `>=18` for npm installation
-- the official `codex` and/or `claude` CLI, already authenticated
+- the official `codex`, `claude`, or `agy` CLI, already authenticated
 
 ```bash
 npm install -g glad-web
@@ -235,12 +237,13 @@ to that server's `config.toml` entry so the helper receives the selected route.
 
 ## Supported Tools
 
-Glad intentionally supports the two structured coding-agent integrations below:
+Glad supports the following structured coding-agent integrations:
 
 | Tool | Detected command |
 | --- | --- |
 | Claude | `claude` |
 | Codex | `codex` |
+| Antigravity | `agy` (native ACP; tested with 1.5.14) |
 
 ## Packaging
 

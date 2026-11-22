@@ -191,6 +191,7 @@ test('large Codex command output still reaches turn completion', async ({ page }
   await page.locator('#send-btn').click();
   await expect(page.locator('#cmd-input')).toHaveValue('');
   await expect(page.locator('.codex-tool')).toContainText('large-output', { timeout: 30000 });
+  await page.waitForFunction(() => codexState.status === 'idle', null, { timeout: 30000 });
   await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 30000 });
   const debug = await (await page.request.get(`/api/sessions/${session.id}/debug`)).json();
   expect(debug.diagnostics.status).toBe('idle');
@@ -209,10 +210,12 @@ test('Codex tracks active subagents without marking the root turn idle', async (
     return debug.diagnostics.status;
   }).toBe('running');
   await expect(page.locator('#codex-abort-btn')).toBeEnabled();
-  await expect(page.locator('#send-btn')).toBeDisabled();
+  await expect(page.locator('#send-btn')).toBeEnabled();
+  await expect(page.locator('#send-btn')).toHaveAttribute('aria-label', 'Add instruction');
   await expect(subagentJump).toHaveCount(0);
 
   await expect(page.locator('.codex-message-block.assistant')).toContainText('root completed after child');
+  await page.waitForFunction(() => codexState.status === 'idle');
   await expect(page.locator('#send-btn')).toBeEnabled();
   const debug = await (await page.request.get(`/api/sessions/${session.id}/debug`)).json();
   expect(debug.diagnostics.status).toBe('idle');
@@ -228,6 +231,7 @@ test('stuck Codex interrupt force-recovers and restarts before the next send', a
   await expect(page.locator('.codex-tool')).toContainText('stuck-command');
   await page.locator('#codex-abort-btn').click();
   await expect(page.locator('#codex-state-bar')).toContainText('Stopping Codex');
+  await page.waitForFunction(() => codexState.status === 'idle', null, { timeout: 15000 });
   await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 15000 });
   let debug = await (await page.request.get(`/api/sessions/${session.id}/debug`)).json();
   expect(debug.diagnostics.status).toBe('idle');
@@ -235,6 +239,7 @@ test('stuck Codex interrupt force-recovers and restarts before the next send', a
   await page.locator('#cmd-input').fill('works after forced restart');
   await page.locator('#send-btn').click();
   await expect(page.locator('.codex-message-block.user').last()).toContainText('works after forced restart');
+  await page.waitForFunction(() => codexState.status === 'idle', null, { timeout: 15000 });
   await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 15000 });
   debug = await (await page.request.get(`/api/sessions/${session.id}/debug`)).json();
   expect(debug.diagnostics.status).toBe('idle');
@@ -259,6 +264,7 @@ test('Codex resume can be stopped before a turn id exists', async ({ page }) => 
   const result = await page.evaluate(() => window.__resumeAbortResult);
   expect(result.status).toBe(400);
   expect(result.body.error).toContain('resume aborted');
+  await page.waitForFunction(() => codexState.status === 'idle', null, { timeout: 15000 });
   await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 15000 });
   const debug = await (await page.request.get(`/api/sessions/${session.id}/debug`)).json();
   expect(debug.diagnostics.status).toBe('idle');
