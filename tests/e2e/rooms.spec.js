@@ -136,9 +136,17 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
   });
   expect(miniLayout.controlsTop).toBeGreaterThan(miniLayout.chatTop);
   expect(Math.abs(miniLayout.navHeight - groupHeaderHeight)).toBeLessThan(1);
+  // The quoted dispatch above is asynchronous. This step starts a new turn;
+  // a running turn exposes an enabled steering button with different semantics.
+  await expect.poll(async () => (await (await page.request.get(`/api/sessions/${session.id}`)).json()).status,
+    { timeout: 15000 }).toBe('idle');
+  await page.waitForFunction(() => activeSessionHydrated && codexState.status === 'idle' && !codexCanSteer(), undefined, { timeout: 15000 });
+  await expect(page.locator('#send-btn')).toHaveAttribute('aria-label', 'Send');
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
   const assistantCount = await page.locator('.codex-message.assistant').count();
   await page.locator('#cmd-input').fill('__GLAD_E2E_SUBAGENT_LIFECYCLE__ direct mini message');
   await page.locator('#send-btn').click();
+  await expect(page.locator('#cmd-input')).toHaveValue('');
   await expect(page.locator('.codex-message.assistant')).toHaveCount(assistantCount + 1, { timeout: 15000 });
   await expect(page.locator('.codex-message.assistant').last()).toContainText('root completed after child');
   await page.locator('#nav-bar').getByTitle('History').click();
