@@ -229,10 +229,28 @@ type conversationEventWindow struct {
 	session  *Session
 	tail     bool
 	revision uint64
+	native   string
+}
+
+func conversationSnapshotNative(tool string, state map[string]any) (string, bool) {
+	switch tool {
+	case "codex":
+		_, reported := state["threadId"]
+		return stringValue(state["threadId"]), reported
+	case "antigravity":
+		_, primary := state["nativeConversationId"]
+		_, alternate := state["antigravitySessionId"]
+		return firstNonEmpty(stringValue(state["nativeConversationId"]), stringValue(state["antigravitySessionId"])), primary || alternate
+	default:
+		_, primary := state["claudeSessionId"]
+		_, alternate := state["resumeSessionId"]
+		return firstNonEmpty(stringValue(state["claudeSessionId"]), stringValue(state["resumeSessionId"])), primary || alternate
+	}
 }
 
 func newConversationEventWindow(session *Session, tail bool, snapshot map[string]any) *conversationEventWindow {
-	return &conversationEventWindow{session: session, tail: tail, revision: uint64(numberInt64(mapValue(snapshot["historyPage"])["revision"]))}
+	native, _ := conversationSnapshotNative(session.Tool.Key, mapValue(snapshot["state"]))
+	return &conversationEventWindow{session: session, tail: tail, revision: uint64(numberInt64(mapValue(snapshot["historyPage"])["revision"])), native: native}
 }
 
 func (window *conversationEventWindow) project(event map[string]any) map[string]any {
@@ -244,16 +262,26 @@ func (window *conversationEventWindow) project(event map[string]any) map[string]
 		return nil
 	}
 	copy := cloneMap(event)
-	if stringValue(event["type"]) == "history-reset" {
+	identityChanged := false
+	if stringValue(event["type"]) == "state" {
+		if _, reported := conversationSnapshotNative(window.session.Tool.Key, mapValue(event["state"])); reported {
+			window.session.mu.RLock()
+			identityChanged = sessionNativeConversationID(window.session) != window.native
+			window.session.mu.RUnlock()
+		}
+	}
+	if stringValue(event["type"]) == "history-reset" || identityChanged {
 		// Coalesce an already superseded reset into one current authoritative tail.
 		// Buffered events at or below this snapshot revision are then redundant.
 		window.session.mu.RLock()
 		snapshot := window.session.conversationSnapshotLocked()
 		window.session.mu.RUnlock()
+		copy["type"] = "history-reset"
 		for _, key := range []string{"name", "messages", "historyPage", "pendingPermissions", "pendingQuestions", "state", "hasUnreadCompletion", "completionRevision"} {
 			copy[key] = snapshot[key]
 		}
 		window.revision = uint64(numberInt64(mapValue(snapshot["historyPage"])["revision"]))
+		window.native, _ = conversationSnapshotNative(window.session.Tool.Key, mapValue(snapshot["state"]))
 		copy["outputRevision"] = window.revision
 	} else {
 		if message := mapValue(copy["message"]); len(message) > 0 {

@@ -1355,7 +1355,8 @@ func TestCodexForkIsSingleFlightAcrossProviderOperations(t *testing.T) {
 	}
 	done := make(chan forkResult, 1)
 	go func() {
-		id, err := provider.Fork(context.Background(), "thread-source")
+		// Only a fork of the displayed source may reuse its omitted native history.
+		id, err := provider.Fork(context.Background(), "thread-before-fork")
 		done <- forkResult{id: id, err: err}
 	}()
 	encoded := <-writes
@@ -1363,7 +1364,7 @@ func TestCodexForkIsSingleFlightAcrossProviderOperations(t *testing.T) {
 	if err := json.Unmarshal(bytes.TrimSpace(encoded), &request); err != nil {
 		t.Fatal(err)
 	}
-	if request["method"] != "thread/fork" {
+	if request["method"] != "thread/fork" || stringValue(mapValue(request["params"])["threadId"]) != "thread-before-fork" {
 		t.Fatalf("unexpected fork request: %#v", request)
 	}
 	if _, err := provider.Fork(context.Background(), "second-source"); err == nil || !strings.Contains(err.Error(), "busy") {

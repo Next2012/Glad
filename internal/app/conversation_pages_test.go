@@ -363,6 +363,55 @@ func TestConversationResetProjectionCoalescesBufferedEventsAtItsAtomicRevision(t
 	}
 }
 
+func TestConversationNativeIdentityStateChangeRefreshesTailAndCursor(t *testing.T) {
+	for _, item := range []struct{ provider, kind, initialField, changedField string }{
+		{"codex", "codex-structured", "threadId", "threadId"},
+		{"antigravity", "antigravity-structured", "nativeConversationId", "nativeConversationId"},
+		// A fork can initially report only its source resume ID. Its real
+		// native ID may arrive later in a state event without a history reset.
+		{"claude-code", "claude-structured", "resumeSessionId", "claudeSessionId"},
+	} {
+		t.Run(item.provider, func(t *testing.T) {
+			session, server := conversationFixture(t, 20)
+			session.Kind, session.Tool.Key = item.kind, item.provider
+			session.State = map[string]any{"status": "idle", item.initialField: "native-a"}
+			session.Permissions["pending"] = Permission{ID: "pending", Status: "pending", TurnID: "turn-0"}
+			subscription, initial := session.subscribeConversation(32, true)
+			defer subscription.Close()
+			window := newConversationEventWindow(session, true, initial)
+			oldCursor := stringValue(mapValue(initial["historyPage"])["beforeCursor"])
+			session.setState(map[string]any{"status": "running"})
+			ordinary := window.project((<-subscription.Events()).Payload)
+			if ordinary["type"] != "state" || ordinary["messages"] != nil {
+				t.Fatal("ordinary state rebuilt the history window")
+			}
+			session.mu.Lock()
+			session.Name, session.HasUnreadCompletion, session.CompletionRevision = "Identity B", true, 88
+			session.mu.Unlock()
+			session.setState(map[string]any{item.changedField: "native-b"})
+			reset := window.project((<-subscription.Events()).Payload)
+			if reset["type"] != "history-reset" || window.native != "native-b" || stringValue(mapValue(reset["historyPage"])["epoch"]) == stringValue(mapValue(initial["historyPage"])["epoch"]) {
+				t.Fatal("native identity changed without refreshing the tail epoch")
+			}
+			if reset["name"] != "Identity B" || reset["hasUnreadCompletion"] != true || reset["completionRevision"] != uint64(88) || len(reset["pendingQuestions"].([]map[string]any)) != 1 || len(reset["pendingPermissions"].([]Permission)) != 1 {
+				t.Fatal("identity refresh lost authoritative metadata or interactions")
+			}
+			newCursor := stringValue(mapValue(reset["historyPage"])["beforeCursor"])
+			if conversationRequest(server, "/api/sessions/conversation/conversation?before="+oldCursor).Code != http.StatusConflict {
+				t.Fatal("old identity cursor remained usable")
+			}
+			if conversationRequest(server, "/api/sessions/conversation/conversation?before="+newCursor).Code != http.StatusOK {
+				t.Fatal("new identity cursor was not usable")
+			}
+			session.setState(map[string]any{"status": "idle"})
+			ordinary = window.project((<-subscription.Events()).Payload)
+			if ordinary["type"] != "state" || ordinary["messages"] != nil {
+				t.Fatal("refreshed identity caused repeated full history resets")
+			}
+		})
+	}
+}
+
 func TestConversationRecoveredIdentityAndHistoryShareOneCursorEpoch(t *testing.T) {
 	session, _ := conversationFixture(t, 20)
 	messages := make([]map[string]any, len(session.Messages))

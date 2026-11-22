@@ -1541,6 +1541,7 @@ func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, err
 			return "", err
 		}
 	}
+	previousThreadID := provider.threadID
 	provider.cancelUserInputsLocked("", "", false)
 	provider.forking = true
 	provider.resumeInFlight = true
@@ -1568,7 +1569,7 @@ func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, err
 		provider.needsThreadResume = false
 		provider.mu.Unlock()
 		err = provider.hydrateThread(forkCtx, result)
-		if err == nil && len(previousMessages) > 0 {
+		if err == nil && id == previousThreadID && len(previousMessages) > 0 {
 			provider.session.mu.RLock()
 			emptyFork := len(provider.session.Messages) == 0
 			provider.session.mu.RUnlock()
@@ -1579,6 +1580,12 @@ func (provider *CodexProvider) Fork(ctx context.Context, id string) (string, err
 				provider.session.replaceMessages(previousMessages)
 			}
 		}
+	}
+	if err != nil {
+		provider.mu.Lock()
+		provider.threadID = previousThreadID
+		provider.needsThreadResume = previousThreadID != ""
+		provider.mu.Unlock()
 	}
 	if err != nil && forkCtx.Err() != nil {
 		provider.mu.Lock()
@@ -1653,10 +1660,6 @@ func (provider *CodexProvider) hydrateThread(ctx context.Context, result map[str
 		plan["threadId"], plan["turnId"] = threadID, turnID
 	}
 	messages = provider.retainPlans(messages, historicalPlans)
-	if !provider.session.replaceMessages(messages) {
-		return errors.New("Codex session is closed")
-	}
-	provider.session.rememberTranscriptPath(thread)
 	if err := provider.session.names.registerNativeName("codex", provider.session.WorkingDirectory, threadID, stringValue(thread["name"])); err != nil {
 		return err
 	}
@@ -1665,6 +1668,13 @@ func (provider *CodexProvider) hydrateThread(ctx context.Context, result map[str
 			return err
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !provider.session.replaceMessagesWithState(messages, map[string]any{"threadId": threadID}) {
+		return errors.New("Codex session is closed")
+	}
+	provider.session.rememberTranscriptPath(thread)
 	return nil
 }
 
