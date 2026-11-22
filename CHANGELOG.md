@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keep thinking and resolved approval records folded, and improve model/status panels, composer layout, and reply metadata on narrow screens.
 - Resolve local file URLs, encoded paths, source line references, and nested Markdown resources; explain missing files, directories, and resource limits in the preview.
 - Bound remote response buffering, preserve safe MCP document metadata, and reject special files before opening them.
+- Ignore initialization events from replaced Claude processes so Fork keeps the source conversation's current name.
 
 ## [2.13.1] - 2026-10-19
 

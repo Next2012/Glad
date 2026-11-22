@@ -57,17 +57,25 @@ for (const provider of [
       await page.waitForFunction(state => window.eval(state).status === 'idle', provider.state);
       await page.locator('#attachment-file-input').setInputFiles({ name: 'instruction.txt', mimeType: 'text/plain', buffer: Buffer.from('keep this attachment') });
       await page.locator('.attachment-chip:not(.uploading)').waitFor();
-      // Simulate a client whose state update arrives after its next click.
-      await page.evaluate(({ key, turnId }) => {
-        const patch = { status: 'running', turnId, canSteer: true, canAbort: true };
-        if (key === 'codex') applyCodexState(patch); else applyAntigravityState(patch);
-      }, { key: provider.key, turnId });
       await page.locator('#cmd-input').fill('Preserve the stale steering draft');
-      const rejection = page.waitForEvent('dialog');
-      await page.locator('#send-btn').click();
-      const dialog = await rejection;
-      expect(dialog.message()).toContain('Unable to send');
-      await dialog.dismiss();
+      // Dismiss as soon as the alert opens: waiting for click to return first
+      // can deadlock Playwright's navigation wait against the modal dialog.
+      const rejection = page.waitForEvent('dialog').then(async dialog => {
+        const message = dialog.message();
+        await dialog.dismiss();
+        return message;
+      });
+      const [message] = await Promise.all([
+        rejection,
+        page.evaluate(({ key, turnId }) => {
+          // Inject the stale snapshot and click in one task so a late idle
+          // frame cannot turn this intentional steering attempt into a new turn.
+          const patch = { status: 'running', turnId, canSteer: true, canAbort: true };
+          if (key === 'codex') applyCodexState(patch); else applyAntigravityState(patch);
+          document.getElementById('send-btn').click();
+        }, { key: provider.key, turnId })
+      ]);
+      expect(message).toContain('Unable to send');
       await expect(page.locator('#cmd-input')).toHaveValue('Preserve the stale steering draft');
       await expect(page.locator('.attachment-chip')).toContainText('instruction.txt');
       const attempts = sent.filter(frame => frame.type === `${provider.key}-input` && frame.text === 'Preserve the stale steering draft');

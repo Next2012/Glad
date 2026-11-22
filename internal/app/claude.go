@@ -339,7 +339,7 @@ func (provider *ClaudeProvider) readStdout(reader io.Reader, commands ...*exec.C
 			}
 		case "keep_alive", "transcript_mirror":
 		default:
-			provider.handleMessage(message)
+			provider.handleMessage(message, commands...)
 		}
 	}
 }
@@ -611,7 +611,7 @@ func (provider *ClaudeProvider) sendControl(requestID string, response map[strin
 	_ = provider.writeLocked(map[string]any{"type": "control_response", "response": response})
 }
 
-func (provider *ClaudeProvider) handleMessage(message map[string]any) {
+func (provider *ClaudeProvider) handleMessage(message map[string]any, commands ...*exec.Cmd) {
 	typeName := stringValue(message["type"])
 	if typeName == "system" && (stringValue(message["subtype"]) == "local_command_output" || stringValue(message["subtype"]) == "local_command") {
 		provider.mu.Lock()
@@ -630,11 +630,16 @@ func (provider *ClaudeProvider) handleMessage(message map[string]any) {
 	}
 	if typeName == "system" && stringValue(message["subtype"]) == "init" {
 		provider.mu.Lock()
+		defer provider.mu.Unlock()
+		// The reader's earlier identity check can precede a concurrent resume or
+		// fork. Reject an init from the replaced process at the mutation boundary.
+		if len(commands) > 0 && provider.cmd != commands[0] {
+			return
+		}
 		provider.claudeSessionID = stringValue(message["session_id"])
 		provider.resumeID = provider.claudeSessionID
 		announceReady := !provider.readyAnnounced
 		provider.readyAnnounced = true
-		provider.mu.Unlock()
 		if announceReady {
 			provider.session.appendMessage(
 				map[string]any{
@@ -905,13 +910,14 @@ func (provider *ClaudeProvider) Fork(ctx context.Context, id string) (string, er
 	provider.session.mu.Unlock()
 	provider.resumeID = strings.TrimSpace(id)
 	err := provider.startLocked(ctx, true)
+	forkID := provider.claudeSessionID
 	provider.mu.Unlock()
 	if err != nil {
 		provider.session.mu.Lock()
 		provider.session.forkNameSource = ""
 		provider.session.mu.Unlock()
 	}
-	return provider.claudeSessionID, err
+	return forkID, err
 }
 func (provider *ClaudeProvider) Compact(ctx context.Context) error {
 	provider.session.appendMessage(map[string]any{"kind": "compaction", "compactionStatus": "running"})
