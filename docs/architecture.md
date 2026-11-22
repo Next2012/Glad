@@ -236,3 +236,56 @@ MCP resources retain the originating session's credentials and safe MIME
 metadata, including Markdown and SVG. Their upstream `resources/read` operation
 still returns the entire resource: the existing 4 MiB decoded / 8 MiB envelope
 limits remain explicit, and this path does not advertise byte-range streaming.
+
+## Windowed conversations
+
+New browser connections request `history=tail`; legacy HTTP and socket consumers
+retain their full snapshot contract. The shared view protocol returns recent
+root turns, limited to 128 messages and a 256 KiB history-message budget. Oversized
+turns can continue across pages. Pending permissions and questions are retained
+independently, so their interaction payloads are an explicit exception to the
+history-message budget. A single record whose public non-text metadata exceeds
+that budget has a separate, explicit `oversizedMetadata` page exception when its
+provider has no existing lazy metadata reader. It occupies that page alone;
+public fields are retained rather than silently discarded. Codex and Antigravity
+tool metadata continues using their existing on-demand detail readers. These
+exceptions remain subject to the existing provider and transport limits.
+Earlier pages use a session/native-identity/reset-epoch cursor. Message revisions
+prevent an older page from replacing newer live data;
+completion revisions keep their separate acknowledgement semantics.
+
+Large message bodies, including event/error text, reasoning and tool results,
+use previews and version-checked UTF-8 text chunks with explicit read-full
+actions. The browser bounds its expanded-body cache and restores evicted bodies
+to previews.
+Live user/assistant updates retain the provider's existing stream limits, so a
+reply keeps progressing beyond the historical preview boundary. Reopening that
+reply as history uses the bounded preview again.
+Completed Markdown has a byte-bounded render cache, and distant Mermaid diagrams
+wait until the reader approaches them. Private HTTP JSON responses use negotiated
+gzip, while direct sockets and the workbench transport negotiate WebSocket
+compression without retaining compression dictionaries. Workbench peers which
+omit the optional history query continue receiving their legacy snapshots.
+
+Antigravity can preview a bounded native transcript tail without a new ACP load
+after its identity has been established by the active process or an authenticated
+native session listing. Unknown IDs use the original ACP authorization path.
+This projection is read-only; native recovery still determines when sending is
+ready. Replayed text updates keep a direct message reference rather than scanning
+the retained history for every chunk, and replay identities remain unique after
+the retained window trims older records.
+
+## Antigravity subagent projection
+
+The Antigravity adapter discovers children only through verified native
+parent-to-child indexes. A bounded graph reader validates every edge again before
+reading a transcript, rejects symlinks and special files, and binds native history
+cursors to the root identity and file epoch. Child histories have independent
+IDs and remain separate from the root transcript. They never produce a second
+usage-ledger entry. Cached `ALIVE` states are shown as activity unknown.
+
+The browser fetches child bodies only for open cards, polls visible native
+metadata, and cancels work when the view or parent changes. It preserves child
+message DOM and disclosure state as records append. This is a local, read-only
+native-log projection; sending, cancellation and permissions are not exposed as
+child controls without verified native protocol support.

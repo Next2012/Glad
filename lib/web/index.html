@@ -12,6 +12,8 @@
     <link rel="apple-touch-icon" sizes="1254x1254" href="glad-app-icon.png?v=full-bleed">
     <link rel="stylesheet" href="vendor/katex/katex.min.css">
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="conversation-pages.css">
+    <link rel="stylesheet" href="antigravity-subagents.css">
 <link rel="stylesheet" href="settings-pages.css">
 </head>
 <body>
@@ -249,7 +251,7 @@
                 </section>
                 <section id="usage-cost-panel" class="usage-panel">
                     <div class="usage-panel-heading">
-                        <div><h2>Cost by day</h2><p>ccusage estimates stacked by model.</p></div>
+                        <div><h2>Cost by day</h2><p id="usage-cost-chart-note">Estimated costs stacked by model.</p></div>
                         <div id="usage-cost-legend" class="usage-legend" aria-label="Cost chart model legend"></div>
                     </div>
                     <div id="usage-cost-chart" class="usage-chart"></div>
@@ -780,6 +782,7 @@
     <script defer src="vendor/markdown-it-task-lists.min.js"></script>
     <script defer src="vendor/markdown-it-texmath.js"></script>
     <script defer src="markdown.js"></script>
+    <script defer src="conversation-pages.js"></script>
     <script defer src="agent-context.js"></script>
     <script defer src="agent-plans.js"></script>
     <script defer src="claude-questions.js"></script>
@@ -794,6 +797,7 @@
     <script defer src="codex-plans.js"></script>
     <script defer src="codex.js"></script>
     <script defer src="antigravity.js"></script>
+    <script defer src="antigravity-subagents.js"></script>
     <script defer src="session-speed.js"></script>
     <script defer src="session.js"></script>
     <script defer src="composer.js"></script>

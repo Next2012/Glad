@@ -73,7 +73,7 @@ func (p *AntigravityProvider) reduceReplayLocked(update map[string]any) {
 			if replay.turnID != "" {
 				replay.messages = append(replay.messages, antigravityReplayMessage(replay, map[string]any{"kind": "turn-end", "status": "completed", "turnStatus": "completed"}))
 			}
-			replay.turnID = "agy-history-turn-" + antigravityHistoryHash(replay.sessionID+":"+fmt.Sprint(len(replay.messages))+":"+stringValue(update["messageId"]))
+			replay.turnID = "agy-history-turn-" + antigravityHistoryHash(replay.sessionID+":"+fmt.Sprint(replay.sequence)+":"+stringValue(update["messageId"]))
 			replay.streams = map[string]*antigravityStream{}
 			replay.messages = append(replay.messages, antigravityReplayMessage(replay, map[string]any{"kind": "turn-start"}))
 		}
@@ -81,7 +81,8 @@ func (p *AntigravityProvider) reduceReplayLocked(update map[string]any) {
 		if stream == nil {
 			stream = &antigravityStream{id: "agy-history-message-" + antigravityHistoryHash(replay.sessionID+":"+replay.turnID+":"+key)}
 			replay.streams[key] = stream
-			replay.messages = append(replay.messages, antigravityReplayMessage(replay, map[string]any{"id": stream.id, "kind": messageKind, "text": "", "streaming": false}))
+			stream.replayed = antigravityReplayMessage(replay, map[string]any{"id": stream.id, "kind": messageKind, "text": "", "streaming": false})
+			replay.messages = append(replay.messages, stream.replayed)
 		}
 		if stream.text.Len() < 8<<20 {
 			remaining := (8 << 20) - stream.text.Len()
@@ -90,12 +91,7 @@ func (p *AntigravityProvider) reduceReplayLocked(update map[string]any) {
 			}
 			stream.text.WriteString(text)
 		}
-		for _, message := range replay.messages {
-			if message["id"] == stream.id {
-				message["text"] = stream.text.String()
-				break
-			}
-		}
+		stream.replayed["text"] = stream.text.String()
 	case "tool_call", "tool_call_update":
 		id := stringValue(update["toolCallId"])
 		if id == "" {
@@ -134,7 +130,8 @@ func (p *AntigravityProvider) reduceReplayLocked(update map[string]any) {
 }
 func antigravityReplayMessage(replay *antigravityReplay, message map[string]any) map[string]any {
 	if message["id"] == nil {
-		message["id"] = "agy-history-" + antigravityHistoryHash(replay.sessionID+":"+replay.turnID+":"+fmt.Sprint(len(replay.messages))+":"+stringValue(message["kind"]))
+		replay.sequence++
+		message["id"] = "agy-history-" + antigravityHistoryHash(replay.sessionID+":"+replay.turnID+":"+fmt.Sprint(replay.sequence)+":"+stringValue(message["kind"]))
 	}
 	message["threadId"] = replay.sessionID
 	message["turnId"] = replay.turnID
@@ -147,7 +144,7 @@ func antigravityReplayMessage(replay *antigravityReplay, message map[string]any)
 func antigravityFinishReplay(replay *antigravityReplay) []map[string]any {
 	messages := replay.messages
 	if replay.turnID != "" {
-		messages = append(messages, antigravityReplayMessage(replay, map[string]any{"kind": "turn-end", "status": "completed", "turnStatus": "completed"}))
+		messages = append(messages, antigravityReplayMessage(replay, map[string]any{"id": "agy-history-end-" + antigravityHistoryHash(replay.sessionID+":"+replay.turnID), "kind": "turn-end", "status": "completed", "turnStatus": "completed"}))
 	}
 	return messages
 }
@@ -209,7 +206,7 @@ func (p *AntigravityProvider) Resume(ctx context.Context, id string) error {
 		if len(replay.modes) > 0 {
 			p.modes = replay.modes
 		}
-		if !p.session.replaceMessages(p.finishReplayWithTimesLocked(replay)) {
+		if !p.session.replaceMessagesWithState(p.finishReplayWithTimesLocked(replay), p.historyIdentityLocked()) {
 			err = errors.New("Antigravity session is closed")
 		}
 	}
@@ -225,12 +222,17 @@ func (p *AntigravityProvider) Resume(ctx context.Context, id string) error {
 	}
 	return err
 }
+
+func (p *AntigravityProvider) historyIdentityLocked() map[string]any {
+	return map[string]any{"nativeConversationId": nilIfEmpty(p.nativeID), "antigravitySessionId": nilIfEmpty(p.nativeID), "threadId": nilIfEmpty(p.nativeID)}
+}
 func (p *AntigravityProvider) listSessions(ctx context.Context, cursor string, allDirectories bool) ([]map[string]any, string, error) {
 	if err := p.Start(ctx); err != nil {
 		return nil, "", err
 	}
 	p.mu.Lock()
 	supported := mapValue(p.capabilities["sessionCapabilities"])["list"] != nil
+	generation := p.generation
 	p.mu.Unlock()
 	if !supported {
 		return nil, "", errors.New("Antigravity ACP does not advertise session listing")
@@ -253,6 +255,18 @@ func (p *AntigravityProvider) listSessions(ctx context.Context, cursor string, a
 		item["name"] = entry["title"]
 		items = append(items, item)
 	}
+	p.mu.Lock()
+	if p.generation == generation && !p.closed {
+		if p.previewIDs == nil || len(p.previewIDs) >= 1024 {
+			p.previewIDs = map[string]uint64{}
+		}
+		for _, item := range items {
+			if id := stringValue(item["id"]); agySubagentUUID.MatchString(id) {
+				p.previewIDs[id] = generation
+			}
+		}
+	}
+	p.mu.Unlock()
 	return items, stringValue(result["nextCursor"]), nil
 }
 func (p *AntigravityProvider) preview(ctx context.Context, id string) ([]map[string]any, error) {

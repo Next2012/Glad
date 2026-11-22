@@ -2,7 +2,7 @@
 
 Glad uses ccusage 20.0.26 to read local Codex and Claude usage history. Costs are model-price estimates, not provider invoices or subscription charges. A model without pricing is shown as **Unknown**. If only some models have prices, the total is a **Known-price estimate** and lists the excluded models. If no model has a price, Glad shows **Cannot estimate**. A known zero cost remains $0.
 
-Antigravity usage comes from native ACP prompt results recorded by Glad, independently of ccusage. The dashboard groups these persisted records by model and day, week, or month. Collection starts with this update. Glad does not import historical counters from native conversation logs or ACP replay, so earlier usage is not backfilled. Input, cached input, and output are counted separately. Output already includes thinking tokens, so thinking is not added again. Missing counters remain unknown, and no subscription price or model cost is inferred. The pricing preference applies to ccusage sources.
+Antigravity usage comes from native ACP prompt results recorded by Glad, independently of ccusage. The dashboard groups these persisted records by model and day, week, or month. Collection starts with this update. Glad does not import historical counters from native conversation logs or ACP replay, so earlier usage is not backfilled. Input, cached input, and output are counted separately. Output already includes thinking tokens, so thinking is not added again. Missing counters remain unknown. No actual subscription charge, AI-credit deduction, or provider bill is inferred. The pricing preference applies to ccusage sources.
 
 These Antigravity records are kept for 90 days in `~/.glad/antigravity-usage/`, separately from the bounded speed history. Only token counters, model, completion time, status, and a deduplication ID are stored; prompts and tool output are omitted. Reopening a session does not record its consumption again.
 
@@ -43,6 +43,45 @@ For example, this JSON uses placeholder per-token prices for a private model:
 ```
 
 Use the exact model label from your report and replace the example values with the applicable rates. Keep user-managed overrides up to date when prices change. Overrides apply in both pricing policies. See [ccusage's configuration documentation](https://ccusage.com/guide/config-files#pricing-overrides) for the supported fields, including tiered and fast-mode pricing.
+
+## Antigravity API price reference
+
+Antigravity uses its own native-token ledger and pricing adapter, independently
+of ccusage. The dashboard reports a Google Gemini Developer API Standard price
+reference using the selected model, not subscription charges, AI credits, or an
+invoice. Native output already includes thinking tokens. Child usage is not
+added separately to the root accounting snapshot.
+
+Exact built-in model IDs have dated prices; a record uses its own UTC root-turn completion date,
+including the Gemini 3.8 Flash price change on January 1, 2027. Unknown models or
+unpriced cache writes remain explicitly uncovered while their token usage stays
+visible. Mixed reports show a partial reference and coverage rather than a false
+zero. Request-based long-context tiers cannot be inferred from a root turn's
+aggregate input count.
+
+Optional manual prices live in `~/.glad/antigravity-pricing.json`:
+
+```json
+{
+  "version": 1,
+  "models": {
+    "my-exact-model-id": {
+      "inputUSDPerMillion": 3,
+      "cachedInputUSDPerMillion": 0.15,
+      "outputUSDPerMillion": 15,
+      "cacheWriteUSDPerMillion": 0,
+      "effectiveFrom": "2026-12-01",
+      "effectiveUntil": "2027-01-01"
+    }
+  }
+}
+```
+
+Rates are USD per million tokens. Explicit zero is supported. Dates are optional;
+the start is inclusive and the end is exclusive at midnight UTC. Manual prices
+are labelled as user overrides. The file is validated on every report: editing
+or deleting it takes effect immediately, and invalid JSON does not silently keep
+an older price. The existing `ccusage.json` schema is unchanged.
 
 ## Maintaining the pinned engine and schema
 

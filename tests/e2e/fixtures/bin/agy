@@ -28,6 +28,16 @@ function done(id,stopReason='end_turn',usageMultiplier=1){const item=active.get(
 function commands(){update({sessionUpdate:'available_commands_update',availableCommands:[{name:'compact',description:'Compact conversation'},{name:'plan',description:'Plan the work'},{name:'fixture-skill',description:'Fixture skill',input:{hint:'task'}}]},false);}
 function reply(id,textValue){text(textValue);done(id);}
 function closeBackground(){if(!background)return;clearTimeout(background.timer);update({sessionUpdate:'tool_call_update',toolCallId:background.id,status:'completed',rawOutput:{output:'Background tool finished'}});background=null;}
+function windowHistory(target){
+ const records=[];
+ for(let turn=1;turn<=120;turn++){
+  const number=String(turn).padStart(3,'0');
+  records.push({sessionUpdate:'user_message_chunk',messageId:`window-user-${number}`,content:{type:'text',text:`WINDOW_USER_${number} ${target}`}});
+  const body=turn===120?'中文正文🌙用分块读取保留字符。'.repeat(2400)+'\n\nWINDOW_UTF8_END_完成🌙':'Historical detail for this conversation turn. '.repeat(30);
+  records.push({sessionUpdate:'agent_message_chunk',messageId:`window-assistant-${number}`,content:{type:'text',text:`WINDOW_ASSISTANT_${number} ${target}\n\n${body}`}});
+ }
+ return {sessionID:target,cwd,history:records};
+}
 readline.createInterface({input:process.stdin,crlfDelay:Infinity}).on('line',line=>{
  let message;try{message=JSON.parse(line);}catch{return;}
  const {id,method,params={}}=message;
@@ -52,7 +62,7 @@ readline.createInterface({input:process.stdin,crlfDelay:Infinity}).on('line',lin
   const target=params.sessionId;
   if(target?.includes('slow-load')){send({method:'session/update',params:{sessionId:target,update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'partial slow replay'}}}});setTimeout(()=>send({id,result:{sessionId:target,configOptions,modes:modes()}}),15000);break;}
   if(!target||target.includes('missing')){send({method:'session/update',params:{sessionId:target,update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'partial failed replay'}}}});send({id,error:{code:-32001,message:'Fixture session not found'}});break;}
-  let loaded;try{loaded=JSON.parse(fs.readFileSync(historyPath(target),'utf8'));}catch{loaded={sessionID:target,cwd,history:[{sessionUpdate:'user_message_chunk',messageId:'history-user',content:{type:'text',text:'Historical fixture prompt'}},{sessionUpdate:'agent_message_chunk',messageId:'history-assistant',content:{type:'text',text:'Historical fixture reply'}}]};}
+  let loaded;if(target.startsWith('agy-window-history-'))loaded=windowHistory(target);else try{loaded=JSON.parse(fs.readFileSync(historyPath(target),'utf8'));}catch{loaded={sessionID:target,cwd,history:[{sessionUpdate:'user_message_chunk',messageId:'history-user',content:{type:'text',text:'Historical fixture prompt'}},{sessionUpdate:'agent_message_chunk',messageId:'history-assistant',content:{type:'text',text:'Historical fixture reply'}}]};}
   sessionID=target;history=loaded.history;cwd=loaded.cwd;for(const update of history)send({method:'session/update',params:{sessionId:sessionID,update}});
   send({id,result:{sessionId:sessionID,configOptions,modes:modes()}});setTimeout(commands,20);break;
  }

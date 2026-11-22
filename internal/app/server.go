@@ -96,7 +96,7 @@ func (server *Server) Run(ctx context.Context) error {
 	mux := http.NewServeMux()
 	server.registerRoutes(mux)
 	server.http = &http.Server{
-		Addr: fmt.Sprintf("0.0.0.0:%d", server.port), Handler: noCache(mux),
+		Addr: fmt.Sprintf("0.0.0.0:%d", server.port), Handler: noCache(dynamicJSONCompression(mux)),
 		ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second,
 	}
 	listener, err := net.Listen("tcp", server.http.Addr)
@@ -160,6 +160,8 @@ func (server *Server) registerRoutes(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("POST /api/sessions", server.createSession)
 	mux.HandleFunc("GET /api/sessions/{id}", server.getSession)
+	mux.HandleFunc("GET /api/sessions/{id}/conversation", server.conversationPage)
+	mux.HandleFunc("GET /api/sessions/{id}/conversation-messages/{messageId}/text", server.conversationMessageText)
 	mux.HandleFunc("GET /api/sessions/{id}/output", server.sessionOutputRoute)
 	mux.HandleFunc("POST /api/sessions/{id}/abort", server.abortSessionRoute)
 	mux.HandleFunc("GET /api/sessions/{id}/metadata", server.sessionMetadata)
@@ -214,6 +216,13 @@ func (server *Server) getSession(writer http.ResponseWriter, request *http.Reque
 	session := server.sessions.Get(request.PathValue("id"))
 	if session == nil {
 		notFound(writer, "Session not found")
+		return
+	}
+	if request.URL.Query().Get("history") == "tail" {
+		session.mu.RLock()
+		snapshot := session.conversationSnapshotLocked()
+		session.mu.RUnlock()
+		respondJSON(writer, http.StatusOK, snapshot)
 		return
 	}
 	respondJSON(writer, http.StatusOK, session.snapshot())
@@ -451,12 +460,14 @@ func (server *Server) websocket(writer http.ResponseWriter, request *http.Reques
 	connection, err := websocket.Accept(
 		writer,
 		request,
-		&websocket.AcceptOptions{OriginPatterns: []string{request.Host}},
+		&websocket.AcceptOptions{OriginPatterns: []string{request.Host}, CompressionMode: websocket.CompressionNoContextTakeover, CompressionThreshold: 2 << 10},
 	)
 	if err != nil {
 		return
 	}
-	subscription, snapshot := session.subscribeWithSnapshot(512)
+	tail := request.URL.Query().Get("history") == "tail"
+	subscription, snapshot := session.subscribeConversation(512, tail)
+	window := newConversationEventWindow(session, tail, snapshot)
 	ctx, cancel := context.WithCancel(request.Context())
 	defer func() {
 		cancel()
@@ -489,7 +500,11 @@ func (server *Server) websocket(writer http.ResponseWriter, request *http.Reques
 				continue
 			case event := <-subscription.Events():
 				typeName := structuredMessageType(event.Kind, "event")
-				message = map[string]any{"type": typeName, "event": event.Payload}
+				payload := window.project(event.Payload)
+				if payload == nil {
+					continue
+				}
+				message = map[string]any{"type": typeName, "event": payload}
 			case message = <-outbound:
 			case <-subscription.Done():
 				return

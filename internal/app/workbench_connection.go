@@ -175,6 +175,7 @@ func connectWorkbench(parent context.Context, options workbenchConnectOptions, a
 	defer cancel()
 	connection, _, err := websocket.Dial(ctx, endpoint.String(), &websocket.DialOptions{
 		HTTPClient: client, HTTPHeader: headers,
+		CompressionMode: websocket.CompressionNoContextTakeover, CompressionThreshold: 2 << 10,
 	})
 	if err != nil {
 		return fmt.Errorf("连接工作台: %w", err)
@@ -640,7 +641,9 @@ func (bridge *workbenchBridge) openStream(message workbenchMessage) {
 	bridge.mu.Lock()
 	bridge.streams[message.ID] = stream
 	bridge.mu.Unlock()
-	subscription, snapshot := session.subscribeWithSnapshot(256)
+	tail := conversationTailRequested(message.Path)
+	subscription, snapshot := session.subscribeConversation(256, tail)
+	window := newConversationEventWindow(session, tail, snapshot)
 	kind := structuredMessageType(session.Kind, "snapshot")
 	_ = bridge.streamData(message.ID, map[string]any{"type": kind, "snapshot": snapshot})
 	bridge.tasks.Add(1)
@@ -652,7 +655,11 @@ func (bridge *workbenchBridge) openStream(message workbenchMessage) {
 			select {
 			case event := <-subscription.Events():
 				kind := structuredMessageType(event.Kind, "event")
-				if bridge.streamData(message.ID, map[string]any{"type": kind, "event": event.Payload}) != nil {
+				payload := window.project(event.Payload)
+				if payload == nil {
+					continue
+				}
+				if bridge.streamData(message.ID, map[string]any{"type": kind, "event": payload}) != nil {
 					return
 				}
 			case <-subscription.Done():

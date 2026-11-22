@@ -34,6 +34,7 @@ type antigravityStream struct {
 	id          string
 	text        strings.Builder
 	completedAt int64
+	replayed    map[string]any
 }
 type antigravityReplay struct {
 	sessionID     string
@@ -46,8 +47,11 @@ type antigravityReplay struct {
 	configOptions []map[string]any
 	commands      []map[string]any
 	modes         map[string]any
+	sequence      uint64
 }
 type AntigravityProvider struct {
+	subagentsMu         sync.Mutex
+	subagents           *antigravitySubagentReader
 	opMu                sync.Mutex // serializes process startup, settings and conversation changes
 	mu                  sync.Mutex
 	writeMu             sync.Mutex
@@ -64,6 +68,7 @@ type AntigravityProvider struct {
 	tools               map[string]map[string]any
 	capabilities        map[string]any
 	metadata            map[string]any
+	previewIDs          map[string]uint64 // IDs returned by authenticated native listing, scoped to generation
 	configOptions       []map[string]any
 	modes               map[string]any
 	commands            []map[string]any
@@ -209,7 +214,7 @@ func (p *AntigravityProvider) start(ctx context.Context) error {
 				empty := len(p.session.Messages) == 0
 				p.session.mu.RUnlock()
 				if empty {
-					p.session.replaceMessages(p.finishReplayWithTimesLocked(replay))
+					p.session.replaceMessagesWithState(p.finishReplayWithTimesLocked(replay), p.historyIdentityLocked())
 				}
 			}
 			p.publishStateLocked()

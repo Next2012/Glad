@@ -20,31 +20,32 @@ import (
 const usageVersion = "20.0.26"
 
 type UsageService struct {
-	antigravityUsage  *AntigravityUsageStore
-	mu                sync.Mutex
-	cached            map[string]any
-	loadedAt          time.Time
-	lastAttempt       time.Time
-	failedAt          time.Time
-	binary            string
-	version           string
-	loading           chan struct{}
-	loadErr           error
-	config            *ConfigStore
-	offlineOnly       bool
-	cachedOfflineOnly bool
-	generation        uint64
-	cachedGeneration  uint64
-	revision          uint64
-	ctx               context.Context
-	cancel            context.CancelFunc
-	jobCancel         context.CancelFunc
-	started           bool
-	stopped           bool
-	wg                sync.WaitGroup
-	staleAfter        time.Duration
-	interval          time.Duration
-	timeout           time.Duration
+	antigravityUsage       *AntigravityUsageStore
+	antigravityPricingPath string
+	mu                     sync.Mutex
+	cached                 map[string]any
+	loadedAt               time.Time
+	lastAttempt            time.Time
+	failedAt               time.Time
+	binary                 string
+	version                string
+	loading                chan struct{}
+	loadErr                error
+	config                 *ConfigStore
+	offlineOnly            bool
+	cachedOfflineOnly      bool
+	generation             uint64
+	cachedGeneration       uint64
+	revision               uint64
+	ctx                    context.Context
+	cancel                 context.CancelFunc
+	jobCancel              context.CancelFunc
+	started                bool
+	stopped                bool
+	wg                     sync.WaitGroup
+	staleAfter             time.Duration
+	interval               time.Duration
+	timeout                time.Duration
 }
 
 func NewUsageService(configs ...*ConfigStore) *UsageService {

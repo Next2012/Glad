@@ -160,10 +160,12 @@ test('revision-only events retain rendered diagrams and message nodes', async ({
   const stream = await openScrollingRoom(page);
   const original = await readMiddle(page);
   await stream.update(room => { room.entries[1].text = '```mermaid\ngraph TD\n A[Start] --> B[Finish]\n```'; });
-  await expect(page.locator('[data-room-entry-id="entry-1"] .markdown-diagram-output svg')).toBeVisible();
-  const before = await readingPosition(page);
-  expect(before.id).toBe(original.id);
-  expect(Math.abs(before.offset - original.offset)).toBeLessThan(1);
+  await expectSamePosition(page, original);
+  const entry = page.locator('[data-room-entry-id="entry-1"]');
+  await expect(entry.locator('.markdown-diagram-output svg')).toHaveCount(0);
+  await entry.locator('.room-entry-bubble').click();
+  await expect(entry.locator('.markdown-diagram-output svg')).toBeVisible();
+  const before = await readMiddle(page);
   await page.evaluate(() => { window.scrollProbeDiagram = document.querySelector('[data-room-entry-id="entry-1"] svg'); });
   await stream.update(() => {});
   await expectSamePosition(page, before);

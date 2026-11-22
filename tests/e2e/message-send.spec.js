@@ -321,7 +321,11 @@ test('large paginated Codex history publishes one reset to two WebSockets', asyn
     .filter(message => message.type === 'codex-event' && message.event?.type === 'history-reset').length)))
     .toEqual([1]);
   await expect.poll(() => page.evaluate(() => window.__mainHistoryResetCount)).toBe(1);
-  await expect.poll(() => page.evaluate(() => codexMessages.length)).toBe(1480);
+  await expect.poll(() => page.evaluate(() => codexMessages.length)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => codexMessages.length)).toBeLessThanOrEqual(128);
+  await expect(page.getByRole('button', { name: 'Load earlier messages', exact: true })).toBeVisible();
+  const legacyReset = await page.evaluate(() => window.__historyEvents[0].find(message => message.event?.type === 'history-reset'));
+  expect(legacyReset.event.messages).toHaveLength(1480);
   const incrementalCounts = await page.evaluate(() => window.__historyEvents.map(events => events
     .filter(message => message.type === 'codex-event' && ['message', 'message-updated'].includes(message.event?.type)).length));
   expect(incrementalCounts).toEqual([0]);

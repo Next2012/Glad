@@ -1,0 +1,7 @@
+.conversation-page-controls { display:flex; flex-direction:column; align-items:center; gap:6px; padding:10px 12px 18px; color:var(--text-dim); font-size:12px; }
+.conversation-page-controls button,.conversation-body-note button { border:1px solid var(--line,#444); border-radius:8px; padding:9px 14px; min-height:36px; color:var(--primary); background:var(--card-bg); cursor:pointer; font:inherit; }
+.conversation-page-controls button:disabled,.conversation-body-note button:disabled { opacity:.6; cursor:wait; }
+.conversation-page-controls button:focus-visible,.conversation-body-note button:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
+.conversation-page-error { color:var(--danger,#dd5246); text-align:center; overflow-wrap:anywhere; }
+.conversation-body-note { margin:8px 0; color:var(--text-dim); font-size:12px; }
+.conversation-body-note button { font-size:12px; }

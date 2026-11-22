@@ -390,6 +390,12 @@ func (session *Session) appendMessage(message map[string]any) map[string]any {
 }
 
 func (session *Session) replaceMessages(messages []map[string]any) bool {
+	return session.replaceMessagesWithState(messages, nil)
+}
+
+// A recovered history and its native identity become visible together. A
+// subscriber must never bind a fresh page cursor to the previous conversation.
+func (session *Session) replaceMessagesWithState(messages []map[string]any, state map[string]any) bool {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	if session.closed {
@@ -400,6 +406,9 @@ func (session *Session) replaceMessages(messages []map[string]any) bool {
 		public[index] = publicMessage(message, session.Kind)
 	}
 	session.Messages = messages
+	for key, value := range state {
+		session.State[key] = value
+	}
 	session.publishLocked(map[string]any{"type": "history-reset", "messages": public})
 	return true
 }

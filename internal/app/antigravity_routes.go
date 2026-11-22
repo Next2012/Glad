@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 )
 
 func (server *Server) registerAntigravityRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/sessions/{id}/antigravity-subagents", server.antigravitySubagents)
+	mux.HandleFunc("GET /api/sessions/{id}/antigravity-subagents/{childId}", server.antigravitySubagentHistory)
 	mux.HandleFunc("PATCH /api/sessions/{id}/antigravity-settings", server.antigravitySettings)
 	mux.HandleFunc("POST /api/sessions/{id}/antigravity-abort", server.antigravityAbort)
 	mux.HandleFunc("POST /api/sessions/{id}/antigravity-resume", server.antigravityResume)
@@ -119,6 +122,15 @@ func (server *Server) antigravitySessionPreview(writer http.ResponseWriter, requ
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), 25*time.Second)
 	defer cancel()
+	if request.URL.Query().Get("history") == "tail" {
+		if preview, found, err := p.cachedPreview(ctx, request.URL.Query().Get("sessionId")); err != nil {
+			respondError(writer, 400, err)
+			return
+		} else if found {
+			respondJSON(writer, 200, preview)
+			return
+		}
+	}
 	messages, err := p.preview(ctx, request.URL.Query().Get("sessionId"))
 	if err != nil {
 		respondError(writer, 400, err)
@@ -160,4 +172,41 @@ func (server *Server) antigravityCompact(writer http.ResponseWriter, request *ht
 		return
 	}
 	respondJSON(writer, 200, map[string]any{"success": true})
+}
+
+func (server *Server) antigravitySubagents(writer http.ResponseWriter, request *http.Request) {
+	p, ok := server.antigravityProvider(writer, request)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), 2*time.Second)
+	defer cancel()
+	data, err := p.subagentDirectory(ctx)
+	if err != nil {
+		respondError(writer, http.StatusConflict, err)
+		return
+	}
+	respondJSON(writer, http.StatusOK, data)
+}
+func (server *Server) antigravitySubagentHistory(writer http.ResponseWriter, request *http.Request) {
+	p, ok := server.antigravityProvider(writer, request)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), 2*time.Second)
+	defer cancel()
+	limit, _ := strconv.Atoi(request.URL.Query().Get("limit"))
+	data, err := p.subagentHistory(ctx, request.PathValue("childId"), request.URL.Query().Get("before"), limit)
+	if err != nil {
+		code := http.StatusBadRequest
+		if errors.Is(err, errAgySubagentNotFound) {
+			code = http.StatusNotFound
+		}
+		if errors.Is(err, errAgySubagentChanged) {
+			code = http.StatusConflict
+		}
+		respondError(writer, code, err)
+		return
+	}
+	respondJSON(writer, http.StatusOK, data)
 }

@@ -150,16 +150,28 @@ test('asynchronous Mermaid growth follows the Antigravity bottom and preserves a
 
   const readingTop = await page.locator(chat).evaluate(host => { host.scrollTop = 180; return host.scrollTop; });
   expect(readingTop).toBeGreaterThan(0);
-  await page.evaluate(() => applyAntigravityEvent({ type: 'message', message: {
-    id: 'reading-diagram', kind: 'assistant', text: '```mermaid\nflowchart TD\nREADING[Reading] --> GROW[Grow again]\n```'
-  } }));
+  await page.evaluate(() => {
+    applyAntigravityEvent({ type: 'message', message: {
+      id: 'reading-diagram', kind: 'assistant', text: '```mermaid\nflowchart TD\nREADING[Reading] --> GROW[Grow again]\n```'
+    } });
+    applyAntigravityEvent({ type: 'message', message: {
+      id: 'reading-footer', kind: 'assistant', text: Array(18).fill('Following content keeps this reader above the conversation bottom.').join('\n\n')
+    } });
+  });
+  await page.waitForFunction(() => antigravityRenderFrame === null);
+  expect(await page.evaluate(() => window.__controlledDiagramJobs.length)).toBe(0);
+  // Far-away diagrams remain source placeholders. Bring this one into the
+  // visible scroller while later content keeps the reader above the bottom.
+  await page.locator(`${chat} [data-agy-key="message-reading-diagram"]`).evaluate(element => element.scrollIntoView({ block: 'center' }));
   await expect.poll(() => page.evaluate(() => window.__controlledDiagramJobs?.length || 0)).toBe(1);
-  expect(await page.locator(chat).evaluate(host => host.scrollTop)).toBeCloseTo(readingTop, 0);
+  const nearReadingTop = await page.locator(chat).evaluate(host => host.scrollTop);
+  expect(await page.locator(chat).evaluate(host => host.scrollHeight - host.clientHeight - host.scrollTop)).toBeGreaterThan(64);
+  expect(await page.locator(chat).evaluate(host => host.scrollTop)).toBeCloseTo(nearReadingTop, 0);
   const beforeReading = await page.locator(chat).evaluate(host => host.scrollHeight);
   await page.evaluate(() => window.__finishControlledDiagram(1400));
   await expect(page.locator(`${chat} [data-agy-key="message-reading-diagram"] svg`)).toHaveCount(1);
   await expect.poll(() => page.locator(chat).evaluate(host => host.scrollHeight)).toBeGreaterThan(beforeReading + 600);
-  expect(await page.locator(chat).evaluate(host => host.scrollTop)).toBeCloseTo(readingTop, 0);
+  expect(await page.locator(chat).evaluate(host => host.scrollTop)).toBeCloseTo(nearReadingTop, 0);
 });
 
 test('Antigravity native history preview renders Mermaid and math through its preview request', async ({ page }, testInfo) => {

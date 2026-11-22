@@ -86,8 +86,14 @@ test('structured sessions connect through the canonical WebSocket route', async 
   });
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  await page.evaluate(() => initCodexSession('codex route/id'));
-  await page.evaluate(() => initClaudeSession('claude route/id'));
+  await page.evaluate(() => {
+    activeSessionId = 'codex route/id'; activeToolKey = 'codex';
+    initCodexSession(activeSessionId);
+  });
+  await page.evaluate(() => {
+    activeSessionId = 'claude route/id'; activeToolKey = 'claude-code';
+    return initClaudeSession(activeSessionId);
+  });
 
   const host = await page.evaluate(() => window.location.host);
   await expect.poll(() => page.evaluate(() => window.__webSocketUrls.filter(value => new URL(value).pathname === '/ws').map(value => {

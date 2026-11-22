@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.15.0] - 2026-11-22
+
+### Added
+
+- Show Antigravity native subagents in a collapsed, read-only overview with independently loaded, refreshable child histories.
+- Estimate Antigravity token costs using dated Gemini Developer API reference prices, with explicit coverage and optional prices in `~/.glad/antigravity-pricing.json`. These estimates do not represent subscription charges or AI credit debits.
+
+### Changed
+
+- Open Codex, Claude, and Antigravity conversations at their recent turns; load earlier messages and oversized historical text on demand while preserving live updates and pending interactions.
+- Negotiate compression for private API JSON and WebSocket transport, cache completed Markdown within byte limits, and defer distant Mermaid diagrams.
+- Preview authenticated Antigravity native transcript tails without an extra ACP load. Native session recovery still determines when sending becomes available.
+
+### Fixed
+
+- Preserve message identities after native history trimming, and reject stale history pages, message revisions, and session initialization responses.
+- Keep long historical tool results and system messages readable when expanding paged text, and bound malformed native-log warnings and oversized child-history windows.
+- Retain reading positions, rendered diagrams, and expanded child histories during incremental updates without double-counting child usage.
+
 ## [2.14.0] - 2026-11-22
 
 ### Added

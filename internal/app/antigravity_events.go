@@ -97,6 +97,9 @@ func (p *AntigravityProvider) updateLocked(params map[string]any) {
 			}
 		}
 		tool["toolName"] = firstNonEmpty(stringValue(tool["name"]), stringValue(tool["title"]), "Tool")
+		if strings.Contains(strings.ToLower(stringValue(tool["toolName"])), "subagent") {
+			p.invalidateSubagentDirectory()
+		}
 		tool["toolStatus"] = map[string]string{"pending": "pending", "in_progress": "running", "completed": "completed", "failed": "failed"}[stringValue(tool["status"])]
 		tool["input"] = tool["rawInput"]
 		tool["output"] = tool["rawOutput"]
