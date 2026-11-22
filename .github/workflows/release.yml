@@ -45,7 +45,7 @@ jobs:
           - { runner: ubuntu-latest, goos: linux, goarch: arm64, artifact: glad-linux-arm64, smoke: false }
           - { runner: windows-latest, goos: windows, goarch: amd64, artifact: glad-windows-amd64.exe, smoke: true }
           - { runner: macos-15-intel, goos: darwin, goarch: amd64, artifact: glad-macos-x64, smoke: true }
-          - { runner: macos-14, goos: darwin, goarch: arm64, artifact: glad-macos-arm64, smoke: true }
+          - { runner: macos-15, goos: darwin, goarch: arm64, artifact: glad-macos-arm64, smoke: true }
     steps:
       - uses: actions/checkout@v4
         with:
