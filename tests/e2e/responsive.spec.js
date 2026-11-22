@@ -188,9 +188,10 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
   }));
   expect(layout.bodyWidth).toBeLessThanOrEqual(layout.viewportWidth + 1);
   expect(layout.resources.some(url => url.includes('unpkg.com'))).toBe(false);
-  for (const asset of ['bootstrap.js', 'styles.css', 'core.js', 'claude.js', 'codex.js', 'session.js', 'usage.js', 'vendor/xterm.js']) {
+  for (const asset of ['bootstrap.js', 'styles.css', 'core.js', 'claude.js', 'codex.js', 'session.js', 'usage.js']) {
     expect(layout.resources.some(url => url.endsWith(asset))).toBe(true);
   }
+  expect(layout.resources.some(url => url.endsWith('vendor/xterm.js'))).toBe(false);
 
   await page.getByTitle('New AI session').click();
   await expect(page.locator('#modal-overlay')).toBeVisible();

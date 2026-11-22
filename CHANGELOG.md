@@ -10,6 +10,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.14.0] - 2026-11-22
+
+### Added
+
+- Support authenticated Antigravity CLI sessions through an independent ACP backend, including native models, thinking levels, permissions, history, attachments, and cancellation.
+- Add instructions to running Codex and Antigravity turns with target validation and delivery deduplication.
+- Show Antigravity message times, context occupancy, effective output speed, native token usage, and usage dashboards.
+- Preview PDF, source code, plain text, Markdown, and images in a shared dialog with downloads, using bundled PDF.js, Highlight.js, ViewerJS, and the existing Markdown renderer.
+
+### Changed
+
+- Load preview and terminal components on demand; defer application scripts and compress static assets with bounded caching and ETag revalidation.
+- Stream workspace resources with HEAD and byte-range support independently of the editor's file size limit. Forward safe conditional and range metadata through workbench connections.
+
+### Fixed
+
+- Preserve rendered diagrams, disclosures, text selections, and reading positions during Antigravity streaming and history previews.
+- Keep thinking and resolved approval records folded, and improve model/status panels, composer layout, and reply metadata on narrow screens.
+- Resolve local file URLs, encoded paths, source line references, and nested Markdown resources; explain missing files, directories, and resource limits in the preview.
+- Bound remote response buffering, preserve safe MCP document metadata, and reject special files before opening them.
+
 ## [2.13.1] - 2026-10-19
 
 ### Changed

@@ -34,6 +34,7 @@ type workbenchMessage struct {
 	Body                string            `json:"body,omitempty"`
 	ContentType         string            `json:"content_type,omitempty"`
 	ResponseHeaders     map[string]string `json:"response_headers,omitempty"`
+	RequestHeaders      map[string]string `json:"request_headers,omitempty"`
 	Status              int               `json:"status,omitempty"`
 	SessionID           string            `json:"session_id,omitempty"`
 	Payload             map[string]any    `json:"payload,omitempty"`
@@ -427,35 +428,31 @@ func (bridge *workbenchBridge) httpRequest(message workbenchMessage) {
 		response = httptest.NewRecorder()
 		respondError(response, http.StatusForbidden, err)
 	}
-	if response.Body.Len() > 8<<20 {
+	if response.Body.Len() > maxWorkbenchHTTPBodyBytes {
 		response = httptest.NewRecorder()
 		respondError(response, http.StatusRequestEntityTooLarge, errors.New("响应超过连接大小限制"))
+	}
+	if message.Method == http.MethodHead {
+		response.Body.Reset()
 	}
 	_ = bridge.write(workbenchMessage{Type: "http_response", ID: message.ID, Status: response.Code,
 		Body: base64.StdEncoding.EncodeToString(response.Body.Bytes()), ContentType: response.Header().Get("Content-Type"), ResponseHeaders: workbenchResourceResponseHeaders(response.Header())})
 }
 
-// 浏览器资源的隔离和下载信息需要穿过连接，仅允许这三项响应头。
-func workbenchResourceResponseHeaders(headers http.Header) map[string]string {
-	result := map[string]string{}
-	for _, name := range []string{"Content-Security-Policy", "X-Content-Type-Options", "Content-Disposition"} {
-		if value := headers.Get(name); value != "" && !strings.ContainsAny(value, "\r\n") {
-			result[name] = value
-		}
-	}
-	return result
-}
-
 func (bridge *workbenchBridge) serveRequest(writer *httptest.ResponseRecorder, message workbenchMessage) error {
-	if message.Method != http.MethodGet && message.Method != http.MethodPost && message.Method != http.MethodPut && message.Method != http.MethodPatch && message.Method != http.MethodDelete {
+	if message.Method != http.MethodGet && message.Method != http.MethodHead && message.Method != http.MethodPost && message.Method != http.MethodPut && message.Method != http.MethodPatch && message.Method != http.MethodDelete {
 		return errors.New("请求方法无效")
+	}
+	readOnly := message.Method == http.MethodGet || message.Method == http.MethodHead
+	if message.Method == http.MethodHead {
+		defer func() { writer.Body.Reset() }()
 	}
 	parsed, err := url.ParseRequestURI(message.Path)
 	if err != nil || parsed.Host != "" || parsed.Scheme != "" || strings.Contains(parsed.Path, "..") || strings.HasPrefix(message.Path, "//") {
 		return errors.New("请求路径无效")
 	}
 	body, err := base64.StdEncoding.DecodeString(message.Body)
-	if err != nil || len(body) > 8<<20 {
+	if err != nil || len(body) > maxWorkbenchHTTPBodyBytes {
 		return errors.New("请求正文无效或过大")
 	}
 	path := parsed.Path
@@ -535,7 +532,7 @@ func (bridge *workbenchBridge) serveRequest(writer *httptest.ResponseRecorder, m
 	} else if strings.HasPrefix(path, "/api/sessions/") {
 		parts := strings.Split(strings.TrimPrefix(path, "/api/sessions/"), "/")
 		if !bridge.owns(parts[0]) {
-			if message.Method == http.MethodGet && strings.HasSuffix(path, "/metadata") && bridge.server.sessions.Get(parts[0]) == nil {
+			if readOnly && strings.HasSuffix(path, "/metadata") && bridge.server.sessions.Get(parts[0]) == nil {
 				// 上一次连接的 runtime 会话已不存在；工作台可据此恢复保存的原生对话。
 				respondError(writer, http.StatusNotFound, errors.New("Session not found"))
 				return nil
@@ -548,8 +545,8 @@ func (bridge *workbenchBridge) serveRequest(writer *httptest.ResponseRecorder, m
 				return errors.New("工作台不能扩大本地执行权限")
 			}
 		}
-	} else if !((message.Method == http.MethodGet && !strings.HasPrefix(path, "/api/")) ||
-		(message.Method == http.MethodGet && (path == "/api/config" || path == "/api/tools" || path == "/api/claude-config" || path == "/api/sessions" || path == "/api/skillhub/status" || path == "/api/skillhub/skills")) ||
+	} else if !((readOnly && !strings.HasPrefix(path, "/api/")) ||
+		(readOnly && (path == "/api/config" || path == "/api/tools" || path == "/api/claude-config" || path == "/api/sessions" || path == "/api/skillhub/status" || path == "/api/skillhub/skills")) ||
 		(path == "/api/debug/client-log" && message.Method == http.MethodPost)) {
 		return errors.New("此接口未授权给工作台")
 	}
@@ -560,7 +557,16 @@ func (bridge *workbenchBridge) serveRequest(writer *httptest.ResponseRecorder, m
 	if message.ContentType != "" {
 		request.Header.Set("Content-Type", message.ContentType)
 	}
-	bridge.mux.ServeHTTP(writer, request)
+	for name, values := range workbenchResourceRequestHeaders(message.RequestHeaders) {
+		request.Header[name] = values
+	}
+	limited := &workbenchResponseLimitWriter{ResponseRecorder: writer}
+	bridge.mux.ServeHTTP(limited, request)
+	if limited.overflow {
+		*writer = *httptest.NewRecorder()
+		respondError(writer, http.StatusRequestEntityTooLarge, errWorkbenchHTTPBodyLimit)
+		return nil
+	}
 	if path == "/api/sessions" && message.Method == http.MethodPost && writer.Code == http.StatusOK {
 		var value map[string]any
 		if json.Unmarshal(writer.Body.Bytes(), &value) == nil {

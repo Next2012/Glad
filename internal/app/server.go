@@ -9,7 +9,6 @@ import (
 	"io"
 	"io/fs"
 	"log"
-	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -35,6 +34,7 @@ type Server struct {
 	supervisors   *SupervisorManager
 	rooms         *RoomManager
 	assets        fs.FS
+	staticAssets  staticAssetCache
 	sharing       *WorkbenchSharing
 }
 
@@ -742,29 +742,55 @@ func uniqueStrings(values []string) []string {
 
 func (server *Server) registerStaticRoutes(mux *http.ServeMux) {
 	assets := map[string]string{
-		"/vendor/xterm.js":                       "node_modules/@xterm/xterm/lib/xterm.js",
-		"/vendor/xterm.css":                      "node_modules/@xterm/xterm/css/xterm.css",
-		"/vendor/xterm-addon-fit.js":             "node_modules/@xterm/addon-fit/lib/addon-fit.js",
-		"/vendor/mermaid.min.js":                 "node_modules/mermaid/dist/mermaid.min.js",
-		"/vendor/mermaid.LICENSE":                "node_modules/mermaid/LICENSE",
-		"/vendor/katex/katex.min.js":             "node_modules/katex/dist/katex.min.js",
-		"/vendor/katex/katex.min.css":            "node_modules/katex/dist/katex.min.css",
-		"/vendor/katex/LICENSE":                  "node_modules/katex/LICENSE",
-		"/vendor/markdown-it.min.js":             "node_modules/markdown-it/dist/browser/markdown-it.umd.min.js",
-		"/vendor/markdown-it.LICENSE":            "node_modules/markdown-it/LICENSE",
-		"/vendor/markdown-it-task-lists.min.js":  "node_modules/markdown-it-task-lists/dist/markdown-it-task-lists.min.js",
-		"/vendor/markdown-it-task-lists.LICENSE": "node_modules/markdown-it-task-lists/LICENSE",
-		"/vendor/markdown-it-texmath.js":         "node_modules/markdown-it-texmath/texmath.js",
-		"/vendor/markdown-it-texmath.LICENSE":    "node_modules/markdown-it-texmath/license.txt",
-		"/glad-app-icon.png":                     "assets/glad-app-icon.png",
-		"/favicon.ico":                           "assets/glad-app-icon.png",
+		"/vendor/pdfjs/LICENSE":                        "node_modules/pdfjs-dist/LICENSE",
+		"/vendor/viewerjs/viewer.min.js":               "node_modules/viewerjs/dist/viewer.min.js",
+		"/vendor/viewerjs/viewer.min.css":              "node_modules/viewerjs/dist/viewer.min.css",
+		"/vendor/viewerjs/LICENSE":                     "node_modules/viewerjs/LICENSE",
+		"/vendor/highlight/highlight.min.js":           "node_modules/@highlightjs/cdn-assets/highlight.min.js",
+		"/vendor/highlight/styles/github.min.css":      "node_modules/@highlightjs/cdn-assets/styles/github.min.css",
+		"/vendor/highlight/styles/github-dark.min.css": "node_modules/@highlightjs/cdn-assets/styles/github-dark.min.css",
+		"/vendor/highlight/LICENSE":                    "node_modules/@highlightjs/cdn-assets/LICENSE",
+		"/vendor/xterm.js":                             "node_modules/@xterm/xterm/lib/xterm.js",
+		"/vendor/xterm.css":                            "node_modules/@xterm/xterm/css/xterm.css",
+		"/vendor/xterm-addon-fit.js":                   "node_modules/@xterm/addon-fit/lib/addon-fit.js",
+		"/vendor/mermaid.min.js":                       "node_modules/mermaid/dist/mermaid.min.js",
+		"/vendor/mermaid.LICENSE":                      "node_modules/mermaid/LICENSE",
+		"/vendor/katex/katex.min.js":                   "node_modules/katex/dist/katex.min.js",
+		"/vendor/katex/katex.min.css":                  "node_modules/katex/dist/katex.min.css",
+		"/vendor/katex/LICENSE":                        "node_modules/katex/LICENSE",
+		"/vendor/markdown-it.min.js":                   "node_modules/markdown-it/dist/browser/markdown-it.umd.min.js",
+		"/vendor/markdown-it.LICENSE":                  "node_modules/markdown-it/LICENSE",
+		"/vendor/markdown-it-task-lists.min.js":        "node_modules/markdown-it-task-lists/dist/markdown-it-task-lists.min.js",
+		"/vendor/markdown-it-task-lists.LICENSE":       "node_modules/markdown-it-task-lists/LICENSE",
+		"/vendor/markdown-it-texmath.js":               "node_modules/markdown-it-texmath/texmath.js",
+		"/vendor/markdown-it-texmath.LICENSE":          "node_modules/markdown-it-texmath/license.txt",
+		"/glad-app-icon.png":                           "assets/glad-app-icon.png",
+		"/favicon.ico":                                 "assets/glad-app-icon.png",
 	}
 	for route, filename := range assets {
 		filename := filename
 		mux.HandleFunc(
 			"GET "+route,
-			func(writer http.ResponseWriter, request *http.Request) { server.serveEmbedded(writer, filename) },
+			func(writer http.ResponseWriter, request *http.Request) {
+				server.serveStaticAsset(writer, request, filename)
+			},
 		)
+	}
+	for route, directory := range map[string]string{
+		"/vendor/pdfjs/build/{name}":          "node_modules/pdfjs-dist/legacy/build/",
+		"/vendor/pdfjs/cmaps/{name}":          "node_modules/pdfjs-dist/cmaps/",
+		"/vendor/pdfjs/standard_fonts/{name}": "node_modules/pdfjs-dist/standard_fonts/",
+		"/vendor/pdfjs/wasm/{name}":           "node_modules/pdfjs-dist/wasm/",
+	} {
+		directory := directory
+		mux.HandleFunc("GET "+route, func(writer http.ResponseWriter, request *http.Request) {
+			name := request.PathValue("name")
+			if name == "." || name != path.Base(name) || strings.Contains(name, "\\") || (strings.HasSuffix(directory, "/build/") && !strings.HasSuffix(name, ".mjs")) {
+				http.NotFound(writer, request)
+				return
+			}
+			server.serveStaticAsset(writer, request, directory+name)
+		})
 	}
 	mux.HandleFunc("GET /vendor/katex/fonts/{name}", func(writer http.ResponseWriter, request *http.Request) {
 		name := request.PathValue("name")
@@ -772,7 +798,7 @@ func (server *Server) registerStaticRoutes(mux *http.ServeMux) {
 			http.NotFound(writer, request)
 			return
 		}
-		server.serveEmbedded(writer, "node_modules/katex/dist/fonts/"+name)
+		server.serveStaticAsset(writer, request, "node_modules/katex/dist/fonts/"+name)
 	})
 	mux.HandleFunc("GET /manifest.json", func(writer http.ResponseWriter, request *http.Request) {
 		respondJSON(
@@ -812,20 +838,7 @@ func (server *Server) serveRoot(writer http.ResponseWriter, request *http.Reques
 	if _, err := fs.Stat(server.assets, filename); err != nil {
 		filename = "lib/web/index.html"
 	}
-	server.serveEmbedded(writer, filename)
-}
-
-func (server *Server) serveEmbedded(writer http.ResponseWriter, filename string) {
-	bytes, err := fs.ReadFile(server.assets, filename)
-	if err != nil {
-		http.NotFound(writer, nil)
-		return
-	}
-	if contentType := mime.TypeByExtension(filepath.Ext(filename)); contentType != "" {
-		writer.Header().Set("Content-Type", contentType)
-	}
-	writer.WriteHeader(200)
-	_, _ = writer.Write(bytes)
+	server.serveStaticAsset(writer, request, filename)
 }
 
 func respondJSON(writer http.ResponseWriter, status int, value any) {

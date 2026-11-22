@@ -1,7 +1,7 @@
 {
   "name": "glad-web",
   "version": "0.0.0",
-  "description": "A local-first Web interface for Codex and Claude",
+  "description": "A local-first Web interface for Codex, Claude, and Antigravity",
   "license": "MIT",
   "bin": {
     "glad": "bin/glad.cjs"

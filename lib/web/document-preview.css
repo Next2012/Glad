@@ -1,0 +1,30 @@
+.document-preview { width:min(1120px,calc(100vw - 32px)); height:min(850px,calc(100dvh - 32px)); max-width:none; max-height:none; box-sizing:border-box; padding:0; border:1px solid var(--line,#444); border-radius:14px; background:var(--card-bg,#171717); color:var(--text,#eee); box-shadow:0 20px 80px #0008; overflow:hidden; }
+.document-preview[open] { display:flex; flex-direction:column; }
+.document-preview::backdrop { background:#0009; backdrop-filter:blur(3px); }
+.document-preview-header { display:flex; align-items:center; flex:0 0 auto; min-width:0; gap:12px; padding:10px 14px; border-bottom:1px solid var(--line,#444); }
+.document-preview-title { min-width:0; flex:1; margin:0; font-size:14px; font-weight:650; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.document-preview-download { flex:0 0 auto; padding:7px 10px; border-radius:7px; color:var(--primary,#59a6ff); font-size:12px; text-decoration:none; }
+.document-preview button { min-width:36px; min-height:36px; border:1px solid var(--line,#444); border-radius:8px; background:var(--card-bg,#292929); color:var(--text,#eee); font-size:14px; cursor:pointer; }
+.document-preview button:disabled { opacity:.4; cursor:default; }
+.document-preview :is(button,a):focus-visible { outline:2px solid var(--primary,#59a6ff); outline-offset:2px; }
+.document-preview-close { font-size:24px!important; line-height:1; }
+.document-preview-toolbar { display:flex; flex:0 0 auto; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px; padding:7px 12px; border-bottom:1px solid var(--line,#444); }
+.document-preview-toolbar[hidden],.document-preview-status[hidden],.document-preview-line-highlight[hidden] { display:none; }
+.document-preview-page { padding:0 5px; font-size:12px; font-variant-numeric:tabular-nums; }
+.document-preview-status { flex:0 0 auto; padding:8px 14px; color:var(--text-dim,#aaa); font-size:12px; }
+.document-preview-body { flex:1; min-width:0; min-height:0; overflow:auto; overscroll-behavior:contain; position:relative; background:var(--bg,#101010); }
+.document-preview-error { padding:20px; margin:0; color:var(--danger,#ff6b61); font-size:14px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.document-preview-markdown { max-width:900px; margin:auto; padding:20px 24px 40px; font-size:14px; }
+.document-preview-markdown img { max-width:100%; height:auto; cursor:zoom-in; }
+.document-preview-code-frame { position:relative; display:grid; grid-template-columns:max-content minmax(max-content,1fr); min-width:100%; min-height:100%; width:max-content; isolation:isolate; }
+.document-preview-code,.document-preview-line-numbers { margin:0; padding:0 14px; border:0; border-radius:0; background:transparent; color:var(--text,#eee); font:12px/20px ui-monospace,SFMono-Regular,Consolas,monospace; tab-size:4; white-space:pre; }
+.document-preview-code { position:relative; z-index:1; }
+.document-preview-code code,.document-preview-code .hljs { display:block; padding:0; background:transparent; font:inherit; white-space:pre; }
+.document-preview-line-numbers { z-index:2; position:sticky; left:0; text-align:right; user-select:none; color:var(--text-dim,#888); background:var(--card-bg,#222); border-right:1px solid var(--line,#444); }
+.document-preview-line-highlight { position:absolute; z-index:0; left:0; right:0; pointer-events:none; background:color-mix(in srgb,var(--primary,#59a6ff) 14%,transparent); border-top:1px solid color-mix(in srgb,var(--primary,#59a6ff) 25%,transparent); box-sizing:border-box; }
+.document-preview-canvas { display:block; margin:16px auto; background:white; box-shadow:0 2px 12px #0003; }
+.document-preview-image-stage { position:relative; width:100%; height:100%; min-height:240px; overflow:hidden; }
+.document-preview-image { display:block; max-width:100%; max-height:100%; margin:auto; }
+.document-preview-image-stage .viewer-container { background:var(--bg,#101010); }
+.document-preview-image-stage .viewer-button { display:none; }
+@media (max-width:640px) { .document-preview { width:100%; height:100dvh; margin:0; border-radius:0; border:0; } .document-preview-header { padding:8px 10px; gap:4px; padding-top:max(8px,env(safe-area-inset-top)); } .document-preview-markdown { padding:16px 14px 32px; } .document-preview button { min-width:40px; min-height:40px; } }

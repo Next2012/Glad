@@ -240,31 +240,51 @@ const vm = require('vm');
 const assert = require('assert');
 const prefix = '/agent-workbench/api/assistant-connections/test-glad/ui/';
 const renderer = {rules: {image: () => ''}, renderToken: () => ''};
-const parser = {renderer, use() {}, inline: {ruler: {before() {}}}};
+const parser = {renderer, use() {}, inline: {ruler: {before() {}}},
+  validateLink: value => !/^(?:javascript|vbscript|data|file):/i.test(value)};
 const window = {
   markdownit: () => parser, markdownitTaskLists: () => {},
   gladWorkbenchResourceURL: value => value.startsWith('/') ? prefix + value.slice(1) : value
 };
-const context = {window, document: {addEventListener() {}}, texmath: () => {}};
+const context = {window, URL, document: {addEventListener() {}}, texmath: () => {}};
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), context);
 function token(key, value) {
-  return {attrs: {[key]: value}, attrGet(k) {return this.attrs[k];},
-    attrSet(k, v) {this.attrs[k] = v;}};
+  return {attrs: [[key, value]], attrIndex(k) {return this.attrs.findIndex(a => a[0] === k);},
+    attrGet(k) {return this.attrs.find(a => a[0] === k)?.[1] ?? null;},
+    attrSet(k, v) {const i = this.attrIndex(k); if (i < 0) this.attrs.push([k,v]); else this.attrs[i][1] = v;}};
 }
 const image = token('src', 'diagram.png');
 renderer.rules.image([image], 0, {}, {sessionId: 'owned'}, renderer);
-assert.strictEqual(image.attrs.src, prefix + 'api/sessions/owned/workspace-resource?path=diagram.png');
+assert.strictEqual(image.attrGet('src'), prefix + 'api/sessions/owned/workspace-resource?path=diagram.png');
 const link = token('href', 'result.txt');
 renderer.rules.link_open([link], 0, {}, {sessionId: 'owned'}, renderer);
-assert.strictEqual(link.attrs.href, prefix + 'api/sessions/owned/workspace-resource?path=result.txt');
-assert.strictEqual(link.attrs.target, '_blank');
+assert.strictEqual(link.attrGet('href'), prefix + 'api/sessions/owned/workspace-resource?path=result.txt');
+assert.strictEqual(link.attrGet('target'), '_blank');
 const mcpResource = token('href', 'botlink-hub://resource/software/pdf/original');
 renderer.rules.link_open([mcpResource], 0, {}, {sessionId: 'owned'}, renderer);
-assert.strictEqual(mcpResource.attrs.href, prefix + 'api/sessions/owned/mcp-resource?uri=' + encodeURIComponent('botlink-hub://resource/software/pdf/original'));
+assert.strictEqual(mcpResource.attrGet('href'), prefix + 'api/sessions/owned/mcp-resource?uri=' + encodeURIComponent('botlink-hub://resource/software/pdf/original'));
 const external = token('href', 'https://external.example/result');
 renderer.rules.link_open([external], 0, {}, {sessionId: 'owned'}, renderer);
-assert.strictEqual(external.attrs.href, 'https://external.example/result');
+assert.strictEqual(external.attrGet('href'), 'https://external.example/result');
+const localFile = token('href', 'file:///workspace/notes%20readme.md#L12-L15');
+assert.strictEqual(parser.validateLink(localFile.attrGet('href')), true);
+renderer.rules.link_open([localFile], 0, {}, {sessionId: 'owned'}, renderer);
+assert.strictEqual(localFile.attrGet('href'), prefix + 'api/sessions/owned/workspace-resource?path=' + encodeURIComponent('/workspace/notes readme.md') + '#L12-L15');
+const localImage = token('src', 'file:///workspace/pixel%20image.png');
+renderer.rules.image([localImage], 0, {}, {sessionId: 'owned'}, renderer);
+assert.strictEqual(localImage.attrGet('src'), prefix + 'api/sessions/owned/workspace-resource?path=' + encodeURIComponent('/workspace/pixel image.png'));
+const noSession = token('href', 'file:///workspace/notes.md');
+renderer.rules.link_open([noSession], 0, {}, {}, renderer);
+assert.strictEqual(noSession.attrGet('href'), null);
+const driveFile = token('href', 'file:///C:/workspace/source%20notes.js#L4');
+renderer.rules.link_open([driveFile], 0, {}, {sessionId: 'owned'}, renderer);
+assert.strictEqual(driveFile.attrGet('href'), prefix + 'api/sessions/owned/workspace-resource?path=' + encodeURIComponent('C:/workspace/source notes.js') + '#L4');
+
+for (const unsafe of ['file://remote.example/workspace/notes.md', 'file:relative.md', 'javascript:alert(1)', 'vbscript:alert(1)', 'data:text/html,unsafe']) {
+  assert.strictEqual(parser.validateLink(unsafe), false, unsafe);
+}
+
 `
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

@@ -3,10 +3,10 @@
 ## Requirements
 
 - Go 1.24 or newer
-- Node.js 18 or newer
+- Node.js 22.13 or newer (Node.js 24 recommended for development)
 - npm
 - Chromium for browser tests
-- the official Codex and Claude CLIs for live provider testing
+- the official Codex, Claude, and Antigravity CLIs for live provider testing
 
 Install development dependencies:
 
@@ -56,7 +56,10 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-Playwright reuses a server already listening on 3001 outside CI. The manually triggered `Browser E2E` GitHub Actions workflow starts `go run . --port 3001` itself. Browser tests are intentionally separate from the required PR checks; run them locally before release.
+Playwright starts an isolated daemon and never reuses an existing server. Set
+`GLAD_E2E_PORT=3002` when your development instance is already using 3001.
+Browser tests are intentionally separate from the required PR checks; run them
+locally before release.
 
 The installed iOS app layout checks cover the full-width top edge, keyboard
 viewport changes, and tapping the composer again after sending a long message:

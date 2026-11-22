@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bytes"
 	"mime"
 	"net/http"
 	"net/http/httptest"
@@ -59,12 +58,81 @@ func TestMarkdownWorkspaceResources(t *testing.T) {
 			t.Fatalf("invalid resource %s returned %d", filename, recorder.Code)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(root, "large.txt"), bytes.Repeat([]byte("a"), maxWorkspaceFileBytes+1), 0o600); err != nil {
+	if err := os.Mkdir(filepath.Join(root, "directory"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	directory := httptest.NewRecorder()
+	mux.ServeHTTP(directory, httptest.NewRequest(http.MethodGet, "/api/sessions/markdown/workspace-resource?path=directory", nil))
+	if directory.Code != http.StatusBadRequest {
+		t.Fatalf("directory returned %d", directory.Code)
+	}
+	large, err := os.Create(filepath.Join(root, "large.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = large.WriteString("%PDF-1.7\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err = large.Truncate(5 << 20); err != nil {
+		t.Fatal(err)
+	}
+	large.Close()
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(method, "/api/sessions/markdown/workspace-resource?path=large.pdf", nil)
+		request.Header.Set("Range", "bytes=0-8")
+		mux.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusPartialContent || recorder.Header().Get("Content-Range") != "bytes 0-8/5242880" {
+			t.Fatalf("large PDF streaming failed: %d %s", recorder.Code, recorder.Header().Get("Content-Range"))
+		}
+		if method == http.MethodHead && recorder.Body.Len() != 0 {
+			t.Fatal("HEAD returned file bytes")
+		}
+		if method == http.MethodGet && recorder.Body.String() != "%PDF-1.7\n" {
+			t.Fatal("range returned wrong PDF bytes")
+		}
+	}
+	if err := os.Truncate(filepath.Join(root, "large.pdf"), maxMarkdownResourceBytes+1); err != nil {
 		t.Fatal(err)
 	}
 	recorder := httptest.NewRecorder()
-	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/sessions/markdown/workspace-resource?path=large.txt", nil))
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("oversize file returned %d", recorder.Code)
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/sessions/markdown/workspace-resource?path=large.pdf", nil))
+	if recorder.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversize returned %d", recorder.Code)
+	}
+}
+
+func TestMarkdownResourceSourceReferencesAndDownloads(t *testing.T) {
+	root := t.TempDir()
+	manager := NewSessionManager(root)
+	manager.sessions["resource"] = newSession("resource", "Resources", "codex-structured", ToolInfo{Key: "codex"}, root)
+	server := &Server{sessions: manager}
+	mux := http.NewServeMux()
+	server.registerWorkspaceRoutes(mux)
+	name := "中文 source.go"
+	if err := os.WriteFile(filepath.Join(root, name), []byte("package main\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, filename := range []string{name + ":12:3", filepath.Join(root, name) + "#L12-L18", (&url.URL{Scheme: "file", Host: "localhost", Path: filepath.Join(root, name), Fragment: "L12"}).String()} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "/api/sessions/resource/workspace-resource?download=1&path="+url.QueryEscape(filename), nil)
+		mux.ServeHTTP(recorder, request)
+		kind, params, err := mime.ParseMediaType(recorder.Header().Get("Content-Disposition"))
+		if recorder.Code != 200 || recorder.Body.String() != "package main\n" || err != nil || kind != "attachment" || params["filename"] != name {
+			t.Fatalf("reference download failed: %q status%d disposition%q", filename, recorder.Code, recorder.Header().Get("Content-Disposition"))
+		}
+	}
+	literal := name + ":12"
+	if err := os.WriteFile(filepath.Join(root, literal), []byte("literal name"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := markdownResourcePath(root, literal)
+	if err != nil || resolved != filepath.Join(root, literal) {
+		t.Fatalf("literal reference-like filename was rewritten: %s %v", resolved, err)
+	}
+	for _, filename := range []string{"../outside:12", "file://remote-host/etc/passwd", filepath.Join(t.TempDir(), "outside")} {
+		if _, err := markdownResourcePath(root, filename); err == nil {
+			t.Fatalf("outside path accepted: %q", filename)
+		}
 	}
 }

@@ -80,7 +80,7 @@ glad
 要求：
 
 - Go `>=1.24`
-- 前端测试及发布打包需要 Node.js `>=18`
+- 前端开发及发布打包需要 Node.js `>=22.13`（建议 Node.js 24）
 
 ```bash
 git clone https://github.com/Next2012/Glad.git

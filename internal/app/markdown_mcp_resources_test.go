@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -187,5 +190,111 @@ func TestOrdinaryGladSessionDownloadsResourceWithExplicitOriginalIdentity(t *tes
 	wssMux.ServeHTTP(response, httptest.NewRequest("GET", "/api/sessions/"+wssSession.ID+"/mcp-resource?uri="+url.QueryEscape(uri), nil))
 	if response.Code != 409 || calls != 1 {
 		t.Fatal("unconfigured WSS resource substituted ordinary credentials")
+	}
+}
+
+func TestMarkdownMCPResourcePreservesSafeDocumentMetadataAndHEAD(t *testing.T) {
+	for _, item := range []struct{ name, mimeType, content, wantType, wantFilename string }{
+		{"markdown", "text/markdown", "# Hub document\n", "text/markdown; charset=utf-8", "mcp-resource.md"},
+		{"svg", "image/svg+xml; charset=utf-8", `<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><circle r="2"/></svg>`, "image/svg+xml", "mcp-resource.svg"},
+		{"code", "text/x-go", "package main\n", "text/plain; charset=utf-8", "mcp-resource.txt"},
+		{"html", "text/html", "<script>alert(1)</script>", "text/plain; charset=utf-8", "mcp-resource.txt"},
+		{"pdf", "text/plain", "%PDF-1.7\noriginal bytes\n%%EOF\n", "application/pdf", "mcp-resource.pdf"},
+		{"image", "text/plain", "GIF89a\x01\x00\x01\x00", "image/gif", "mcp-resource.gif"},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			uri := "botlink-hub://resource/document/opaque-id"
+			token := strings.Repeat("native-resource-owner-", 3)
+			hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "Bearer "+token {
+					t.Error("original resource identity changed")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": "resources/read", "result": map[string]any{"contents": []any{map[string]any{"uri": uri, "mimeType": item.mimeType, "blob": base64.StdEncoding.EncodeToString([]byte(item.content))}}}})
+			}))
+			defer hub.Close()
+			root := t.TempDir()
+			tokenFile := filepath.Join(root, "original.token")
+			if err := os.WriteFile(tokenFile, []byte(token), 0600); err != nil {
+				t.Fatal(err)
+			}
+			manager := NewSessionManager(root)
+			session := newSession("owned", "Document", "codex-structured", ToolInfo{Key: "codex"}, root)
+			defer session.cancel()
+			session.environment = []string{"GLAD_WORKBENCH_MCP_URL=" + hub.URL, "GLAD_WORKBENCH_MCP_TOKEN_FILE=" + tokenFile}
+			manager.sessions[session.ID] = session
+			server := &Server{sessions: manager}
+			mux := http.NewServeMux()
+			server.registerWorkspaceRoutes(mux)
+			for _, method := range []string{http.MethodHead, http.MethodGet} {
+				response := httptest.NewRecorder()
+				request := httptest.NewRequest(method, "/api/sessions/owned/mcp-resource?uri="+url.QueryEscape(uri), nil)
+				request.Header.Set("Range", "bytes=0-2")
+				mux.ServeHTTP(response, request)
+				if response.Code != 200 || response.Header().Get("Content-Type") != item.wantType || response.Header().Get("Content-Length") != fmt.Sprint(len(item.content)) {
+					t.Fatalf("document metadata lost: %d %#v", response.Code, response.Header())
+				}
+				if response.Header().Get("Accept-Ranges") != "" || response.Header().Get("Content-Security-Policy") != "default-src 'none'; sandbox" || response.Header().Get("X-Content-Type-Options") != "nosniff" {
+					t.Fatal("resource isolation or no-range contract changed")
+				}
+				if method == http.MethodHead && response.Body.Len() != 0 {
+					t.Fatal("MCP HEAD buffered resource bytes")
+				}
+				if method == http.MethodGet && response.Body.String() != item.content {
+					t.Fatal("MCP original bytes changed")
+				}
+			}
+			response := httptest.NewRecorder()
+			mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/sessions/owned/mcp-resource?download=1&uri="+url.QueryEscape(uri), nil))
+			kind, params, err := mime.ParseMediaType(response.Header().Get("Content-Disposition"))
+			if err != nil || kind != "attachment" || params["filename"] != item.wantFilename {
+				t.Fatalf("download metadata lost: %s", response.Header().Get("Content-Disposition"))
+			}
+		})
+	}
+}
+
+func TestMarkdownMCPResourceOversizeHasExplicitLimitStatus(t *testing.T) {
+	uri := "botlink-hub://resource/document/oversize"
+	token := strings.Repeat("original-owner-", 3)
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": "resources/read", "result": map[string]any{"contents": []any{map[string]any{"uri": uri, "mimeType": "text/plain", "text": strings.Repeat("x", maxWorkspaceFileBytes+1)}}}})
+	}))
+	defer hub.Close()
+	root := t.TempDir()
+	tokenFile := filepath.Join(root, "original.token")
+	if err := os.WriteFile(tokenFile, []byte(token), 0600); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewSessionManager(root)
+	session := newSession("owned", "Oversize", "codex-structured", ToolInfo{Key: "codex"}, root)
+	defer session.cancel()
+	session.environment = []string{"GLAD_WORKBENCH_MCP_URL=" + hub.URL, "GLAD_WORKBENCH_MCP_TOKEN_FILE=" + tokenFile}
+	manager.sessions[session.ID] = session
+	server := &Server{sessions: manager}
+	mux := http.NewServeMux()
+	server.registerWorkspaceRoutes(mux)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/sessions/owned/mcp-resource?uri="+url.QueryEscape(uri), nil))
+	if response.Code != http.StatusRequestEntityTooLarge || !strings.Contains(response.Body.String(), "4 MiB") {
+		t.Fatalf("oversize resource looked like upstream failure: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestMarkdownMCPEnvelopeLimitHasExplicitStatus(t *testing.T) {
+	for _, kind := range []string{"application/json", "text/event-stream"} {
+		if _, err := decodeMarkdownMCPResponse(strings.NewReader(strings.Repeat("x", 8<<20+1)), kind, "resources/read"); !errors.Is(err, errMarkdownMCPResponseTooLarge) {
+			t.Fatalf("%s oversize was not distinguished: %v", kind, err)
+		}
+	}
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.Copy(w, strings.NewReader(strings.Repeat("x", 8<<20+1)))
+	}))
+	defer hub.Close()
+	_, status, err := readMarkdownMCPResource(context.Background(), hub.URL, strings.Repeat("owner", 8), "botlink-hub://resource/document/oversize-envelope")
+	if status != http.StatusRequestEntityTooLarge || !errors.Is(err, errMarkdownMCPResponseTooLarge) {
+		t.Fatalf("envelope limit looked like upstream failure: %d %v", status, err)
 	}
 }

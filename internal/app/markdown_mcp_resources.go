@@ -12,9 +12,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
+
+var errMarkdownMCPResponseTooLarge = errors.New("MCP 响应超过 8 MiB 大小限制")
 
 // 资源 URI 通过当前会话自己的 MCP 身份读取，浏览器不接触令牌。
 func (server *Server) markdownMCPResource(writer http.ResponseWriter, request *http.Request) {
@@ -47,28 +50,54 @@ func (server *Server) markdownMCPResource(writer http.ResponseWriter, request *h
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), 35*time.Second)
 	defer cancel()
-	content, status, err := readMarkdownMCPResource(ctx, endpoint, strings.TrimSpace(string(token)), uri)
+	resource, status, err := readMarkdownMCPResource(ctx, endpoint, strings.TrimSpace(string(token)), uri)
 	if err != nil {
 		http.Error(writer, err.Error(), status)
 		return
 	}
+	content := resource.content
 	contentType := http.DetectContentType(content)
-	if contentType != "application/pdf" && !strings.HasPrefix(contentType, "image/") {
+	filename := "mcp-resource.txt"
+	declaredType, _, _ := mime.ParseMediaType(resource.mimeType)
+	switch {
+	case contentType == "application/pdf":
+		filename = "mcp-resource.pdf"
+	case strings.HasPrefix(contentType, "image/"):
+		if extension := map[string]string{"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp", "image/bmp": ".bmp", "image/x-icon": ".ico", "image/avif": ".avif"}[contentType]; extension != "" {
+			filename = "mcp-resource" + extension
+		}
+	case declaredType == "text/markdown":
+		contentType = "text/markdown; charset=utf-8"
+		filename = "mcp-resource.md"
+	case declaredType == "image/svg+xml":
+		contentType = "image/svg+xml"
+		filename = "mcp-resource.svg"
+	default:
 		contentType = "text/plain; charset=utf-8"
 	}
-	filename := "mcp-resource"
-	if contentType == "application/pdf" {
-		filename += ".pdf"
+	disposition := "inline"
+	if request.URL.Query().Get("download") == "1" {
+		disposition = "attachment"
 	}
 	writer.Header().Set("Content-Type", contentType)
-	writer.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": filename}))
+	writer.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": filename}))
 	writer.Header().Set("Cache-Control", "no-store")
 	writer.Header().Set("X-Content-Type-Options", "nosniff")
 	writer.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	writer.Header().Set("Content-Length", strconv.Itoa(len(content)))
+	if request.Method == http.MethodHead {
+		writer.WriteHeader(http.StatusOK)
+		return
+	}
 	_, _ = writer.Write(content)
 }
 
-func readMarkdownMCPResource(ctx context.Context, endpoint, token, uri string) ([]byte, int, error) {
+type markdownMCPResourceContent struct {
+	content  []byte
+	mimeType string
+}
+
+func readMarkdownMCPResource(ctx context.Context, endpoint, token, uri string) (*markdownMCPResourceContent, int, error) {
 	parsed, err := url.Parse(endpoint)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
 		return nil, http.StatusBadGateway, errors.New("此连接的 MCP 地址无效")
@@ -100,6 +129,9 @@ func readMarkdownMCPResource(ctx context.Context, endpoint, token, uri string) (
 		return nil, http.StatusBadGateway, errors.New("MCP 资源服务请求失败")
 	}
 	envelope, err := decodeMarkdownMCPResponse(response.Body, response.Header.Get("Content-Type"), "resources/read")
+	if errors.Is(err, errMarkdownMCPResponseTooLarge) {
+		return nil, http.StatusRequestEntityTooLarge, errMarkdownMCPResponseTooLarge
+	}
 	if err != nil || envelope["error"] != nil {
 		// 不把上游错误原文送到浏览器，避免携带内部地址或凭据。
 		return nil, http.StatusBadGateway, errors.New("MCP 资源读取失败，请检查当前身份的资源权限")
@@ -125,10 +157,13 @@ func readMarkdownMCPResource(ctx context.Context, endpoint, token, uri string) (
 		} else {
 			continue
 		}
-		if err != nil || len(content) > maxWorkspaceFileBytes {
-			return nil, http.StatusBadGateway, errors.New("MCP 资源内容无效或超过 4 MB")
+		if err != nil {
+			return nil, http.StatusBadGateway, errors.New("MCP 资源内容无效")
 		}
-		return content, http.StatusOK, nil
+		if len(content) > maxWorkspaceFileBytes {
+			return nil, http.StatusRequestEntityTooLarge, errors.New("MCP 资源超过 4 MiB 读取限制")
+		}
+		return &markdownMCPResourceContent{content: content, mimeType: stringValue(resource["mimeType"])}, http.StatusOK, nil
 	}
 	return nil, http.StatusNotFound, errors.New("原 MCP 资源未返回，可能已过期")
 }
@@ -148,8 +183,11 @@ func decodeMarkdownMCPResponse(reader io.Reader, contentType, requestID string) 
 	}
 	if !strings.Contains(contentType, "text/event-stream") {
 		data, err := io.ReadAll(limited)
-		if err != nil || len(data) > 8<<20 {
-			return nil, errors.New("MCP 响应过大或无效")
+		if len(data) > 8<<20 {
+			return nil, errMarkdownMCPResponseTooLarge
+		}
+		if err != nil {
+			return nil, errors.New("MCP 响应无效")
 		}
 		result, matched := decode(data)
 		if !matched {
@@ -162,7 +200,7 @@ func decodeMarkdownMCPResponse(reader io.Reader, contentType, requestID string) 
 	for {
 		line, err := buffered.ReadString('\n')
 		if limited.N <= 0 {
-			return nil, errors.New("MCP 响应超过大小限制")
+			return nil, errMarkdownMCPResponseTooLarge
 		}
 		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
 		if value, found := strings.CutPrefix(line, "data:"); found {

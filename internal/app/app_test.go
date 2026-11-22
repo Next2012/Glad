@@ -46,6 +46,10 @@ func TestRichMarkdownAssetsAreServedLocally(t *testing.T) {
 		"/vendor/katex/katex.min.js", "/vendor/katex/katex.min.css", "/vendor/katex/LICENSE",
 		"/vendor/katex/fonts/KaTeX_Main-Regular.woff2",
 		"/vendor/markdown-it.min.js", "/vendor/markdown-it-task-lists.min.js", "/vendor/markdown-it-texmath.js",
+		"/vendor/pdfjs/build/pdf.min.mjs", "/vendor/pdfjs/build/pdf.worker.min.mjs", "/vendor/pdfjs/LICENSE",
+		"/vendor/pdfjs/cmaps/78-EUC-H.bcmap", "/vendor/pdfjs/standard_fonts/FoxitFixed.pfb", "/vendor/pdfjs/wasm/jbig2.wasm",
+		"/vendor/viewerjs/viewer.min.js", "/vendor/viewerjs/viewer.min.css", "/vendor/viewerjs/LICENSE",
+		"/vendor/highlight/highlight.min.js", "/vendor/highlight/styles/github.min.css", "/vendor/highlight/styles/github-dark.min.css", "/vendor/highlight/LICENSE",
 	} {
 		recorder := httptest.NewRecorder()
 		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, route, nil))
@@ -54,6 +58,9 @@ func TestRichMarkdownAssetsAreServedLocally(t *testing.T) {
 		}
 		if strings.HasSuffix(route, ".woff2") && !bytes.HasPrefix(recorder.Body.Bytes(), []byte("wOF2")) {
 			t.Fatalf("asset %s is not a WOFF2 font", route)
+		}
+		if strings.HasSuffix(route, ".mjs") && !strings.Contains(recorder.Header().Get("Content-Type"), "javascript") {
+			t.Fatalf("asset %s is not served as an executable module", route)
 		}
 	}
 	for _, route := range []string{"/vendor/katex/fonts/missing.woff2", "/vendor/katex/fonts/package.json", "/vendor/katex/fonts/..%2Fkatex.min.js"} {

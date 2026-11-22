@@ -83,7 +83,7 @@ After installation, the package name is `glad-web` and the command is `glad`.
 Requirements:
 
 - Go `>=1.24`
-- Node.js `>=18` for frontend tests and release packaging
+- Node.js `>=22.13` for frontend development and release packaging (Node.js 24 recommended)
 
 ```bash
 git clone https://github.com/Next2012/Glad.git

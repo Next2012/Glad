@@ -197,3 +197,42 @@ totals. `usage_antigravity.go` aggregates this store by model and local day/week
 month without depending on ccusage or private agy SQLite/protobuf formats.
 Dashboard coverage begins with recorded live usage; incomplete records and
 unknown pricing are explicit, and native history is not backfilled.
+
+## Document previews and remote loading
+
+Conversation resource links share an independent, lazily loaded preview dialog;
+provider controllers do not own file viewers. Markdown uses the existing
+[markdown-it](https://github.com/markdown-it/markdown-it) pipeline, with nested
+links and images resolved from the document's directory. PDF rendering uses
+[Mozilla PDF.js](https://github.com/mozilla/pdf.js), image interaction uses
+[ViewerJS](https://github.com/fengyuanchen/viewerjs), and code highlighting uses
+[Highlight.js](https://github.com/highlightjs/highlight.js). These libraries are
+pinned, bundled with the binary, and requested only for the corresponding
+preview. No CDN connection is needed at runtime. Plain text needs no renderer.
+
+The workspace resource route retains the session cwd and symlink boundary.
+Local file URLs, encoded paths, and source line suffixes are normalized without
+searching unrelated directories. Missing files and directories produce explicit
+preview errors. File responses support attachment downloads and HTTP byte
+ranges, and stream from disk with a separate 256 MiB resource limit; the editor's
+4 MiB read/modify limit is unchanged. Preview text and canvas memory have smaller
+client limits. Closing or replacing a preview cancels its outstanding work.
+
+Application scripts use ordered `defer` loading. Terminal assets load on demand
+alongside the document viewers. Embedded text assets use gzip and representation
+ETags through a bounded cache. Unversioned assets must revalidate, so a new binary
+cannot leave clients on indefinitely cached scripts; dynamic APIs remain
+`no-store`.
+
+The workbench bridge remains a bounded base64 protocol, rather than an end to
+end byte stream. Its optional `request_headers` forwards only conditional and
+range headers; GET and HEAD retain the same owned-session authorization.
+Resource size, range, cache, and disposition response headers are allowlisted.
+The 8 MiB per-response bridge limit is enforced during copying. Older workbench
+clients which do not forward range headers still cannot transfer a resource
+larger than that limit in one response.
+
+MCP resources retain the originating session's credentials and safe MIME
+metadata, including Markdown and SVG. Their upstream `resources/read` operation
+still returns the entire resource: the existing 4 MiB decoded / 8 MiB envelope
+limits remain explicit, and this path does not advertise byte-range streaming.

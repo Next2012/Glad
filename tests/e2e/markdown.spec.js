@@ -2,21 +2,27 @@ const { test, expect } = require('@playwright/test');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 
 async function showRichMessage(page, markdown, provider = 'codex') {
   await page.evaluate(({ markdown, provider }) => {
     document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
     document.getElementById('terminal-view').classList.add('active');
-    activeToolKey = provider === 'codex' ? 'codex' : 'claude-code';
+    activeToolKey = provider === 'claude' ? 'claude-code' : provider;
     setClaudeModeEnabled(provider === 'claude');
     if (provider === 'codex') {
       codexMessages = [{ id: 'rich-message', kind: 'assistant', text: markdown }];
       commitCodexChatRender();
+    } else if (provider === 'antigravity') {
+      antigravityMessages = [{ id: 'rich-message', kind: 'assistant', text: markdown }];
+      antigravityPendingPermissions = [];
+      applyAntigravityState({ status: 'idle' });
     } else {
       claudeMessages = [{ id: 'rich-message', kind: 'assistant', text: markdown }];
       commitClaudeChatRender();
     }
   }, { markdown, provider });
+  if (provider === 'antigravity') await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
 }
 
 const diagram = '```mermaid\nflowchart TD\n A[原始数据] --> B[提取特征]\n B -->|通过| C[输出结果]\n```';
@@ -24,12 +30,12 @@ const formula = String.raw`\[
 R=\frac{\max(D_{pre})-\min(D_{pre})}{\max(|D_{candidate}-D_{baseline}|,\epsilon)}
 \]`;
 
-test('renders Mermaid and LaTeX in both providers using only bundled assets', async ({ page }) => {
+test('renders Mermaid and LaTeX in Codex, Claude and Antigravity using only bundled assets', async ({ page }) => {
   const failures = [];
   page.on('pageerror', error => failures.push(error.message));
   page.on('response', response => { if (response.status() >= 400) failures.push(response.url()); });
   await page.goto('/', { waitUntil: 'networkidle' });
-  for (const provider of ['codex', 'claude']) {
+  for (const provider of ['codex', 'claude', 'antigravity']) {
     await showRichMessage(page, `${diagram}\n\n${formula}\n\n行内公式 \\(q=wp/(1-p+wp)\\) 和 $E=mc^2$。`, provider);
     const container = page.locator(`#${provider}-chat-container`);
     await expect(container.locator('.markdown-diagram-output svg')).toHaveCount(1);
@@ -73,22 +79,25 @@ test('preserves formula syntax in code and prices, and protects math from Markdo
 
 test('keeps completed diagrams stable during streaming and redraws on theme changes', async ({ page }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
-  await page.evaluate(() => setGladTheme('dark'));
-  await showRichMessage(page, diagram.slice(0, -3));
-  await expect(page.locator('#codex-chat-container svg')).toHaveCount(0);
-  await showRichMessage(page, diagram);
-  const svg = page.locator('#codex-chat-container .markdown-diagram-output svg');
-  await expect(svg).toHaveCount(1);
-  const firstID = await svg.getAttribute('id');
-  await showRichMessage(page, `${diagram}\n\nNew streaming text`);
-  await expect(svg).toHaveAttribute('id', firstID);
-  await page.evaluate(() => setGladTheme('light'));
-  await expect(page.locator('#codex-chat-container .markdown-diagram')).toHaveAttribute('data-diagram-theme', 'light');
-  expect(await svg.getAttribute('id')).not.toBe(firstID);
-  await showRichMessage(page, `${diagram}\n\n${diagram}`);
-  await expect(page.locator('#codex-chat-container .markdown-diagram-output svg')).toHaveCount(2);
-  const ids = await page.locator('#codex-chat-container .markdown-diagram-output svg').evaluateAll(nodes => nodes.map(node => node.id));
-  expect(new Set(ids).size).toBe(2);
+  for (const provider of ['codex', 'antigravity']) {
+    await page.evaluate(() => setGladTheme('dark'));
+    await showRichMessage(page, diagram.slice(0, -3), provider);
+    const container = page.locator(`#${provider}-chat-container`);
+    await expect(container.locator('svg')).toHaveCount(0);
+    await showRichMessage(page, diagram, provider);
+    const svg = container.locator('.markdown-diagram-output svg');
+    await expect(svg).toHaveCount(1);
+    const firstID = await svg.getAttribute('id');
+    await showRichMessage(page, `${diagram}\n\nNew streaming text`, provider);
+    await expect(svg).toHaveAttribute('id', firstID);
+    await page.evaluate(() => setGladTheme('light'));
+    await expect(container.locator('.markdown-diagram')).toHaveAttribute('data-diagram-theme', 'light');
+    expect(await svg.getAttribute('id')).not.toBe(firstID);
+    await showRichMessage(page, `${diagram}\n\n${diagram}`, provider);
+    await expect(container.locator('.markdown-diagram-output svg')).toHaveCount(2);
+    const ids = await container.locator('.markdown-diagram-output svg').evaluateAll(nodes => nodes.map(node => node.id));
+    expect(new Set(ids).size).toBe(2);
+  }
 });
 
 test('malformed diagrams and formulas retain readable source without executing content', async ({ page }) => {
@@ -113,9 +122,10 @@ test('malformed diagrams and formulas retain readable source without executing c
   expect(errors).toEqual([]);
 });
 
-test('tiled conversation previews render diagrams and formulas', async ({ page }) => {
+for (const provider of ['codex', 'antigravity']) {
+test(`${provider} tiled conversation previews render diagrams and formulas`, async ({ page }) => {
   test.skip(page.viewportSize().width < 920, 'Desktop tiled layout');
-  const response = await page.request.post('/api/sessions', { data: { toolKey: 'codex' } });
+  const response = await page.request.post('/api/sessions', { data: { toolKey: provider } });
   expect(response.ok()).toBe(true);
   const { id } = await response.json();
   try {
@@ -137,6 +147,7 @@ test('tiled conversation previews render diagrams and formulas', async ({ page }
     await page.request.delete(`/api/sessions/${id}`);
   }
 });
+}
 
 test('renders nested fenced code blocks without stalling', async ({ page }) => {
   const pageErrors = [];
@@ -370,11 +381,11 @@ test('resolves local files and images in the correct conversation workspace', as
     expect(href).toContain(`/api/sessions/${id}/workspace-resource?path=`);
     expect(await (await page.request.get(href)).text()).toBe('# Markdown workspace file');
     await expect.poll(() => content.getByAltText('Local image').evaluate(image => image.naturalWidth)).toBe(1);
-    const popupPromise = page.waitForEvent('popup');
     await content.getByRole('link', { name: 'Local file' }).click();
-    const popup = await popupPromise;
-    await expect(popup.locator('body')).toContainText('# Markdown workspace file');
-    await popup.close();
+    const preview = page.getByRole('dialog', { name: 'Document preview', exact: true });
+    await expect(preview).toBeVisible();
+    await expect(preview.locator('.document-preview-markdown h1')).toHaveText('Markdown workspace file');
+    await preview.getByRole('button', { name: 'Close document preview', exact: true }).click();
     const tiledHTML = await page.evaluate(() => tileConversationHtml({ id: 'different-session', toolKey: 'codex' }, {
       hydrated: true, permissions: [], state: { status: 'idle' },
       messages: [{ id: 'local-link', kind: 'assistant', text: '[Workspace](./README.md)' }]
@@ -385,6 +396,136 @@ test('resolves local files and images in the correct conversation workspace', as
     if (id) await page.request.delete(`/api/sessions/${id}`);
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test('Antigravity native file URLs render as workspace links and images with encoded paths and line fragments', async ({ page }, testInfo) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'glad-agy-file-urls-'));
+  const sourcePath = path.join(directory, '中文 notes (draft).js');
+  const percentPath = path.join(directory, 'literal%20name.md');
+  const imagePath = path.join(directory, '示意 image%.png');
+  const source = '// Native file URL source\nconst message = "中文 and spaces";\n';
+  const percentSource = '# A filename containing a literal percent-20 sequence';
+  fs.writeFileSync(sourcePath, source);
+  fs.writeFileSync(percentPath, percentSource);
+  fs.writeFileSync(imagePath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j0aIAAAAASUVORK5CYII=', 'base64'));
+  const sourceURL = pathToFileURL(sourcePath).href;
+  const percentURL = pathToFileURL(percentPath).href;
+  const imageURL = pathToFileURL(imagePath).href;
+  const codeSample = `const original = "${sourceURL}#L2";`;
+  let id;
+  try {
+    const response = await page.request.post('/api/sessions', { data: { toolKey: 'antigravity', workingDirectory: directory } });
+    expect(response.ok()).toBe(true);
+    ({ id } = await response.json());
+    await page.goto('/', { waitUntil: 'networkidle' });
+    await page.evaluate(id => { activeSessionId = id; }, id);
+    await showRichMessage(page, [
+      `[原生源码](${sourceURL}#L2)`,
+      `[Percent path](${percentURL})`,
+      `[With query](${sourceURL}?download=1#L2-L4)`,
+      `[Localhost source](${sourceURL.replace('file:///', 'file://localhost/')})`,
+      `![原生图片](${imageURL})`,
+      '', '```js', codeSample, '```'
+    ].join('\n'), 'antigravity');
+    const content = page.locator('#antigravity-chat-container');
+    const sourceLink = content.getByRole('link', { name: '原生源码', exact: true });
+    await expect(sourceLink).toHaveCount(1);
+    await expect(content).not.toContainText('[原生源码](');
+    await expect(content).not.toContainText('![原生图片](');
+    const href = await sourceLink.getAttribute('href');
+    const mapped = new URL(href, page.url());
+    expect(mapped.pathname).toBe(`/api/sessions/${id}/workspace-resource`);
+    expect(mapped.searchParams.get('path')).toBe(sourcePath);
+    expect(mapped.hash).toBe('#L2');
+    const sourceResponse = await page.request.get(href);
+    expect(sourceResponse.ok()).toBe(true);
+    expect(await sourceResponse.text()).toBe(source);
+    for (const [name, expectedPath, expectedHash] of [
+      ['Percent path', percentPath, ''], ['With query', sourcePath, '#L2-L4'], ['Localhost source', sourcePath, '']
+    ]) {
+      const url = new URL(await content.getByRole('link', { name, exact: true }).getAttribute('href'), page.url());
+      expect(url.pathname).toBe(`/api/sessions/${id}/workspace-resource`);
+      expect(url.searchParams.get('path')).toBe(expectedPath);
+      expect(url.searchParams.has('download')).toBe(false);
+      expect(url.hash).toBe(expectedHash);
+    }
+    expect(await (await page.request.get(await content.getByRole('link', { name: 'Percent path', exact: true }).getAttribute('href'))).text()).toBe(percentSource);
+    const image = content.getByAltText('原生图片', { exact: true });
+    await expect.poll(() => image.evaluate(element => element.naturalWidth)).toBe(1);
+    expect(new URL(await image.getAttribute('src'), page.url()).searchParams.get('path')).toBe(imagePath);
+    await expect(content.locator('pre code')).toHaveText(`${codeSample}\n`);
+    await expect(content.locator('pre a, a[href^="file:"], img[src^="file:"]')).toHaveCount(0);
+    await sourceLink.click();
+    const preview = page.getByRole('dialog', { name: 'Document preview', exact: true });
+    await expect(preview).toBeVisible();
+    await expect(preview.locator('.document-preview-code')).toContainText('Native file URL source');
+    await expect(preview.locator('.document-preview-code')).toContainText('中文 and spaces');
+    await preview.getByRole('button', { name: 'Close document preview', exact: true }).click();
+    const artifactPath = testInfo.outputPath('antigravity-native-file-links.png');
+    await page.screenshot({ path: artifactPath, fullPage: false, scale: 'css' });
+    await testInfo.attach('antigravity-native-file-links', { path: artifactPath, contentType: 'image/png' });
+  } finally {
+    if (id) await page.request.delete(`/api/sessions/${id}`);
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('native file URL support rejects unsafe destinations and leaves unbound files without resource attributes', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'networkidle' });
+  const result = await page.evaluate(() => {
+    const rejected = [
+      'javascript:window.fileURLInjected=true', 'javascript&#58;alert%281%29', 'data:text/html,unsafe',
+      'file://remote.example/tmp/private.md', 'file://user:password@localhost/tmp/private.md',
+      'file://localhost:9000/tmp/private.md', 'file:relative/path.md', 'file:///tmp/%E0%A4',
+      'file:///tmp/%5Cprivate.md', 'file:///%2Fremote/share.md'
+    ];
+    const unsafe = document.createElement('div');
+    unsafe.innerHTML = renderMarkdown(rejected.flatMap((url, index) => [`[Rejected ${index}](${url})`, `![Rejected image ${index}](${url})`]).join('\n\n'), { sessionId: 'bound-session' });
+    const unbound = document.createElement('div');
+    unbound.innerHTML = renderMarkdown('[Unbound file](file:///tmp/native.md#L2)\n\n![Unbound image](file:///tmp/native.png)', { sessionId: '' });
+    return {
+      unsafeResources: [...unsafe.querySelectorAll('a[href], img[src]')].map(element => element.getAttribute('href') || element.getAttribute('src')),
+      unboundResources: [...unbound.querySelectorAll('a[href], img[src]')].map(element => element.getAttribute('href') || element.getAttribute('src')),
+      unboundLabel: unbound.textContent,
+      unboundImageAlt: unbound.querySelector('img')?.alt,
+      injected: window.fileURLInjected
+    };
+  });
+  expect(result.unsafeResources).toEqual([]);
+  expect(result.unboundResources).toEqual([]);
+  expect(result.unboundLabel).toContain('Unbound file');
+  expect(result.unboundImageAlt).toBe('Unbound image');
+  expect(result.injected).toBeUndefined();
+});
+
+test('native file links and images pass their mapped session endpoint through the Workbench resource wrapper', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'networkidle' });
+  const sourcePath = '/tmp/代理 source%20.md';
+  const imagePath = '/tmp/代理 image%.png';
+  const sourceURL = pathToFileURL(sourcePath).href;
+  const imageURL = pathToFileURL(imagePath).href;
+  const result = await page.evaluate(({ sourceURL, imageURL }) => {
+    const original = window.gladWorkbenchResourceURL;
+    const calls = [];
+    window.gladWorkbenchResourceURL = value => { calls.push(value); return `/workbench-proxy${value}`; };
+    try {
+      const host = document.createElement('div');
+      host.innerHTML = renderMarkdown(`[Proxied source](${sourceURL}#L3)\n\n![Proxied image](${imageURL})`, { sessionId: 'proxy-session' });
+      return { calls, href: host.querySelector('a')?.getAttribute('href'), src: host.querySelector('img')?.getAttribute('src') };
+    } finally {
+      if (original === undefined) delete window.gladWorkbenchResourceURL;
+      else window.gladWorkbenchResourceURL = original;
+    }
+  }, { sourceURL, imageURL });
+  expect(result.calls).toHaveLength(2);
+  expect(result.calls.every(url => url.startsWith('/api/sessions/proxy-session/workspace-resource?path='))).toBe(true);
+  const href = new URL(result.href, page.url());
+  const src = new URL(result.src, page.url());
+  expect(href.pathname).toBe('/workbench-proxy/api/sessions/proxy-session/workspace-resource');
+  expect(src.pathname).toBe('/workbench-proxy/api/sessions/proxy-session/workspace-resource');
+  expect(href.searchParams.get('path')).toBe(sourcePath);
+  expect(src.searchParams.get('path')).toBe(imagePath);
+  expect(href.hash).toBe('#L3');
 });
 
 test('keeps raw HTML inert and rejects executable links with the new parser', async ({ page }) => {
