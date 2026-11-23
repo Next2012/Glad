@@ -465,20 +465,26 @@ func (server *Server) websocket(writer http.ResponseWriter, request *http.Reques
 	if err != nil {
 		return
 	}
+	connection.SetReadLimit(sessionWSReadBytes)
 	tail := request.URL.Query().Get("history") == "tail"
 	subscription, snapshot := session.subscribeConversation(512, tail)
 	window := newConversationEventWindow(session, tail, snapshot)
 	ctx, cancel := context.WithCancel(request.Context())
+	commands := newSessionWSCommands()
+	transport := newSessionWSTransport(session, commands, cancel)
 	defer func() {
 		cancel()
+		commands.stop()
 		subscription.Close()
 		_ = connection.Close(websocket.StatusNormalClosure, "")
+		transport.logClose()
 	}()
 	snapshotType := structuredMessageType(session.Kind, "snapshot")
 	writeCtx, writeCancel := context.WithTimeout(ctx, 5*time.Second)
-	err = writeWSJSON(writeCtx, connection, map[string]any{"type": snapshotType, "snapshot": snapshot})
+	snapshotBytes, err := writeSessionWSJSON(writeCtx, connection, map[string]any{"type": snapshotType, "snapshot": snapshot})
 	writeCancel()
 	if err != nil {
+		transport.close("snapshot-write", err, snapshotBytes)
 		return
 	}
 	outbound := make(chan map[string]any, 64)
@@ -495,6 +501,7 @@ func (server *Server) websocket(writer http.ResponseWriter, request *http.Reques
 				err := connection.Ping(pingCtx)
 				pingCancel()
 				if err != nil {
+					transport.close("ping", err, 0)
 					return
 				}
 				continue
@@ -507,14 +514,17 @@ func (server *Server) websocket(writer http.ResponseWriter, request *http.Reques
 				message = map[string]any{"type": typeName, "event": payload}
 			case message = <-outbound:
 			case <-subscription.Done():
+				transport.close("subscription", nil, 0)
 				return
 			case <-ctx.Done():
+				transport.close("context", ctx.Err(), 0)
 				return
 			}
 			messageCtx, messageCancel := context.WithTimeout(ctx, 5*time.Second)
-			err := writeWSJSON(messageCtx, connection, message)
+			frameBytes, err := writeSessionWSJSON(messageCtx, connection, message)
 			messageCancel()
 			if err != nil {
+				transport.close("write", err, frameBytes)
 				return
 			}
 		}
@@ -526,20 +536,31 @@ func (server *Server) websocket(writer http.ResponseWriter, request *http.Reques
 		case <-ctx.Done():
 			return false
 		default:
-			cancel()
+			transport.close("queue", errWSResponseQueue, 0)
 			return false
 		}
 	}
+	go commands.run(ctx, func(data []byte) {
+		var payload map[string]any
+		if json.Unmarshal(data, &payload) != nil {
+			send(sessionWSRejected(nil, "Invalid command JSON"))
+			return
+		}
+		server.handleWebsocketMessage(ctx, session, send, payload)
+	})
+	go transport.runStateRefresh(ctx, session)
 	for {
 		_, data, err := connection.Read(ctx)
 		if err != nil {
+			transport.close("read", err, len(data))
 			return
 		}
-		var payload map[string]any
-		if json.Unmarshal(data, &payload) != nil {
-			continue
+		if err := commands.enqueue(data); err != nil {
+			transport.rejected(err, len(data))
+			rejection := sessionWSRejected(data, "Connection command queue is busy; wait for the current command and try again.")
+			send(rejection)
+			transport.refreshControlState(stringValue(rejection["requestType"]))
 		}
-		server.handleWebsocketMessage(ctx, session, send, payload)
 	}
 }
 
@@ -565,19 +586,26 @@ func (server *Server) handleWebsocketMessage(
 	messageType := stringValue(payload["type"])
 	switch messageType {
 	case "claude-input", "codex-input", "antigravity-input":
+		clientMessageID := strings.TrimSpace(stringValue(payload["clientMessageId"]))
+		if raw, provided := payload["clientMessageId"]; provided {
+			_, stringID := raw.(string)
+			if !stringID || (clientMessageID != "" && sessionWSCorrelation(clientMessageID) == "") {
+				send(map[string]any{"type": "error", "commandRejected": true, "requestType": messageType, "message": "Invalid message ID"})
+				return
+			}
+		}
 		if messageType != structuredMessageType(session.Kind, "input") {
-			server.writeSendResult(send, stringValue(payload["clientMessageId"]), sendResult{Error: "Input provider does not match this session"})
+			server.writeSendResult(send, clientMessageID, sendResult{Error: "Input provider does not match this session"})
 			return
 		}
 		for _, field := range []string{"delivery", "expectedTurnId"} {
 			if value, exists := payload[field]; exists {
 				if _, ok := value.(string); !ok {
-					server.writeSendResult(send, stringValue(payload["clientMessageId"]), sendResult{Error: field + " must be a string"})
+					server.writeSendResult(send, clientMessageID, sendResult{Error: field + " must be a string"})
 					return
 				}
 			}
 		}
-		clientMessageID := strings.TrimSpace(stringValue(payload["clientMessageId"]))
 		encodedInput, _ := json.Marshal(payload)
 		fingerprint := fmt.Sprintf("%x", sha256.Sum256(encodedInput))
 		if clientMessageID != "" {
@@ -604,10 +632,6 @@ func (server *Server) handleWebsocketMessage(
 				session.mu.Unlock()
 			}
 			server.writeSendResult(send, clientMessageID, result)
-		}
-		if len(clientMessageID) > 128 {
-			finish(sendResult{Error: "Invalid message ID"})
-			return
 		}
 		imageIDs := uniqueStrings(stringsFromAny(payload["attachmentIds"]))
 		fileIDs := uniqueStrings(stringsFromAny(payload["fileAttachmentIds"]))
@@ -718,13 +742,16 @@ func (server *Server) handleWebsocketMessage(
 			_ = provider.Compact(ctx)
 		}
 	case "codex-detail-request", "antigravity-detail-request":
-		send(
-			map[string]any{
-				"type":      structuredMessageType(session.Kind, "detail-response"),
-				"requestId": payload["requestId"],
-				"detail":    session.detail(stringsFromAny(payload["ids"]), stringValue(payload["threadId"])),
-			},
-		)
+		requestID := sessionWSCorrelation(payload["requestId"])
+		if raw, provided := payload["requestId"]; provided && raw != "" && raw != nil && requestID == "" {
+			send(map[string]any{"type": "error", "commandRejected": true, "requestType": messageType, "message": "Invalid detail request ID"})
+			return
+		}
+		response := map[string]any{"type": structuredMessageType(session.Kind, "detail-response"), "detail": session.detail(stringsFromAny(payload["ids"]), stringValue(payload["threadId"]))}
+		if requestID != "" {
+			response["requestId"] = requestID
+		}
+		send(response)
 	}
 }
 

@@ -13,6 +13,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     document.getElementById('terminal-view').classList.add('active');
     setClaudeModeEnabled(false);
     applyCodexState({ ...codexState, status: 'idle' });
+    activeSessionHydrated = true;
     currentSocket = { readyState: WebSocket.OPEN, send: () => {} };
     syncComposerSendState();
   });

@@ -31,7 +31,18 @@ The repository root contains only the native entrypoint and its `go:embed` decla
 
 The HTTP and WebSocket contracts are implemented entirely by the Go daemon. Structured sessions receive a `codex-snapshot`, `claude-snapshot`, or `antigravity-snapshot` on connection and incremental provider events afterward.
 
-Structured user inputs carry a `clientMessageId`. The daemon serializes commands per session, validates every attachment, and replies with `send-result`; repeated IDs return the cached result without starting a second provider turn. The browser keeps its draft and attachments until the daemon accepts the message.
+Structured user inputs carry a `clientMessageId`. The daemon serializes commands per session, validates every attachment, and replies with `send-result`; repeated IDs return the cached result without starting a second provider turn. The browser keeps its draft and attachments until it receives that correlated acceptance. A disconnect before the acknowledgement leaves the delivery result unconfirmed; the browser preserves the draft and does not automatically resend it.
+
+The direct session WebSocket keeps network reads active while a bounded serial
+worker executes commands, so a slow provider operation cannot prevent Ping/Pong
+control frames from being consumed. Incoming frames have an explicit 8 MiB limit;
+the per-connection command queue allows at most 32 commands and 8 MiB of accounted
+payload, including the command in progress. Queue pressure produces a rejection
+rather than waiting inside the network reader. Non-input errors retain bounded
+request correlation so pending detail and status requests can settle. Transport
+close diagnostics record only stages, codes and normalized causes, never prompts,
+attachments or authentication data. Reconnecting browsers wait for a fresh
+conversation snapshot before enabling Send again.
 
 Provider output is published through a bounded session event hub. WebSocket clients and background consumers have independent queues, so a slow browser or notification transport cannot block provider stdout processing. Falling-behind subscribers are disconnected and recover from a fresh session snapshot.
 

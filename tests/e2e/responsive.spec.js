@@ -596,6 +596,7 @@ test('structured execution disables send until the provider returns to idle', as
     setClaudeModeEnabled(true);
     applyClaudeState(claudeState);
     window.__composerMessages = [];
+    activeSessionHydrated = true;
     currentSocket = { readyState: 1, send: message => window.__composerMessages.push(JSON.parse(message)) };
     handleComposerSocketOpen();
     document.getElementById('cmd-input').value = 'Run once';
@@ -603,7 +604,7 @@ test('structured execution disables send until the provider returns to idle', as
   });
 
   await expect(sendButton).toBeDisabled();
-  await expect(sendButton).toHaveAttribute('aria-label', 'Send disabled while running');
+  await expect(sendButton).toHaveAttribute('aria-label', 'Send disabled while awaiting confirmation');
   expect(await page.evaluate(() => window.__composerMessages.length)).toBe(1);
   await page.evaluate(() => applyClaudeState({ model: claudeState.model }));
   await expect(sendButton).toBeDisabled();
@@ -678,6 +679,7 @@ test('light theme keeps dialogs, subview navigation, and file chips readable', a
   await page.evaluate(() => {
     activeToolKey = 'demo';
     setClaudeModeEnabled(false);
+    activeSessionHydrated = true;
     currentSocket = { readyState: 1, send: value => { window.__terminalFileSent = JSON.parse(value); } };
   });
   await page.locator('#cmd-input').fill('Inspect this file');
@@ -890,6 +892,7 @@ test('approval bubble expands and jumps to its pending request', async ({ page }
     document.getElementById('terminal-view').classList.add('active');
     setClaudeModeEnabled(false);
     installCodexLazyDetailHandler();
+    activeSessionHydrated = true;
     currentSocket = {
       readyState: 1,
       send: value => {
@@ -1172,6 +1175,7 @@ test('Codex lazily loads folded tool and subagent details', async ({ page }) => 
     setClaudeModeEnabled(false);
     installCodexLazyDetailHandler();
     window.__codexDetailRequests = [];
+    activeSessionHydrated = true;
     currentSocket = { readyState: 1, send: value => window.__codexDetailRequests.push(JSON.parse(value)) };
     commitCodexChatRender();
   });
@@ -1479,8 +1483,9 @@ test('Codex queues a status request until a new session socket opens', async ({ 
   await page.goto('/', { waitUntil: 'networkidle' });
 
   await page.evaluate(() => {
+    activeSessionId = 'new-empty-session';
     activeToolKey = 'codex';
-    initCodexSession('new-empty-session');
+    initCodexSession(activeSessionId);
     requestCodexStatus();
   });
   await expect.poll(() => page.evaluate(() => window.__codexSocketSends)).toEqual([]);
@@ -1515,6 +1520,7 @@ test('Codex shows per-turn context energy and context compaction controls', asyn
     ];
     codexPendingPermissions = [];
     window.__codexSent = null;
+    activeSessionHydrated = true;
     currentSocket = {
       readyState: 1,
       send: data => { window.__codexSent = JSON.parse(data); }
@@ -1732,6 +1738,7 @@ test('Codex selects a skill with a removable floating bubble and sends structure
   await expect(bubble).toBeVisible();
 
   await page.evaluate(() => {
+    activeSessionHydrated = true;
     currentSocket = { readyState: 1, send: value => { window.__codexSkillSent = JSON.parse(value); } };
     handleComposerSocketOpen();
   });
@@ -2073,6 +2080,7 @@ test('Claude combines model and effort and presents refreshed status in its info
     document.getElementById('terminal-view').classList.add('active');
     setClaudeModeEnabled(true);
     applyClaudeState(claudeState);
+    activeSessionHydrated = true;
     currentSocket = { readyState: 1, send: value => { window.__claudeSent = JSON.parse(value); } };
   });
 
@@ -2268,6 +2276,7 @@ test('Claude supports edit diffs, image sends, and session forks', async ({ page
     setClaudeModeEnabled(true);
     applyClaudeState(claudeState);
     commitClaudeChatRender();
+    activeSessionHydrated = true;
     currentSocket = { readyState: 1, send: value => { window.__claudeSent = JSON.parse(value); } };
     handleComposerSocketOpen();
   });

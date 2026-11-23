@@ -21,6 +21,7 @@ async function openClaudeHarness(page) {
     setClaudeModeEnabled(true);
     applyClaudeState(claudeState);
     window.__claudeSent = [];
+    activeSessionHydrated = true;
     currentSocket = { readyState: WebSocket.OPEN, send: value => window.__claudeSent.push(JSON.parse(value)) };
     handleComposerSocketOpen();
   });

@@ -14,6 +14,31 @@ async function openCodexSession(page) {
   return { id, sent };
 }
 
+test('large UTF-8 input is acknowledged without reconnecting or duplicating the turn', async ({ page }) => {
+  const { id, sent } = await openCodexSession(page);
+  const text = '长消息传输回归。'.repeat(4000);
+  expect(Buffer.byteLength(JSON.stringify({ type: 'codex-input', text }))).toBeGreaterThan(32768);
+  try {
+    await expect(page.locator('#send-btn')).toBeEnabled();
+    await page.evaluate(() => {
+      window.__largeInputSocket = currentSocket;
+      window.__largeInputCloses = [];
+      currentSocket.addEventListener('close', event => window.__largeInputCloses.push(event.code));
+    });
+    await page.locator('#cmd-input').fill(text);
+    await page.locator('#send-btn').click();
+    await expect(page.locator('#cmd-input')).toHaveValue('');
+    await expect.poll(async () => (await (await page.request.get(`/api/sessions/${id}`)).json()).messages.filter(message => message.kind === 'turn-end').length).toBe(1);
+    const snapshot = await (await page.request.get(`/api/sessions/${id}`)).json();
+    expect(snapshot.messages.filter(message => message.kind === 'user').map(message => message.text)).toEqual([text]);
+    expect(sent.filter(message => message.type === 'codex-input')).toHaveLength(1);
+    expect(await page.evaluate(() => currentSocket === window.__largeInputSocket && currentSocket.readyState === WebSocket.OPEN)).toBe(true);
+    expect(await page.evaluate(() => window.__largeInputCloses)).toEqual([]);
+  } finally {
+    await page.request.delete(`/api/sessions/${id}`);
+  }
+});
+
 test('Codex composer reconnects after its WebSocket closes', async ({ page }) => {
   const { id } = await openCodexSession(page);
   await page.evaluate(() => {

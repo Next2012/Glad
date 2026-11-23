@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.15.1] - 2026-11-23
+
+### Fixed
+
+- Keep WebSocket control frames readable while provider commands run, preventing slow sends from causing false heartbeat disconnects across Codex, Claude, and Antigravity.
+- Replace the implicit 32 KiB incoming WebSocket limit with an explicit 8 MiB limit. Bound queued commands by count and total bytes, including the command in progress, and reject overload without blocking the reader.
+- Enable Send only after the current connection restores its conversation snapshot, preserve drafts when delivery is unconfirmed, and reconnect without blocking on an alert or automatically resending a message.
+- Settle rejected detail and status requests, support explicit detail retries, and keep transport diagnostics and invalid correlation IDs bounded without logging message or authentication content.
+
 ## [2.15.0] - 2026-11-22
 
 ### Added
