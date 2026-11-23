@@ -275,8 +275,14 @@ reply as history uses the bounded preview again.
 Completed Markdown has a byte-bounded render cache, and distant Mermaid diagrams
 wait until the reader approaches them. Private HTTP JSON responses use negotiated
 gzip, while direct sockets and the workbench transport negotiate WebSocket
-compression without retaining compression dictionaries. Workbench peers which
-omit the optional history query continue receiving their legacy snapshots.
+compression without retaining compression dictionaries. Apple browsers and
+embedded WebViews use an uncompressed direct-session compatibility path; HTTP
+gzip and bounded history pages remain available. The pinned WebSocket library
+sends each `Conn.Write` message in one frame, including compressed messages and
+small replies. Raw-frame tests cover that wire shape. The separate Linux WebKit
+transport job complements Chromium coverage; it does not replace verification on
+Apple's system WebSocket implementation. Workbench peers which omit the optional
+history query continue receiving their legacy snapshots.
 
 Antigravity can preview a bounded native transcript tail without a new ACP load
 after its identity has been established by the active process or an authenticated

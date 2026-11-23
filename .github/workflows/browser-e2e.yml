@@ -43,3 +43,35 @@ jobs:
           if-no-files-found: ignore
           include-hidden-files: true
           retention-days: 14
+  webkit-transport:
+    name: Linux WebKit real WebSocket transport
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Playwright WebKit and system dependencies
+        run: npx playwright install --with-deps webkit
+      - name: Run real transport and recovery cases on isolated port 3034
+        env:
+          GLAD_E2E_PORT: 3034
+        run: npx playwright test --config playwright.webkit.config.js
+      - name: Retain WebKit transport reports and negotiation details
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-e2e-webkit-transport
+          path: |
+            .playwright-report/
+            .playwright-results/
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 14

@@ -460,7 +460,7 @@ func (server *Server) websocket(writer http.ResponseWriter, request *http.Reques
 	connection, err := websocket.Accept(
 		writer,
 		request,
-		&websocket.AcceptOptions{OriginPatterns: []string{request.Host}, CompressionMode: websocket.CompressionNoContextTakeover, CompressionThreshold: 2 << 10},
+		&websocket.AcceptOptions{OriginPatterns: []string{request.Host}, CompressionMode: browserWSCompressionMode(request.UserAgent()), CompressionThreshold: 2 << 10},
 	)
 	if err != nil {
 		return

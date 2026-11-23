@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.15.2] - 2026-11-23
+
+### Fixed
+
+- Avoid compressed WebSocket compatibility failures on iOS, Safari, and embedded Apple WebViews. Their direct-session connections use uncompressed messages while HTTP gzip and bounded history paging remain available.
+- Upgrade coder/websocket to 1.8.15 so ordinary `Conn.Write` calls send compressed and small messages in a single frame. Keep compression available for desktop and Android Chromium and other compatible clients.
+- Add raw-frame negotiation regressions and real browser WebSocket coverage for first sends, native thread identity changes, long UTF-8 messages, and reconnect recovery. CI now has a focused Linux WebKit transport job alongside the existing Chromium screen profiles; physical iPhone confirmation remains separate.
+
 ## [2.15.1] - 2026-11-23
 
 ### Fixed
