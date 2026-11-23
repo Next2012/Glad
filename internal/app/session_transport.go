@@ -27,6 +27,7 @@ const sessionWSCommandCount = 32
 var errWSCommandCount = errors.New("command count limit")
 var errWSCommandBytes = errors.New("command byte limit")
 var errWSResponseQueue = errors.New("response queue limit")
+var errWSCommandPanic = errors.New("command panic")
 
 type sessionWSCommands struct {
 	mu           sync.Mutex
@@ -207,6 +208,17 @@ func (transport *sessionWSTransport) runStateRefresh(ctx context.Context, sessio
 	}
 }
 
+func (transport *sessionWSTransport) runCommands(ctx context.Context, handle func([]byte)) {
+	defer func() {
+		if recover() != nil {
+			// A command runs outside net/http's recovery boundary. Keep provider
+			// panics local to this connection without retaining their contents.
+			transport.close("command", errWSCommandPanic, 0)
+		}
+	}()
+	transport.queue.run(ctx, handle)
+}
+
 func sessionWSCause(err error) string {
 	switch {
 	case errors.Is(err, websocket.ErrMessageTooBig):
@@ -221,6 +233,8 @@ func sessionWSCause(err error) string {
 		return "command-bytes"
 	case errors.Is(err, errWSResponseQueue):
 		return "response-queue"
+	case errors.Is(err, errWSCommandPanic):
+		return "panic"
 	case err == nil:
 		return "ended"
 	case websocket.CloseStatus(err) != -1:

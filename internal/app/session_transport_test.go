@@ -157,6 +157,117 @@ func TestSessionTransportBlockedCommandKeepsControlFramesReadable(t *testing.T) 
 	}
 }
 
+type panicTransportProvider struct {
+	*blockedTransportProvider
+	value string
+}
+
+func (provider *panicTransportProvider) Send(context.Context, ProviderInput) error {
+	panic(provider.value)
+}
+
+func TestSessionTransportCommandPanicClosesOnlyItsConnection(t *testing.T) {
+	const secret = "PRIVATE_PROVIDER_PANIC_CONTENT"
+	var output transportLogBuffer
+	original := log.Writer()
+	log.SetOutput(&output)
+	t.Cleanup(func() { log.SetOutput(original) })
+
+	manager := NewSessionManager(t.TempDir())
+	failed := newSession("panic-transport", "Panic test", "codex-structured", ToolInfo{Key: "codex"}, t.TempDir())
+	failed.Provider = &panicTransportProvider{blockedTransportProvider: &blockedTransportProvider{}, value: secret}
+	healthy := newSession("healthy-transport", "Healthy test", "codex-structured", ToolInfo{Key: "codex"}, t.TempDir())
+	provider := &blockedTransportProvider{entered: make(chan struct{}), release: make(chan struct{}), cancelled: make(chan struct{})}
+	close(provider.release)
+	healthy.Provider = provider
+	manager.sessions[failed.ID], manager.sessions[healthy.ID] = failed, healthy
+	server := &Server{sessions: manager, attachments: NewAttachmentStore()}
+	handlerDone := make(chan struct{}, 2)
+	host := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		defer func() { handlerDone <- struct{}{} }()
+		server.websocket(writer, request)
+	}))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	var connections []*websocket.Conn
+	finished := 0
+	t.Cleanup(func() {
+		for _, connection := range connections {
+			_ = connection.CloseNow()
+		}
+		cancel()
+		for finished < len(connections) {
+			select {
+			case <-handlerDone:
+				finished++
+			case <-time.After(3 * time.Second):
+				t.Error("panic regression handler did not finish cleanup")
+				finished = len(connections)
+			}
+		}
+		host.Close()
+		failed.cancel()
+		healthy.cancel()
+	})
+	for _, session := range []*Session{failed, healthy} {
+		connection, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(host.URL, "http")+"?sessionId="+session.ID, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		connections = append(connections, connection)
+		_, data, err := connection.Read(ctx)
+		var message map[string]any
+		if err != nil || json.Unmarshal(data, &message) != nil || message["type"] != "codex-snapshot" {
+			t.Fatal("connection did not receive its initial snapshot")
+		}
+	}
+	transportWrite(t, connections[0], map[string]any{"type": "codex-input", "clientMessageId": "panic-input", "text": "Fixture input"})
+	for {
+		_, data, err := connections[0].Read(ctx)
+		if bytes.Contains(data, []byte(secret)) {
+			t.Fatal("panic contents leaked into the socket response")
+		}
+		if err != nil {
+			if ctx.Err() != nil {
+				t.Fatal("panicking command did not close its connection promptly")
+			}
+			break
+		}
+		var message map[string]any
+		if json.Unmarshal(data, &message) == nil && message["type"] == "send-result" && message["accepted"] == true {
+			t.Fatal("panicking command received a successful acknowledgement")
+		}
+	}
+	select {
+	case <-handlerDone:
+		finished++
+	case <-ctx.Done():
+		t.Fatal("panicking command handler did not finish")
+	}
+	if logs := output.String(); strings.Contains(logs, secret) || !strings.Contains(logs, "source=command") || !strings.Contains(logs, "cause=panic") {
+		t.Fatal("command panic diagnostic was missing or exposed panic contents")
+	}
+	transportWrite(t, connections[1], map[string]any{"type": "codex-input", "clientMessageId": "healthy-input", "text": "Fixture input"})
+	_, data, err := connections[1].Read(ctx)
+	var response map[string]any
+	if err != nil || json.Unmarshal(data, &response) != nil || response["type"] != "send-result" || response["clientMessageId"] != "healthy-input" || response["accepted"] != true {
+		t.Fatal("another connection could not accept a command after the provider panic")
+	}
+}
+
+func TestSessionTransportCommandPanicReleasesActiveReservation(t *testing.T) {
+	queue := newSessionWSCommands()
+	if err := queue.enqueue([]byte("fixture command")); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	transport := &sessionWSTransport{queue: queue, cancel: cancel}
+	transport.runCommands(ctx, func([]byte) { panic("not logged") })
+	if count, bytes := queue.stats(); count != 0 || bytes != 0 || ctx.Err() == nil {
+		t.Fatal("command panic retained its active reservation or left the connection alive")
+	}
+}
+
 func transportMessage(t *testing.T, fixture *transportFixture, match func(map[string]any) bool) map[string]any {
 	t.Helper()
 	deadline := time.NewTimer(3 * time.Second)

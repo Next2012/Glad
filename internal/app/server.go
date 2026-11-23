@@ -540,7 +540,7 @@ func (server *Server) websocket(writer http.ResponseWriter, request *http.Reques
 			return false
 		}
 	}
-	go commands.run(ctx, func(data []byte) {
+	go transport.runCommands(ctx, func(data []byte) {
 		var payload map[string]any
 		if json.Unmarshal(data, &payload) != nil {
 			send(sessionWSRejected(nil, "Invalid command JSON"))
