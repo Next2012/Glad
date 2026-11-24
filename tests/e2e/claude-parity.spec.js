@@ -101,6 +101,16 @@ test('Claude renders structured questions, tasks, subagents and status cards', a
   await expect.poll(() => page.evaluate(() => window.__claudeSent.find(item => item.type === 'claude-user-input')))
     .toMatchObject({ type: 'claude-user-input', id: 'question-1', answers: { 'Which database?': 'SQLite' } });
 
+  await page.evaluate(() => {
+    const draft = claudeQuestionDraft('question-1');
+    settleClaudeQuestionReply('question-1', 'an-old-reply', 'Stale rejection');
+    if (!draft.pending) throw new Error('An old reply changed the current request');
+    settleClaudeQuestionReply('question-1', draft.clientMessageId, 'Question rejected; your answer has been kept.');
+  });
+  await expect(page.locator('.claude-question-card')).toContainText('Question rejected');
+  await expect(page.locator('.claude-question-card').getByRole('button', { name: 'Submit answer' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: /SQLite/ })).toHaveAttribute('aria-pressed', 'true');
+
   await expect(page.locator('.agent-task-card')).toContainText('1/2');
   await expect(page.locator('.codex-subagent-group')).toContainText('Subagent working');
   await expect(page.locator('.claude-work-group-compact')).toHaveCount(1);
@@ -230,4 +240,25 @@ test('Claude history supports sorting, pagination and preview before switching',
 	await expect(panel).not.toHaveClass(/active/);
 	await expect.poll(() => page.evaluate(() => claudeState.claudeSessionId))
 		.toBe('11111111-1111-4111-8111-111111111111');
+});
+
+test('Claude question replies recover when UUID support or socket sending is unavailable', async ({ page }) => {
+  await openClaudeHarness(page);
+  await page.evaluate(() => {
+    Object.defineProperty(crypto, 'randomUUID', { configurable: true, value: undefined });
+    claudeMessages = [{ id: 'http-question', kind: 'question', questionStatus: 'pending', questions: [{ question: 'Which database?', options: [{ label: 'SQLite' }] }] }];
+    commitClaudeChatRender();
+  });
+  await page.getByRole('button', { name: 'SQLite', exact: true }).click();
+  await page.getByRole('button', { name: 'Submit answer', exact: true }).click();
+  const reply = await page.evaluate(() => window.__claudeSent.find(item => item.type === 'claude-user-input'));
+  expect(reply.clientMessageId).toBeTruthy();
+  await page.evaluate(reply => {
+    settleClaudeQuestionReply(reply.id, reply.clientMessageId, 'Rejected. Your answer has been kept.');
+    currentSocket.send = () => { throw new Error('Connection closed during send'); };
+  }, reply);
+  await page.getByRole('button', { name: 'Submit answer', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Submit answer', exact: true })).toBeEnabled();
+  await expect(page.locator('.claude-question-card')).toContainText('Connection closed during send');
+  await expect(page.getByRole('button', { name: 'SQLite', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });

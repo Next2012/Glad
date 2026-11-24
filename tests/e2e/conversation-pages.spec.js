@@ -395,3 +395,46 @@ for (const kind of ['codex', 'claude-code', 'antigravity']) {
     }
   });
 }
+
+test('a same-epoch reconnect preserves contiguous earlier history while a page is in flight', async ({ page }) => {
+  const id = await createWindowSession(page, 'agy-window-history-main');
+  let gate;
+  try {
+    await joinWindowSession(page, id);
+    const view = await conversationView(page), container = view.locator(agyChat);
+    for (const count of [24, 36]) {
+      await olderButton(container).click();
+      await expect.poll(() => visibleTurnNumbers(page)).toHaveLength(count);
+    }
+    gate = await gateOlderPage(page, id);
+    await olderButton(container).click(); await gate.ready;
+    await view.evaluate(() => { window.socketBeforePageReconnect = currentSocket; currentSocket.close(); });
+    await view.waitForFunction(() => currentSocket !== window.socketBeforePageReconnect && currentSocket.readyState === WebSocket.OPEN && activeSessionHydrated);
+    await expect(view.locator('#send-btn')).toBeEnabled();
+    await expect.poll(() => visibleTurnNumbers(page)).toEqual(Array.from({ length: 36 }, (_, index) => 85 + index));
+    gate.release(); await gate.done;
+    await expect.poll(() => visibleTurnNumbers(page)).toEqual(Array.from({ length: 48 }, (_, index) => 73 + index));
+    await expectUniqueAgyCards(page);
+  } finally { if (gate) await gate.dispose(); await page.request.delete(`/api/sessions/${id}`); }
+});
+
+test('a same-epoch reconnect with a gap adopts the new tail cursor and rejects the old in-flight page', async ({ page }) => {
+  const frames = captureAgyFrames(page), id = await createWindowSession(page, 'agy-window-history-main');
+  let gate;
+  try {
+    await joinWindowSession(page, id); const view = await conversationView(page), container = view.locator(agyChat);
+    await olderButton(container).click(); await expect.poll(() => visibleTurnNumbers(page)).toHaveLength(24);
+    gate = await gateOlderPage(page, id); await olderButton(container).click(); await gate.ready;
+    const snapshot = structuredClone(frames.find(frame => frame.payload.type === 'antigravity-snapshot').payload.snapshot);
+    snapshot.messages = snapshot.messages.map(item => ({ ...item, id: `new-tail-${item.id}`, historyIndex: item.historyIndex + 10000 }));
+    snapshot.historyPage = { ...snapshot.historyPage, hasBefore: true, beforeCursor: 'new-tail-cursor' };
+    await view.evaluate(snapshot => {
+      const accepted = gladConversationPages.acceptSnapshot(activeSessionId, snapshot);
+      antigravityMessages = accepted.messages; renderAntigravityChat();
+    }, snapshot);
+    gate.release(); await gate.done;
+    const ids = await view.evaluate(() => antigravityMessages.map(item => item.id));
+    expect(ids.length).toBe(snapshot.messages.length); expect(ids.every(id => id.startsWith('new-tail-'))).toBe(true);
+    await expect(olderButton(container)).toBeEnabled();
+  } finally { if (gate) await gate.dispose(); await page.request.delete(`/api/sessions/${id}`); }
+});

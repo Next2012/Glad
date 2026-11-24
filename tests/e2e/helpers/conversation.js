@@ -4,8 +4,12 @@
 async function conversationView(page) {
   const selected = page.locator('#desktop-workspace.active .workspace-tab-panel.selected iframe');
   if (!await selected.count()) return page;
+  // An iframe may still be navigating, or lose animation frames as another tab
+  // becomes selected. Observe readiness from the host before binding its frame.
+  await page.waitForFunction(() => Boolean(document.querySelector(
+    '#desktop-workspace.active .workspace-tab-panel.selected iframe'
+  )?.contentWindow?.gladTabs), null, { polling: 50, timeout: 10000 });
   const frame = await (await selected.elementHandle()).contentFrame();
-  await frame.waitForFunction(() => Boolean(window.gladTabs));
   // Locators must survive reloads and tab changes just as Page locators did.
   // Evaluate and readiness checks run in the document selected for this call.
   const scope = page.frameLocator('#desktop-workspace.active .workspace-tab-panel.selected iframe');

@@ -301,7 +301,14 @@ html.glad-embed .room-back-button {
     }
 }
 @media (max-width: 919px) {
-    html:not(.glad-embed) #desktop-workspace {
-        display: none !important;
-    }
+    html:not(.glad-embed) #desktop-workspace:not(.active) { display: none !important; }
+    body.workspace-open #lobby-view { display: none !important; }
+    #workspace-mobile-back { display: flex; }
+    .workspace-tab-close { width: 36px; height: 36px; opacity: 1; }
+
 }
+
+#workspace-tabs-header { display: flex; flex: 0 0 42px; min-width: 0; background: var(--surface-soft); }
+#workspace-tab-list { flex: 1; }
+#workspace-mobile-back { display: none; width: 42px; flex: 0 0 42px; align-items: center; justify-content: center; border: 0; border-right: 1px solid var(--line); color: var(--primary); background: transparent; cursor: pointer; }
+@media (max-width: 919px) { #workspace-mobile-back { display: flex; } }

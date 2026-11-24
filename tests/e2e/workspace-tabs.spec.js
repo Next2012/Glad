@@ -279,8 +279,10 @@ test('group history keeps its expanded message and reading anchor while backgrou
     const before = await reading(view);
     await connect(page, item);
     expect((await page.request.post(`/api/rooms/${room.id}/messages`, { data: { text: 'A new background group message' } })).ok()).toBe(true);
-    await expect(view.locator('.room-entry.user')).toHaveCount(19);
+    await view.waitForFunction(() => activeRoom.entries.filter(entry => entry.type === 'user').length === 19);
+    await expect(view.locator('.room-entry.user')).toHaveCount(18);
     await page.getByRole('tab', { name: /Review group/ }).click();
+    await expect(view.locator('.room-entry.user')).toHaveCount(19);
     await expect.poll(() => reading(view)).toEqual(before);
     await expect(view.locator('.room-entry.user').nth(7)).toHaveClass(/expanded/);
     await page.screenshot({ path: test.info().outputPath('group-tabs.png') });

@@ -1,0 +1,53 @@
+/* Shared conversation surfaces: compact on desktop, readable and reachable on touch. */
+.session-card { row-gap: 8px; padding: 12px 14px; border: 1px solid var(--line); }
+.session-info { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 3px 10px; min-width: 0; }
+.session-info h3 { flex: 1 0 100%; width: 100%; min-width: 0; margin: 0 0 3px; }
+.session-info p { margin: 0; line-height: 1.5; font-size: 11px; }
+.session-dir-row { grid-column: 1; grid-row: 2; min-width: 0; margin: 0; }
+.session-dir-row p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.session-actions { grid-column: 2; grid-row: 2; gap: 8px; justify-content: flex-end; }
+.session-card:not(:has(.session-dir-row)) .session-actions { grid-column: 1 / -1; }
+.session-actions .btn-join { min-height: 34px; padding: 6px 12px; border-radius: 9px; background: color-mix(in srgb, var(--primary) 12%, var(--surface)); }
+.session-actions .serverchan-toggle { width: 32px; height: 32px; }
+.session-info .session-name { font-size: 14px; }
+.header-actions .header-action-btn:not(:first-child) { background: var(--surface-raised); color: var(--text-dim); border: 1px solid var(--line); }
+.header-actions .header-action-btn:not(:first-child):hover { background: var(--surface-soft); color: var(--primary); }
+.timer-count-badge { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, var(--surface)); }
+
+#cmd-input { font-family: inherit; border-radius: 14px; }
+#cmd-input:focus { color: var(--input-fg); background: var(--input-bg); border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent); }
+#attachment-strip { flex-wrap: wrap; align-content: flex-start; max-height: 132px; overflow: auto; gap: 7px; padding: 4px 2px 7px; background: transparent; scrollbar-width: thin; }
+#attachment-strip::-webkit-scrollbar { display: block; width: 4px; height: 4px; }
+.attachment-chip { flex: 0 0 auto; min-width: 150px; max-width: min(240px, 100%); min-height: 40px; padding: 4px 5px 4px 9px; box-sizing: border-box; }
+.attachment-chip-content { min-width: 48px; }
+.attachment-remove { width: 30px; height: 30px; border-radius: 8px; background: color-mix(in srgb, var(--text) 8%, transparent); color: inherit; font-size: 19px; }
+#attachment-summary { width: min(calc(100% - 28px), var(--control-content-max)); margin: 0 auto 3px; color: var(--text-dim); font-size: 11px; }
+#attachment-summary:empty { display: none; }
+.agent-control-group + .agent-control-group { margin-left: 2px; padding-left: 9px; border-left: 1px solid var(--line); }
+#timed-tag-rail { position: static; width: min(calc(100% - 28px), var(--control-content-max)); margin: 0 auto; padding: 0 0 6px; flex-direction: row; overflow-x: auto; box-sizing: border-box; pointer-events: auto; z-index: auto; }
+#timed-tag-rail:empty { display: none; }
+#timed-tag-rail .timed-tag { flex: 0 0 auto; }
+
+.codex-question-reply-heading { border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+#codex-question-reply .codex-question-body { padding: 8px 5px; scroll-padding: 12px; }
+.codex-question-card :focus-visible { outline-offset: -2px; }
+.room-entry.user .room-entry-bubble { --user-bubble: color-mix(in srgb, var(--primary) 23%, var(--surface)); color: var(--text); background: var(--user-bubble); border-color: color-mix(in srgb, var(--primary) 35%, var(--line)); }
+.room-entry.user.collapsible:not(.expanded) .room-entry-text::after { background: linear-gradient(transparent, var(--user-bubble)); }
+.room-entry.collapsible:not(.expanded) .room-entry-bubble::after { content: 'Show more ↓'; display: block; padding-top: 7px; color: var(--primary); font-size: 11px; text-align: right; }
+html[data-theme="light"] .room-entry.user .room-entry-bubble { --user-bubble: #e8f3ff; color: #173b61; border-color: #b8d9fb; }
+html[data-theme="light"] :is(.room-source-context-button, .room-context-chip, .room-quote-preview) { background: var(--surface-soft); color: var(--text); border-color: var(--line); }
+html[data-theme="light"] .attachment-status { color: #875a0b; }
+
+@media (max-width: 640px) {
+    #nav-bar > div:last-child .icon-btn { min-width: 38px; min-height: 38px; border-radius: 10px; }
+    .attachment-chip { min-width: 145px; max-width: 100%; }
+    #attachment-strip { max-height: 132px; }
+    :is(#codex-control-panel, #claude-control-panel, #antigravity-control-panel) #send-btn { right: 8px; }
+    .room-source-context-button { min-height: 32px; }
+}
+@media (pointer: coarse) {
+    .attachment-remove { width: 36px; height: 36px; }
+    .claude-permission-actions .small-btn { min-height: 40px; padding: 8px 14px; }
+    .workspace-tab-close { width: 36px; height: 36px; opacity: 1; }
+    .copy-dir-btn { min-width: 36px; height: 36px; }
+}

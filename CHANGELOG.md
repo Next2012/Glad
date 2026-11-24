@@ -10,6 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Preserve mobile conversation and group drafts, including attachment ownership, mentions, quotes, skills, and question answers, when navigating between conversations.
+- Reuse mounted conversation views across desktop and mobile widths, migrate main-document drafts into desktop tabs, and defer background chat rendering and presentation polling until activation.
+- Improve conversation card hierarchy, composer typography and focus, attachment wrapping and counts, touch targets, scheduled-send placement, and themed group bubbles.
+
+### Fixed
+
+- Recover internal group, notification, and supervisor event consumers after queue overflow, filter irrelevant control traffic, and cache group membership by storage revision.
+- Keep completions unread while History or Git is visible, retain chat anchors across subviews and sidebar resizing, and disconnect retired tabs before asynchronous attachment cleanup.
+- Preserve continuous loaded history on reconnect; when a long disconnect leaves a gap, adopt the new tail cursor and reject stale page responses.
+- Guard late group, History, and Git responses against navigation, and refresh the current Git view without losing staged-file sources or file modes.
+- Acknowledge Claude question replies, preserve rejected answers, support HTTP contexts without UUID generation, and recover from socket-send failures.
+- Refresh uploads after a draft transfers from mobile to a desktop tab, and retain the view until the complete upload batch settles.
+
 ## [2.16.0] - 2026-11-24
 
 ### Added

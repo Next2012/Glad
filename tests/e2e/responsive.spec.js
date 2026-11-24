@@ -180,7 +180,8 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
     })
   );
   expect(headerActionStyles).toHaveLength(5);
-  expect(new Set(headerActionStyles.map(style => style.backgroundColor)).size).toBe(1);
+  expect(headerActionStyles[0].backgroundColor).not.toBe(headerActionStyles[1].backgroundColor);
+  expect(new Set(headerActionStyles.slice(1).map(style => style.backgroundColor)).size).toBe(1);
   expect(new Set(headerActionStyles.map(style => style.height)).size).toBe(1);
   expect(new Set(headerActionStyles.map(style => style.borderRadius)).size).toBe(1);
   const headerActionTitles = await (await conversationView(page)).locator('.header-action-btn').evaluateAll(buttons =>
@@ -1135,11 +1136,18 @@ test('scheduled sends stack below session attention', async ({ page }, testInfo)
       stripBottom: strip.bottom,
       firstTop: tagBoxes[0].top,
       firstBottom: tagBoxes[0].bottom,
-      secondTop: tagBoxes[1].top
+      secondTop: tagBoxes[1].top, secondLeft: tagBoxes[1].left, firstRight: tagBoxes[0].right,
+      composerTop: document.getElementById('terminal-controls').getBoundingClientRect().top,
+      composerBottom: document.getElementById('terminal-controls').getBoundingClientRect().bottom,
+      chatBottom: document.getElementById('codex-chat-container').getBoundingClientRect().bottom
     };
   });
   expect(geometry.firstTop).toBeGreaterThanOrEqual(geometry.stripBottom);
-  expect(geometry.secondTop).toBeGreaterThan(geometry.firstBottom);
+  expect(geometry.secondTop).toBeCloseTo(geometry.firstTop, 0);
+  expect(geometry.secondLeft).toBeGreaterThan(geometry.firstRight);
+  expect(geometry.firstTop).toBeGreaterThanOrEqual(geometry.composerTop);
+  expect(geometry.firstBottom).toBeLessThanOrEqual(geometry.composerBottom + 1);
+  expect(geometry.chatBottom).toBeLessThanOrEqual(geometry.composerTop + 1);
 
   await tags.first().click();
   await expect((await conversationView(page)).locator('#timed-send-panel')).toHaveClass(/active/);
