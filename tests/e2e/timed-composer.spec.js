@@ -1,7 +1,8 @@
+const { conversationView } = require('./helpers/conversation');
 const { test, expect } = require('@playwright/test');
 
 async function expectTimerLayout(page, railSelector) {
-  const geometry = await page.evaluate(selector => {
+  const geometry = await (await conversationView(page)).evaluate(selector => {
     const box = id => document.querySelector(id).getBoundingClientRect();
     const send = box('#send-btn');
     const rail = box(selector);
@@ -22,7 +23,7 @@ async function expectTimerLayout(page, railSelector) {
 }
 
 async function expectReadableTimerOptions(page) {
-  const colors = await page.locator('#timed-send-panel select, #timed-send-panel option').evaluateAll(elements => {
+  const colors = await (await conversationView(page)).locator('#timed-send-panel select, #timed-send-panel option').evaluateAll(elements => {
     const backdrop = getComputedStyle(document.getElementById('timed-send-panel')).backgroundColor;
     return elements.map(element => {
       const style = getComputedStyle(element);
@@ -58,28 +59,28 @@ for (const toolKey of ['codex', 'claude-code']) {
       await page.locator(`.session-card[data-session-id="${id}"]`).getByRole('button', { name: 'Connect' }).click();
       const rail = toolKey === 'codex' ? '#codex-control-rail' : '.claude-control-rail';
       for (const theme of ['light', 'dark']) {
-        await page.evaluate(value => setGladTheme(value), theme);
-        await page.locator('#cmd-input').fill(`Scheduled ${theme} message`);
-        await page.locator('#schedule-send-btn').click();
-        await expect(page.getByRole('group', { name: 'Scheduled send' })).toBeVisible();
-        await expect(page.locator('#timed-editor-actions')).toBeHidden();
+        await (await conversationView(page)).evaluate(value => setGladTheme(value), theme);
+        await (await conversationView(page)).locator('#cmd-input').fill(`Scheduled ${theme} message`);
+        await (await conversationView(page)).locator('#schedule-send-btn').click();
+        await expect((await conversationView(page)).getByRole('group', { name: 'Scheduled send' })).toBeVisible();
+        await expect((await conversationView(page)).locator('#timed-editor-actions')).toBeHidden();
         await expectTimerLayout(page, rail);
         await expectReadableTimerOptions(page);
-        await page.evaluate(() => {
+        await (await conversationView(page)).evaluate(() => {
           const controls = document.getElementById('terminal-controls');
           controls.style.maxHeight = '150px';
           controls.scrollTop = controls.scrollHeight;
         });
         await expectTimerLayout(page, rail);
-        await page.evaluate(() => {
+        await (await conversationView(page)).evaluate(() => {
           const controls = document.getElementById('terminal-controls');
           controls.style.removeProperty('max-height');
           controls.scrollTop = 0;
         });
-        await page.getByLabel('Delay hours').selectOption('1');
-        await page.getByLabel('Delay minutes').selectOption('5');
-        await page.locator('#timed-save-btn').click();
-        const tag = page.locator('#timed-tag-rail .timed-tag');
+        await (await conversationView(page)).getByLabel('Delay hours').selectOption('1');
+        await (await conversationView(page)).getByLabel('Delay minutes').selectOption('5');
+        await (await conversationView(page)).locator('#timed-save-btn').click();
+        const tag = (await conversationView(page)).locator('#timed-tag-rail .timed-tag');
         await expect(tag).toHaveCount(1);
         await expect(tag).toContainText(/1h \d{2}m/);
         await expect(tag.locator('use')).toHaveAttribute('href', '#icon-schedule');
@@ -92,20 +93,20 @@ for (const toolKey of ['codex', 'claude-code']) {
         expect(style.weight).toBeLessThanOrEqual(600);
         expect(style.height).toBeLessThanOrEqual(30);
         await tag.click();
-        await expect(page.locator('#cmd-input')).toHaveValue(`Scheduled ${theme} message`);
-        await expect(page.locator('#timed-editor-actions')).toBeVisible();
+        await expect((await conversationView(page)).locator('#cmd-input')).toHaveValue(`Scheduled ${theme} message`);
+        await expect((await conversationView(page)).locator('#timed-editor-actions')).toBeVisible();
         await expect(tag).toHaveAttribute('aria-pressed', 'true');
         await expectTimerLayout(page, rail);
-        await page.getByLabel('Delay minutes').selectOption('6');
-        await page.locator('#timed-save-btn').click();
-        await expect(page.locator('#timed-editor-actions')).toBeHidden();
+        await (await conversationView(page)).getByLabel('Delay minutes').selectOption('6');
+        await (await conversationView(page)).locator('#timed-save-btn').click();
+        await expect((await conversationView(page)).locator('#timed-editor-actions')).toBeHidden();
         await tag.click();
         await expectTimerLayout(page, rail);
         await page.screenshot({ path: testInfo.outputPath(`${toolKey}-timer-${theme}.png`), fullPage: true });
-        await page.locator('#timed-delete-btn').click();
+        await (await conversationView(page)).locator('#timed-delete-btn').click();
         await expect(tag).toHaveCount(0);
-        await page.locator('#schedule-send-btn').click();
-        await expect(page.locator('#timed-send-panel')).toBeHidden();
+        await (await conversationView(page)).locator('#schedule-send-btn').click();
+        await expect((await conversationView(page)).locator('#timed-send-panel')).toBeHidden();
       }
       expect(errors).toEqual([]);
     } finally {
@@ -117,13 +118,13 @@ for (const toolKey of ['codex', 'claude-code']) {
 test('sidebar handle follows every drag update without trailing animation', async ({ page }) => {
   test.skip(page.viewportSize().width < 920, 'Desktop sidebar only');
   await page.goto('/', { waitUntil: 'networkidle' });
-  const divider = await page.locator('#sidebar-resizer').boundingBox();
+  const divider = await (await conversationView(page)).locator('#sidebar-resizer').boundingBox();
   await page.mouse.move(divider.x + divider.width / 2, 80);
   await page.mouse.down();
   for (const x of [430, 320, 460, 348]) {
     await page.mouse.move(x, 80);
     // Deliberately measure immediately: polling would hide a lagging transition.
-    const geometry = await page.evaluate(() => {
+    const geometry = await (await conversationView(page)).evaluate(() => {
       const bar = document.getElementById('sidebar-resizer').getBoundingClientRect();
       const handle = document.getElementById('lobby-collapse-button').getBoundingClientRect();
       return { divider: bar.left, handle: handle.left + handle.width / 2 };

@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="vendor/katex/katex.min.css">
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="conversation-pages.css">
+    <link rel="stylesheet" href="workspace-tabs.css">
     <link rel="stylesheet" href="antigravity-subagents.css">
 <link rel="stylesheet" href="settings-pages.css">
 </head>
@@ -20,6 +21,8 @@
     <div id="pwa-top-edge" aria-hidden="true"></div>
     <div id="debug-log"></div>
     <svg class="app-icon-sprite" aria-hidden="true">
+        <symbol id="icon-tab-conversation" viewBox="0 0 16 16"><path d="M2.5 13.25V5A2.25 2.25 0 0 1 4.75 2.75H11.25A2.25 2.25 0 0 1 13.5 5V8.75A2.25 2.25 0 0 1 11.25 11H5.5L2.5 13.25Z"/></symbol>
+        <symbol id="icon-tab-group" viewBox="0 0 16 16"><path d="M1.75 10.5V4A1.75 1.75 0 0 1 3.5 2.25H8.5A1.75 1.75 0 0 1 10.25 4V7A1.75 1.75 0 0 1 8.5 8.75H4.1L1.75 10.5Z"/><path d="M10.25 5.75H12.5A1.75 1.75 0 0 1 14.25 7.5V13.75L11.9 12H7.5A1.75 1.75 0 0 1 5.75 10.25V8.75"/></symbol>
         <symbol id="icon-monitor" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
         <symbol id="icon-members" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 4v2"/></symbol>
         <symbol id="icon-model" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"/></symbol>
@@ -102,11 +105,15 @@
 
     <div id="sidebar-resizer" role="separator" aria-label="Resize session sidebar" aria-orientation="vertical"></div>
     <div id="session-reorder-status" class="action-label" role="status" aria-live="polite"></div>
-    <button id="lobby-collapse-button" type="button" onclick="toggleTiledMode(); event.stopPropagation()"
-        title="Collapse lobby and tile sessions" aria-label="Collapse lobby and tile sessions">
+    <button id="lobby-collapse-button" type="button" onclick="window.gladTabs.toggleSidebar(); event.stopPropagation()"
+        title="Collapse session list" aria-label="Collapse session list" aria-expanded="true" aria-controls="lobby-view">
         <svg class="action-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg>
     </button>
     <main id="detail-pane">
+        <section id="desktop-workspace" class="view" aria-label="Conversation workspace">
+            <div id="workspace-tab-list" role="tablist" aria-label="Open conversations"></div>
+            <div id="workspace-tab-panels"></div>
+        </section>
         <div id="detail-empty">
             <img src="glad-app-icon.png?v=full-bleed" alt="" aria-hidden="true">
             <h2>Select a session</h2>
@@ -811,6 +818,7 @@
     <script defer src="terminal-scroll.js"></script>
     <script defer src="git.js"></script>
     <script defer src="usage.js"></script>
+    <script defer src="workspace-tabs.js"></script>
     <script defer src="embed.js"></script>
 </body>
 </html>

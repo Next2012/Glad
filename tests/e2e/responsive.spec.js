@@ -1,3 +1,4 @@
+const { conversationView } = require('./helpers/conversation');
 const { test, expect } = require('@playwright/test');
 
 async function expectInsideViewport(locator, page) {
@@ -52,7 +53,7 @@ test('iOS standalone top bars are anchored for native edge handling', async ({ p
   });
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  await expect(page.locator('html')).toHaveClass(/ios-standalone/);
+  await expect((await conversationView(page)).locator('html')).toHaveClass(/ios-standalone/);
   const topBars = await page.locator('#lobby-view .header, .usage-nav, #nav-bar, .subview-nav').evaluateAll(elements =>
     elements.map(element => {
       const style = getComputedStyle(element);
@@ -86,17 +87,17 @@ test('structured sessions connect through the canonical WebSocket route', async 
   });
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeSessionId = 'codex route/id'; activeToolKey = 'codex';
     initCodexSession(activeSessionId);
   });
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeSessionId = 'claude route/id'; activeToolKey = 'claude-code';
     return initClaudeSession(activeSessionId);
   });
 
-  const host = await page.evaluate(() => window.location.host);
-  await expect.poll(() => page.evaluate(() => window.__webSocketUrls.filter(value => new URL(value).pathname === '/ws').map(value => {
+  const host = await (await conversationView(page)).evaluate(() => window.location.host);
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => window.__webSocketUrls.filter(value => new URL(value).pathname === '/ws').map(value => {
     const url = new URL(value);
     return {
       protocol: url.protocol,
@@ -119,13 +120,13 @@ test('long session titles are truncated without widening the conversation', asyn
     await page.goto('/', { waitUntil: 'networkidle' });
     await page.locator(`.session-card[data-session-id="${sessionId}"]`).getByRole('button', { name: 'Connect' }).click();
 
-    const title = page.locator('#session-title');
+    const title = (await conversationView(page)).locator('#session-title');
     await expect(title).toHaveText(longTitle);
     await expect(title).toHaveCSS('overflow', 'hidden');
     await expect(title).toHaveCSS('text-overflow', 'ellipsis');
     await expect(title).toHaveCSS('white-space', 'nowrap');
 
-    const layout = await page.evaluate(() => {
+    const layout = await (await conversationView(page)).evaluate(() => {
       const rect = id => document.getElementById(id).getBoundingClientRect();
       const terminal = rect('terminal-view');
       const nav = rect('nav-bar');
@@ -154,21 +155,21 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
 
   await page.goto('/', { waitUntil: 'networkidle' });
   await expect(page).toHaveTitle('Glad - AI Sessions');
-  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', 'glad-app-icon.png?v=full-bleed');
-  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute('href', 'glad-app-icon.png?v=full-bleed');
-  await expect(page.locator('#detail-empty img')).toHaveAttribute('src', 'glad-app-icon.png?v=full-bleed');
+  await expect((await conversationView(page)).locator('link[rel="icon"]')).toHaveAttribute('href', 'glad-app-icon.png?v=full-bleed');
+  await expect((await conversationView(page)).locator('link[rel="apple-touch-icon"]')).toHaveAttribute('href', 'glad-app-icon.png?v=full-bleed');
+  await expect((await conversationView(page)).locator('#detail-empty img')).toHaveAttribute('src', 'glad-app-icon.png?v=full-bleed');
   await expect(page.locator('#lobby-view')).toHaveClass(/active/);
-  await expect(page.locator('.header')).toBeVisible();
+  await expect((await conversationView(page)).locator('.header')).toBeVisible();
   await expect(page.locator('#lobby-view .header h1')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
   await expect(page.getByTitle('New AI session')).toBeVisible();
   await expect(page.getByTitle('New AI session').locator('svg')).toBeVisible();
   await expect(page.getByTitle('Usage dashboard')).toBeVisible();
-  await expect(page.getByTitle('New scheduled task')).toBeVisible();
+  await expect((await conversationView(page)).getByTitle('New scheduled task')).toBeVisible();
   await expect(page.locator('#lobby-tab-sessions')).toHaveText('Sessions');
   await expect(page.locator('#lobby-tab-schedules')).toHaveText('Tasks');
 
-  const headerActionStyles = await page.locator('.header-action-btn').evaluateAll(buttons =>
+  const headerActionStyles = await (await conversationView(page)).locator('.header-action-btn').evaluateAll(buttons =>
     buttons.map(button => {
       const style = getComputedStyle(button);
       return {
@@ -182,12 +183,12 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
   expect(new Set(headerActionStyles.map(style => style.backgroundColor)).size).toBe(1);
   expect(new Set(headerActionStyles.map(style => style.height)).size).toBe(1);
   expect(new Set(headerActionStyles.map(style => style.borderRadius)).size).toBe(1);
-  const headerActionTitles = await page.locator('.header-action-btn').evaluateAll(buttons =>
+  const headerActionTitles = await (await conversationView(page)).locator('.header-action-btn').evaluateAll(buttons =>
     buttons.map(button => button.title)
   );
   expect(headerActionTitles).toEqual(['New AI session', 'New group chat', 'Usage dashboard', 'New scheduled task', 'Settings']);
 
-  const layout = await page.evaluate(() => ({
+  const layout = await (await conversationView(page)).evaluate(() => ({
     bodyWidth: document.body.scrollWidth,
     viewportWidth: window.innerWidth,
     resources: performance.getEntriesByType('resource').map(entry => entry.name)
@@ -201,11 +202,11 @@ test('lobby assets and primary dialogs remain usable', async ({ page }, testInfo
 
   await page.getByTitle('New AI session').click();
   await expect(page.locator('#modal-overlay')).toBeVisible();
-  await expectInsideViewport(page.locator('#tool-modal'), page);
+  await expectInsideViewport((await conversationView(page)).locator('#tool-modal'), page);
   await page.locator('#modal-overlay').click({ position: { x: 5, y: 5 } });
   await expect(page.locator('#modal-overlay')).toBeHidden();
 
-  await page.getByTitle('New scheduled task').click();
+  await (await conversationView(page)).getByTitle('New scheduled task').click();
   await expect(page.locator('#schedule-modal-overlay')).toBeVisible();
   await expect(page.locator('#schedule-modal-title')).toHaveText('New Scheduled Task');
   await expect(page.locator('.schedule-modal-subtitle')).toContainText('automatically');
@@ -230,7 +231,7 @@ test('session menu explains and disables unavailable providers', async ({ page }
   }));
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.getByTitle('New AI session').click();
-  await expect(page.locator('.tool-empty-state')).toContainText('No supported AI CLI is installed');
+  await expect((await conversationView(page)).locator('.tool-empty-state')).toContainText('No supported AI CLI is installed');
   const tools = page.locator('.tool-item.unavailable');
   await expect(tools).toHaveCount(2);
   expect(await tools.evaluateAll(items => items.every(item => item.getAttribute('aria-disabled') === 'true'))).toBe(true);
@@ -285,18 +286,18 @@ test('desktop sidebar identifies and deletes the active structured session', asy
   const sessionCard = page.locator(`.session-card[data-session-id="${sessionId}"]`);
   await expect(sessionCard).toHaveCount(1);
   await sessionCard.getByRole('button', { name: 'Connect' }).click();
-  await expect(page.locator('#terminal-view')).toHaveClass(/active/);
+  await expect((await conversationView(page)).locator('#terminal-view')).toHaveClass(/active/);
   await expect(sessionCard).toHaveClass(/selected/);
   await expect(sessionCard.locator('.active-session-dot')).toBeVisible();
   await expect(sessionCard.locator('.active-session-dot')).toHaveCSS('background-color', 'rgb(52, 199, 89)');
   await sessionCard.getByRole('button', { name: 'Delete session' }).click();
   await expect.poll(() => deleteCount).toBe(1);
   await expect(sessionCard).toHaveCount(0);
-  await expect(page.locator('#detail-empty')).toBeVisible();
+  await expect((await conversationView(page)).locator('#detail-empty')).toBeVisible();
   await expectSessionDeleted(page, sessionId);
 });
 
-test('desktop lobby collapses into live tiled conversations and opens a draggable focus dialog', async ({ page }, testInfo) => {
+test('legacy tiled workspace opens a draggable focus dialog through its explicit entrypoint', async ({ page }, testInfo) => {
   test.skip(page.viewportSize().width < 920, 'Desktop tiled layout only');
 
   const existing = await (await page.request.get('/api/sessions')).json();
@@ -308,15 +309,15 @@ test('desktop lobby collapses into live tiled conversations and opens a draggabl
   await limitVisibleSessions(page, [codexId, claudeId]);
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  const collapse = page.getByRole('button', { name: 'Collapse lobby and tile sessions' });
+  const collapse = page.getByRole('button', { name: 'Collapse session list' });
   await expect(collapse).toBeVisible();
   const collapseBox = await collapse.boundingBox();
-  const dividerBox = await page.locator('#sidebar-resizer').boundingBox();
+  const dividerBox = await (await conversationView(page)).locator('#sidebar-resizer').boundingBox();
   expect(collapseBox.height).toBeGreaterThan(collapseBox.width * 2);
   expect(Math.abs(collapseBox.x + collapseBox.width / 2 - dividerBox.x)).toBeLessThanOrEqual(2);
-  await collapse.click();
+  await page.evaluate(() => toggleTiledMode());
 
-  await expect(page.locator('body')).toHaveClass(/tile-mode/);
+  await expect((await conversationView(page)).locator('body')).toHaveClass(/tile-mode/);
   await expect(page.locator('#lobby-view')).toBeHidden();
   await expect(page.locator('#tile-workspace')).toHaveClass(/active/);
   await expect(page.locator('.tile-session-window').filter({ hasText: 'Tiled Codex session' }).locator('.codex-conversation')).toBeVisible();
@@ -327,9 +328,9 @@ test('desktop lobby collapses into live tiled conversations and opens a draggabl
   await expect(codexHeader.locator('.tile-session-path')).toHaveAttribute('title', runtimeConfig.defaultWorkingDirectory);
   expect((await codexHeader.boundingBox()).height).toBeLessThanOrEqual(46);
 
-  await page.getByRole('button', { name: 'Tile layout' }).click();
+  await (await conversationView(page)).getByRole('button', { name: 'Tile layout' }).click();
   await expect(page.locator('#tile-layout-popover')).toBeVisible();
-  const layoutButton = await page.getByRole('button', { name: 'Tile layout' }).boundingBox();
+  const layoutButton = await (await conversationView(page)).getByRole('button', { name: 'Tile layout' }).boundingBox();
   expect(layoutButton.width).toBeGreaterThan(layoutButton.height * 2);
   expect(Math.abs(layoutButton.x + layoutButton.width / 2 - page.viewportSize().width / 2)).toBeLessThanOrEqual(2);
   await page.locator('#tile-columns-range').fill('1');
@@ -339,56 +340,58 @@ test('desktop lobby collapses into live tiled conversations and opens a draggabl
 
   const codexTile = page.locator('.tile-session-window').filter({ hasText: 'Tiled Codex session' });
   await codexTile.locator('.tile-chat-surface').click({ position: { x: 20, y: 20 } });
-  await expect(page.locator('body')).not.toHaveClass(/tile-focus-open/);
+  await expect((await conversationView(page)).locator('body')).not.toHaveClass(/tile-focus-open/);
   await codexTile.getByRole('button', { name: 'Connect' }).click();
-  await expect(page.locator('body')).toHaveClass(/tile-focus-open/);
+  await expect((await conversationView(page)).locator('body')).toHaveClass(/tile-focus-open/);
   await expect(page.locator('#tile-focus-backdrop')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Return to tiled view' })).toBeVisible();
-  await expect(page.locator('#terminal-view')).toHaveClass(/active/);
-  await expect(page.locator('#session-title')).toHaveText('Tiled Codex session');
+  await expect((await conversationView(page)).locator('#terminal-view')).toHaveClass(/active/);
+  await expect((await conversationView(page)).locator('#session-title')).toHaveText('Tiled Codex session');
   await page.screenshot({ path: testInfo.outputPath('tiled-focus-dialog.png'), fullPage: true });
 
-  const before = await page.locator('#terminal-view').boundingBox();
+  const before = await (await conversationView(page)).locator('#terminal-view').boundingBox();
   const returnButton = await page.getByRole('button', { name: 'Return to tiled view' }).boundingBox();
   expect(before).not.toBeNull();
   expect(Math.abs(returnButton.x - (before.x + 10))).toBeLessThanOrEqual(2);
-  await page.locator('#nav-bar').hover();
+  await (await conversationView(page)).locator('#nav-bar').hover();
   await page.mouse.down();
   await page.mouse.move(before.x + 90, before.y + 70, { steps: 4 });
   await page.mouse.up();
-  const after = await page.locator('#terminal-view').boundingBox();
+  const after = await (await conversationView(page)).locator('#terminal-view').boundingBox();
   expect(after).not.toBeNull();
   expect(Math.abs(after.x - before.x) + Math.abs(after.y - before.y)).toBeGreaterThan(10);
-  await expectInsideViewport(page.locator('#terminal-view'), page);
+  await expectInsideViewport((await conversationView(page)).locator('#terminal-view'), page);
 
   await page.locator('#tile-focus-backdrop').click({ position: { x: 4, y: 4 } });
-  await expect(page.locator('body')).not.toHaveClass(/tile-focus-open/);
+  await expect((await conversationView(page)).locator('body')).not.toHaveClass(/tile-focus-open/);
   await expect(page.locator('#tile-workspace')).toHaveClass(/active/);
 
   await codexTile.getByRole('button', { name: 'Connect' }).click();
-  await expect.poll(() => page.evaluate(() => sessionPollTimer !== null)).toBe(true);
-  await page.getByTitle('History').click();
-  await expect(page.locator('#history-view')).toHaveClass(/active/);
-  await expect.poll(() => page.evaluate(() => sessionPollTimer === null)).toBe(true);
+  await expect.poll(async () => page.evaluate(() => sessionPollTimer !== null)).toBe(true);
+  await (await conversationView(page)).getByTitle('History').click();
+  await expect((await conversationView(page)).locator('#history-view')).toHaveClass(/active/);
+  await expect.poll(async () => page.evaluate(() => sessionPollTimer === null)).toBe(true);
   await page.getByRole('button', { name: 'Return to tiled view' }).click();
-  await expect(page.locator('body')).not.toHaveClass(/tile-focus-open/);
-  await expect.poll(() => page.evaluate(() => sessionPollTimer !== null)).toBe(true);
+  await expect((await conversationView(page)).locator('body')).not.toHaveClass(/tile-focus-open/);
+  await expect.poll(async () => page.evaluate(() => sessionPollTimer !== null)).toBe(true);
 
-  await page.getByRole('button', { name: 'Restore lobby' }).click();
-  await expect(page.locator('body')).not.toHaveClass(/tile-mode/);
+  await page.evaluate(() => toggleTiledMode());
+  await expect((await conversationView(page)).locator('body')).not.toHaveClass(/tile-mode/);
   await expect(page.locator('#lobby-view')).toBeVisible();
-  await expect(page.locator('#terminal-view')).toHaveClass(/active/);
-  await expect(page.locator('#session-title')).toHaveText('Tiled Codex session');
+  await expect((await conversationView(page)).locator('#terminal-view')).toHaveClass(/active/);
+  await expect((await conversationView(page)).locator('#session-title')).toHaveText('Tiled Codex session');
 
   const claudeCard = page.locator(`.session-card[data-session-id="${claudeId}"]`);
   await claudeCard.getByRole('button', { name: 'Connect' }).click();
-  await expect(page.locator('#session-title')).toHaveText('Tiled Claude session');
-  await page.getByRole('button', { name: 'Collapse lobby and tile sessions' }).click();
-  await expect(page.locator('body')).toHaveClass(/tile-mode/);
+  await expect((await conversationView(page)).locator('#session-title')).toHaveText('Tiled Claude session');
+  await page.evaluate(() => toggleTiledMode());
+  await expect((await conversationView(page)).locator('body')).toHaveClass(/tile-mode/);
   await page.setViewportSize({ width: 820, height: 800 });
   await expect(page.locator('body')).not.toHaveClass(/tile-mode/);
-  await expect(page.locator('#terminal-view')).toBeVisible();
-  await expect(page.locator('#session-title')).toHaveText('Tiled Claude session');
+  await expect(page.locator('#lobby-view')).toBeVisible();
+  await page.locator(`.session-card[data-session-id="${claudeId}"]`).getByRole('button', { name: 'Connect' }).click();
+  await expect((await conversationView(page)).locator('#terminal-view')).toBeVisible();
+  await expect((await conversationView(page)).locator('#session-title')).toHaveText('Tiled Claude session');
 
   await page.request.delete(`/api/sessions/${codexId}`);
   await page.request.delete(`/api/sessions/${claudeId}`);
@@ -410,7 +413,7 @@ test('tiled conversations surface subagents, approvals, and timed inputs', async
 
   await limitVisibleSessions(page, [subagentId, approvalId, timedId]);
   await page.goto('/', { waitUntil: 'networkidle' });
-  await page.getByRole('button', { name: 'Collapse lobby and tile sessions' }).click();
+  await page.evaluate(() => toggleTiledMode());
   await expect(page.locator('.tile-session-window')).not.toHaveCount(0);
   await page.evaluate(() => {
     tiledWorkspace.columns = 2;
@@ -469,8 +472,8 @@ test('tiled conversations surface subagents, approvals, and timed inputs', async
   await approvalTile.getByRole('button', { name: 'Connect' }).click();
   await expect(page.locator('#tile-workspace')).toHaveAttribute('inert', '');
   await expect(page.locator('#tile-workspace')).toHaveAttribute('aria-hidden', 'true');
-  await page.waitForFunction(() => activeSessionHydrated === true);
-  await page.evaluate(subagentId => {
+  await (await conversationView(page)).waitForFunction(() => activeSessionHydrated === true);
+  await (await conversationView(page)).evaluate(subagentId => {
     codexState = { ...codexState, status: 'waiting_approval', pendingPermissionCount: 1, threadId: 'approval-thread' };
     codexPendingPermissions = [{ id: 'tile-approval', status: 'pending', title: 'Run tests', reason: 'Allow npm test to run?' }];
     codexMessages = [{
@@ -490,7 +493,7 @@ test('tiled conversations surface subagents, approvals, and timed inputs', async
     commitCodexChatRender();
     renderCodexStateBar();
   }, subagentId);
-  await page.getByRole('button', { name: 'Jump to pending approval' }).click();
+  await (await conversationView(page)).getByRole('button', { name: 'Jump to pending approval' }).click();
   await expect(page.locator('#codex-chat-container [data-codex-permission-id="tile-approval"]')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('tiled-approval-dialog.png'), fullPage: true });
   await page.locator('#tile-focus-backdrop').click({ position: { x: 4, y: 4 } });
@@ -533,14 +536,14 @@ test('tiled conversations surface subagents, approvals, and timed inputs', async
   expect(retainedView.detailStillOpen).toBe(true);
 
   await timedTile.getByRole('button', { name: 'Connect' }).click();
-  await expect(page.locator('#timed-tag-rail .timed-tag')).toBeVisible();
+  await expect((await conversationView(page)).locator('#timed-tag-rail .timed-tag')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('tiled-timed-dialog.png'), fullPage: true });
   await page.locator('#tile-focus-backdrop').click({ position: { x: 4, y: 4 } });
   await expect(approvalTile).toContainText('Content loaded while this session is focused.');
   await expect(subagentTile).toContainText('Background subagent update retained.');
 
   await subagentTile.getByRole('button', { name: 'Connect' }).click();
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeSessionHydrated = false;
     returnToTiles();
   });
@@ -578,7 +581,7 @@ test('split sidebar divider stays fixed while the saved width is restored', asyn
   });
 
   await page.goto('/', { waitUntil: 'networkidle' });
-  await expect.poll(() => page.evaluate(() => window.__sidebarLoadPositions.length)).toBe(2);
+  await expect.poll(async () => page.evaluate(() => window.__sidebarLoadPositions.length)).toBe(2);
   const positions = await page.evaluate(() => window.__sidebarLoadPositions);
 
   expect(positions[0]).toBeGreaterThanOrEqual(429);
@@ -587,9 +590,9 @@ test('split sidebar divider stays fixed while the saved width is restored', asyn
 
 test('structured execution disables send until the provider returns to idle', async ({ page }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
-  const sendButton = page.locator('#send-btn');
+  const sendButton = (await conversationView(page)).locator('#send-btn');
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeToolKey = 'claude-code';
     claudeStatus = 'idle';
     claudeState = { ...claudeState, status: 'idle', canAbort: false };
@@ -605,29 +608,29 @@ test('structured execution disables send until the provider returns to idle', as
 
   await expect(sendButton).toBeDisabled();
   await expect(sendButton).toHaveAttribute('aria-label', 'Send disabled while awaiting confirmation');
-  expect(await page.evaluate(() => window.__composerMessages.length)).toBe(1);
-  await page.evaluate(() => applyClaudeState({ model: claudeState.model }));
+  expect(await (await conversationView(page)).evaluate(() => window.__composerMessages.length)).toBe(1);
+  await (await conversationView(page)).evaluate(() => applyClaudeState({ model: claudeState.model }));
   await expect(sendButton).toBeDisabled();
 
-  await page.evaluate(() => applyClaudeState({ status: 'thinking', canAbort: true }, { providerStateReceived: true }));
+  await (await conversationView(page)).evaluate(() => applyClaudeState({ status: 'thinking', canAbort: true }, { providerStateReceived: true }));
   await expect(sendButton).toBeDisabled();
-  await page.evaluate(() => handleComposerSendResult({
+  await (await conversationView(page)).evaluate(() => handleComposerSendResult({
     type: 'send-result', accepted: true,
     clientMessageId: window.__composerMessages[0].clientMessageId
   }));
   await expect(sendButton).toBeDisabled();
-  await page.evaluate(() => applyClaudeState({ status: 'idle', canAbort: false }, { providerStateReceived: true }));
+  await (await conversationView(page)).evaluate(() => applyClaudeState({ status: 'idle', canAbort: false }, { providerStateReceived: true }));
   await expect(sendButton).toBeEnabled();
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeToolKey = 'codex';
     setClaudeModeEnabled(false);
     applyCodexState({ status: 'running', aborting: false, resuming: false }, { providerStateReceived: true });
   });
   await expect(sendButton).toBeDisabled();
-  await page.evaluate(() => applyCodexState({ status: 'waiting_approval' }, { providerStateReceived: true }));
+  await (await conversationView(page)).evaluate(() => applyCodexState({ status: 'waiting_approval' }, { providerStateReceived: true }));
   await expect(sendButton).toBeDisabled();
-  await page.evaluate(() => applyCodexState({ status: 'idle', aborting: false, resuming: false }, { providerStateReceived: true }));
+  await (await conversationView(page)).evaluate(() => applyCodexState({ status: 'idle', aborting: false, resuming: false }, { providerStateReceived: true }));
   await expect(sendButton).toBeEnabled();
 });
 
@@ -641,10 +644,10 @@ test('light theme keeps dialogs, subview navigation, and file chips readable', a
     body: JSON.stringify({ sources: [{ id: 'codex', label: 'Codex', badge: 'CX' }] })
   }));
   await page.goto('/', { waitUntil: 'networkidle' });
-  await page.evaluate(() => setGladTheme('light'));
+  await (await conversationView(page)).evaluate(() => setGladTheme('light'));
 
   await page.getByTitle('New AI session').click();
-  await expect(page.getByRole('button', { name: 'Close' })).toBeVisible();
+  await expect((await conversationView(page)).getByRole('button', { name: 'Close' })).toBeVisible();
   await expect(page.locator('.tool-item')).toContainText('Codex');
   const toolColors = await page.locator('.tool-item').evaluate(element => ({
     background: getComputedStyle(element).backgroundColor,
@@ -652,21 +655,21 @@ test('light theme keeps dialogs, subview navigation, and file chips readable', a
     iconBackground: getComputedStyle(element.querySelector('.tool-icon')).backgroundColor
   }));
   expect(toolColors).toEqual({ background: 'rgb(247, 249, 251)', color: 'rgb(23, 32, 51)', iconBackground: 'rgb(220, 238, 255)' });
-  await page.getByRole('button', { name: 'Close' }).click();
+  await (await conversationView(page)).getByRole('button', { name: 'Close' }).click();
 
   await page.getByTitle('Usage dashboard').click();
   await expect(page.locator('.usage-source-copy strong')).toHaveText('Codex');
   await expect(page.locator('.usage-source-copy strong')).toHaveCSS('color', 'rgb(23, 32, 51)');
   await page.locator('#usage-source-overlay').click({ position: { x: 5, y: 5 } });
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
     document.getElementById('git-view').classList.add('active');
   });
-  await expect(page.locator('#git-view .subview-nav')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
-  await expect(page.locator('#git-view .subview-nav-title')).toHaveCSS('color', 'rgb(23, 32, 51)');
+  await expect((await conversationView(page)).locator('#git-view .subview-nav')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect((await conversationView(page)).locator('#git-view .subview-nav-title')).toHaveCSS('color', 'rgb(23, 32, 51)');
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeToolKey = 'codex';
     document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
     document.getElementById('terminal-view').classList.add('active');
@@ -674,17 +677,17 @@ test('light theme keeps dialogs, subview navigation, and file chips readable', a
     selectedFileAttachments = [{ id: 'file-preview', name: 'notes.txt', sessionId: 'preview', size: 10 }];
     renderComposerAttachments();
   });
-  await expect(page.locator('.attachment-chip.file')).toHaveCSS('color', 'rgb(52, 64, 84)');
-  await expect(page.locator('.attachment-chip.file')).toHaveCSS('background-color', 'rgb(242, 244, 247)');
-  await page.evaluate(() => {
+  await expect((await conversationView(page)).locator('.attachment-chip.file')).toHaveCSS('color', 'rgb(52, 64, 84)');
+  await expect((await conversationView(page)).locator('.attachment-chip.file')).toHaveCSS('background-color', 'rgb(242, 244, 247)');
+  await (await conversationView(page)).evaluate(() => {
     activeToolKey = 'demo';
     setClaudeModeEnabled(false);
     activeSessionHydrated = true;
     currentSocket = { readyState: 1, send: value => { window.__terminalFileSent = JSON.parse(value); } };
   });
-  await page.locator('#cmd-input').fill('Inspect this file');
-  await page.locator('#send-btn').click();
-  await expect.poll(() => page.evaluate(() => window.__terminalFileSent)).toEqual({
+  await (await conversationView(page)).locator('#cmd-input').fill('Inspect this file');
+  await (await conversationView(page)).locator('#send-btn').click();
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => window.__terminalFileSent)).toEqual({
     type: 'file-input', text: 'Inspect this file', fileAttachmentIds: ['file-preview']
   });
 });
@@ -703,7 +706,7 @@ test('git change cards use readable surfaces in light and dark themes', async ({
     body: JSON.stringify({ success: true, stdout: '3\t1\tsrc/theme.js' })
   }));
   await page.goto('/', { waitUntil: 'networkidle' });
-  await page.evaluate(async () => {
+  await (await conversationView(page)).evaluate(async () => {
     activeSessionId = 'theme-git';
     window.activeSessionId = 'theme-git';
     document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
@@ -712,15 +715,15 @@ test('git change cards use readable surfaces in light and dark themes', async ({
     await loadGitStatus();
   });
 
-  const firstCard = page.locator('.git-change-card').first();
+  const firstCard = (await conversationView(page)).locator('.git-change-card').first();
   await expect(firstCard).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   await expect(firstCard.locator('.git-change-header')).toHaveCSS('color', 'rgb(23, 32, 51)');
-  await expect(page.locator('.git-status-badge.modified')).toHaveCSS('color', 'rgb(154, 103, 0)');
+  await expect((await conversationView(page)).locator('.git-status-badge.modified')).toHaveCSS('color', 'rgb(154, 103, 0)');
 
-  await page.evaluate(() => setGladTheme('dark'));
+  await (await conversationView(page)).evaluate(() => setGladTheme('dark'));
   await expect(firstCard).toHaveCSS('background-color', 'rgb(28, 28, 30)');
   await expect(firstCard.locator('.git-change-header')).toHaveCSS('color', 'rgb(255, 255, 255)');
-  await expect(page.locator('#git-view .subview-nav')).toHaveCSS('background-color', 'rgb(18, 18, 18)');
+  await expect((await conversationView(page)).locator('#git-view .subview-nav')).toHaveCSS('background-color', 'rgb(18, 18, 18)');
 });
 
 test('dark theme keeps modal rows and attachment chips readable', async ({ page }) => {
@@ -733,18 +736,18 @@ test('dark theme keeps modal rows and attachment chips readable', async ({ page 
     body: JSON.stringify({ sources: [{ id: 'codex', label: 'Codex', badge: 'CX' }] })
   }));
   await page.goto('/', { waitUntil: 'networkidle' });
-  await page.evaluate(() => setGladTheme('dark'));
+  await (await conversationView(page)).evaluate(() => setGladTheme('dark'));
 
   await page.getByTitle('New AI session').click();
   await expect(page.locator('.tool-item')).toHaveCSS('color', 'rgb(255, 255, 255)');
-  await expect(page.locator('.tool-icon')).toHaveCSS('background-color', 'rgb(51, 51, 51)');
-  await page.getByRole('button', { name: 'Close' }).click();
+  await expect((await conversationView(page)).locator('.tool-icon')).toHaveCSS('background-color', 'rgb(51, 51, 51)');
+  await (await conversationView(page)).getByRole('button', { name: 'Close' }).click();
 
   await page.getByTitle('Usage dashboard').click();
   await expect(page.locator('.usage-source-copy strong')).toHaveCSS('color', 'rgb(255, 255, 255)');
   await page.locator('#usage-source-overlay').click({ position: { x: 5, y: 5 } });
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeToolKey = 'codex';
     document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
     document.getElementById('terminal-view').classList.add('active');
@@ -752,8 +755,8 @@ test('dark theme keeps modal rows and attachment chips readable', async ({ page 
     selectedFileAttachments = [{ id: 'dark-file', name: 'archive.zip', sessionId: 'preview', size: 10 }];
     renderComposerAttachments();
   });
-  await expect(page.locator('.attachment-chip.file')).toHaveCSS('color', 'rgb(255, 255, 255)');
-  await expect(page.locator('.attachment-chip.file')).toHaveCSS('background-color', 'rgba(255, 255, 255, 0.08)');
+  await expect((await conversationView(page)).locator('.attachment-chip.file')).toHaveCSS('color', 'rgb(255, 255, 255)');
+  await expect((await conversationView(page)).locator('.attachment-chip.file')).toHaveCSS('background-color', 'rgba(255, 255, 255, 0.08)');
 });
 
 test('usage dashboard selects week or month and renders model summaries with daily charts', async ({ page }, testInfo) => {
@@ -812,7 +815,7 @@ test('usage dashboard selects week or month and renders model summaries with dai
   await page.getByTitle('Usage dashboard').click();
   await expect(page.locator('#usage-source-overlay')).toBeVisible();
   await expectInsideViewport(page.locator('#usage-source-modal'), page);
-  await page.getByRole('button', { name: /Codex/ }).click();
+  await (await conversationView(page)).getByRole('button', { name: /Codex/ }).click();
 
   await expect(page.locator('#usage-view')).toHaveClass(/active/);
   await expect(page.locator('#usage-source-title')).toHaveText('Codex Usage');
@@ -835,13 +838,13 @@ test('usage dashboard selects week or month and renders model summaries with dai
 
   await page.locator('#usage-period-select').selectOption('2026-08-17');
   await expect(page.locator('#usage-period-select')).toHaveValue('2026-08-17');
-  await page.getByRole('button', { name: 'Month', exact: true }).click();
+  await (await conversationView(page)).getByRole('button', { name: 'Month', exact: true }).click();
   await expect(page.locator('#usage-scope-monthly')).toHaveClass(/active/);
   await expect(page.locator('#usage-period-select')).toHaveValue('2026-08');
 
 	await page.evaluate(() => showLobby());
 	await page.getByTitle('Usage dashboard').click();
-	await page.getByRole('button', { name: /Claude/ }).click();
+	await (await conversationView(page)).getByRole('button', { name: /Claude/ }).click();
 	await expect(page.locator('#usage-source-title')).toHaveText('Claude Usage');
 	await expect(page.locator('#usage-summary')).toContainText('Estimated cost');
 	await expect(page.locator('#usage-model-summary')).toContainText('claude-opus-5');
@@ -856,7 +859,7 @@ test('approval bubble expands and jumps to its pending request', async ({ page }
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  await page.evaluate(async () => {
+  await (await conversationView(page)).evaluate(async () => {
     activeToolKey = 'codex';
     codexState = {
       ...codexState,
@@ -914,13 +917,13 @@ test('approval bubble expands and jumps to its pending request', async ({ page }
     chat.scrollTop = chat.scrollHeight;
   });
 
-  const target = page.locator('[data-codex-permission-id="approval-command-1"]');
+  const target = (await conversationView(page)).locator('[data-codex-permission-id="approval-command-1"]');
   await expect(target).toHaveCount(1);
   await expect(target).not.toBeVisible();
-  const approvalJump = page.getByRole('button', { name: 'Jump to pending approval' });
+  const approvalJump = (await conversationView(page)).getByRole('button', { name: 'Jump to pending approval' });
   await expect(approvalJump.locator('xpath=..')).toHaveAttribute('id', 'session-attention-rail');
-  const stripBox = await page.locator('#session-status-strip').boundingBox();
-  const chatBox = await page.locator('#codex-chat-container').boundingBox();
+  const stripBox = await (await conversationView(page)).locator('#session-status-strip').boundingBox();
+  const chatBox = await (await conversationView(page)).locator('#codex-chat-container').boundingBox();
   expect(stripBox).not.toBeNull();
   expect(chatBox).not.toBeNull();
   expect(stripBox.y + stripBox.height).toBeLessThanOrEqual(chatBox.y + 1);
@@ -935,7 +938,7 @@ test('approval bubble expands and jumps to its pending request', async ({ page }
     }
     return parents.length > 0 && parents.every(Boolean);
   })).toBe(true);
-  await expect(page.locator('.codex-work-group').first()).toContainText('Approval detail loaded');
+  await expect((await conversationView(page)).locator('.codex-work-group').first()).toContainText('Approval detail loaded');
   await expect(target).toBeInViewport();
   expect(pageErrors).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath('approval-jump.png'), fullPage: true });
@@ -944,7 +947,7 @@ test('approval bubble expands and jumps to its pending request', async ({ page }
 test('standalone Codex approval is collapsed and stays with its owning turn', async ({ page }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     const now = Date.now();
     activeToolKey = 'codex';
     codexState = {
@@ -973,11 +976,11 @@ test('standalone Codex approval is collapsed and stays with its owning turn', as
     commitCodexChatRender();
   });
 
-  const approval = page.locator('[data-codex-permission-id="plugin-approval"]');
+  const approval = (await conversationView(page)).locator('[data-codex-permission-id="plugin-approval"]');
   await expect(approval).toHaveCount(1);
   await expect(approval).not.toHaveAttribute('open', '');
   await expect(approval.locator('.claude-tool-body')).not.toBeVisible();
-  expect(await page.evaluate(() => {
+  expect(await (await conversationView(page)).evaluate(() => {
     const owner = document.querySelector('[data-codex-key="message-owner-user"]');
     const approval = document.querySelector('[data-codex-permission-id="plugin-approval"]');
     const reply = document.querySelector('[data-codex-key="message-owner-reply"]');
@@ -989,7 +992,7 @@ test('standalone Codex approval is collapsed and stays with its owning turn', as
   await expect(approval).toHaveAttribute('open', '');
   await expect(approval.locator('.claude-tool-body')).toBeVisible();
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     codexMessages.push({
       id: 'later-reply', kind: 'assistant', text: 'Another update',
       threadId: 'root-thread', turnId: 'later-turn', createdAt: Date.now() + 500
@@ -1008,15 +1011,15 @@ test('live approval attention works in normal, tiled monitor, and tiled focus vi
   await page.goto('/', { waitUntil: 'networkidle' });
 
   await page.locator(`.session-card[data-session-id="${normalId}"]`).getByRole('button', { name: 'Connect' }).click();
-  await page.locator('#cmd-input').fill('__GLAD_E2E_APPROVAL__ normal');
-  await page.locator('#send-btn').click();
-  const normalJump = page.getByRole('button', { name: 'Jump to pending approval' });
+  await (await conversationView(page)).locator('#cmd-input').fill('__GLAD_E2E_APPROVAL__ normal');
+  await (await conversationView(page)).locator('#send-btn').click();
+  const normalJump = (await conversationView(page)).getByRole('button', { name: 'Jump to pending approval' });
   await expect(normalJump).toBeVisible();
   await normalJump.click();
-  await expect(page.locator('#codex-chat-container [data-codex-permission-id]')).toBeVisible();
-  await page.locator('#codex-chat-container').getByRole('button', { name: 'Yes', exact: true }).click();
+  await expect((await conversationView(page)).locator('#codex-chat-container [data-codex-permission-id]')).toBeVisible();
+  await (await conversationView(page)).locator('#codex-chat-container').getByRole('button', { name: 'Yes', exact: true }).click();
   await expect(normalJump).toHaveCount(0);
-  await expect(page.locator('#send-btn')).toBeEnabled();
+  await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled();
   await page.request.delete(`/api/sessions/${normalId}`);
   await page.evaluate(() => showLobby());
   if (page.viewportSize().width < 920) {
@@ -1025,7 +1028,7 @@ test('live approval attention works in normal, tiled monitor, and tiled focus vi
     return;
   }
 
-  await page.getByRole('button', { name: 'Collapse lobby and tile sessions' }).click();
+  await page.evaluate(() => toggleTiledMode());
   await expect.poll(() => page.evaluate(ids => ids.every(id => tiledWorkspace.previewStates.get(id)?.connected), [monitorId, focusedId])).toBe(true);
   await page.evaluate(sessionId => {
     tiledWorkspace.previewSockets.get(sessionId).send(JSON.stringify({
@@ -1038,27 +1041,27 @@ test('live approval attention works in normal, tiled monitor, and tiled focus vi
   const monitorAlert = monitorTile.getByRole('button', { name: /Open 1 pending approval/ });
   await expect(monitorAlert).toBeVisible();
   await monitorAlert.click();
-  await expect(page.locator('body')).toHaveClass(/tile-focus-open/);
-  await expect(page.locator('#session-title')).toHaveText('Approval · Monitor');
-  const monitorTarget = page.locator('#codex-chat-container [data-codex-permission-id]');
+  await expect((await conversationView(page)).locator('body')).toHaveClass(/tile-focus-open/);
+  await expect((await conversationView(page)).locator('#session-title')).toHaveText('Approval · Monitor');
+  const monitorTarget = (await conversationView(page)).locator('#codex-chat-container [data-codex-permission-id]');
   await expect(monitorTarget).toBeVisible();
   await expect(monitorTarget).toHaveClass(/codex-approval-focus/);
   await monitorTarget.getByRole('button', { name: 'Yes', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Jump to pending approval' })).toHaveCount(0);
+  await expect((await conversationView(page)).getByRole('button', { name: 'Jump to pending approval' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Return to tiled view' }).click();
   await expect(monitorTile.locator('.tile-approval-alert')).toHaveCount(0);
   await expect(monitorTile.locator('.tile-status')).toHaveText('Idle');
 
   const focusedTile = page.locator(`.tile-session-window[data-session-id="${focusedId}"]`);
   await focusedTile.getByRole('button', { name: 'Connect' }).click();
-  await page.waitForFunction(() => activeSessionHydrated === true);
-  await page.locator('#cmd-input').fill('__GLAD_E2E_APPROVAL__ focused');
-  await page.locator('#send-btn').click();
-  const focusedJump = page.getByRole('button', { name: 'Jump to pending approval' });
+  await (await conversationView(page)).waitForFunction(() => activeSessionHydrated === true);
+  await (await conversationView(page)).locator('#cmd-input').fill('__GLAD_E2E_APPROVAL__ focused');
+  await (await conversationView(page)).locator('#send-btn').click();
+  const focusedJump = (await conversationView(page)).getByRole('button', { name: 'Jump to pending approval' });
   await expect(focusedJump).toBeVisible();
   await focusedJump.click();
-  await expect(page.locator('#codex-chat-container [data-codex-permission-id]')).toBeVisible();
-  await page.locator('#codex-chat-container').getByRole('button', { name: 'Yes', exact: true }).click();
+  await expect((await conversationView(page)).locator('#codex-chat-container [data-codex-permission-id]')).toBeVisible();
+  await (await conversationView(page)).locator('#codex-chat-container').getByRole('button', { name: 'Yes', exact: true }).click();
   await expect(focusedJump).toHaveCount(0);
   await page.getByRole('button', { name: 'Return to tiled view' }).click();
   await expect(focusedTile.locator('.tile-approval-alert')).toHaveCount(0);
@@ -1069,7 +1072,7 @@ test('live approval attention works in normal, tiled monitor, and tiled focus vi
 
 test('approval-only events from older servers refresh counts and clear the attention rail', async ({ page }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeToolKey = 'codex';
     document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
     document.getElementById('terminal-view').classList.add('active');
@@ -1078,19 +1081,19 @@ test('approval-only events from older servers refresh counts and clear the atten
     applyCodexEvent({ type: 'permission-request', request: { id: 'first', status: 'pending', title: 'First approval' } });
     applyCodexEvent({ type: 'permission-request', request: { id: 'second', status: 'pending', title: 'Second approval' } });
   });
-  const jump = page.getByRole('button', { name: 'Jump to pending approval' });
+  const jump = (await conversationView(page)).getByRole('button', { name: 'Jump to pending approval' });
   await expect(jump).toContainText('2 approvals');
-  await page.evaluate(() => applyCodexEvent({
+  await (await conversationView(page)).evaluate(() => applyCodexEvent({
     type: 'permission-updated', request: { id: 'first', status: 'approved', title: 'First approval' }
   }));
   await expect(jump).toContainText('1 approval');
   await jump.click();
-  await expect(page.locator('#codex-chat-container [data-codex-permission-id="second"]')).toBeInViewport();
-  await page.evaluate(() => applyCodexEvent({
+  await expect((await conversationView(page)).locator('#codex-chat-container [data-codex-permission-id="second"]')).toBeInViewport();
+  await (await conversationView(page)).evaluate(() => applyCodexEvent({
     type: 'permission-updated', request: { id: 'second', status: 'denied', title: 'Second approval' }
   }));
   await expect(jump).toHaveCount(0);
-  await expect(page.locator('#session-status-strip')).toBeHidden();
+  await expect((await conversationView(page)).locator('#session-status-strip')).toBeHidden();
 });
 
 test('scheduled sends stack below session attention', async ({ page }, testInfo) => {
@@ -1107,7 +1110,7 @@ test('scheduled sends stack below session attention', async ({ page }, testInfo)
     expect(response.ok()).toBe(true);
   }
 
-  await page.evaluate(async id => {
+  await (await conversationView(page)).evaluate(async id => {
     activeSessionId = id;
     window.activeSessionId = id;
     activeToolKey = 'codex';
@@ -1121,10 +1124,10 @@ test('scheduled sends stack below session attention', async ({ page }, testInfo)
     await loadTimedInputs();
   }, sessionId);
 
-  const tags = page.locator('#timed-tag-rail .timed-tag');
+  const tags = (await conversationView(page)).locator('#timed-tag-rail .timed-tag');
   await expect(tags).toHaveCount(2);
   await expect(tags.first()).toBeVisible();
-  const geometry = await page.evaluate(() => {
+  const geometry = await (await conversationView(page)).evaluate(() => {
     const strip = document.getElementById('session-status-strip').getBoundingClientRect();
     const tagBoxes = Array.from(document.querySelectorAll('#timed-tag-rail .timed-tag'))
       .map(tag => tag.getBoundingClientRect());
@@ -1139,8 +1142,8 @@ test('scheduled sends stack below session attention', async ({ page }, testInfo)
   expect(geometry.secondTop).toBeGreaterThan(geometry.firstBottom);
 
   await tags.first().click();
-  await expect(page.locator('#timed-send-panel')).toHaveClass(/active/);
-  await expect(page.locator('#cmd-input')).toHaveValue('Scheduled message 1');
+  await expect((await conversationView(page)).locator('#timed-send-panel')).toHaveClass(/active/);
+  await expect((await conversationView(page)).locator('#cmd-input')).toHaveValue('Scheduled message 1');
   await expectInsideViewport(tags.first(), page);
   expect(pageErrors).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath('scheduled-sends.png'), fullPage: true });
@@ -1154,7 +1157,7 @@ test('Codex lazily loads folded tool and subagent details', async ({ page }) => 
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeSessionId = 'lazy-codex';
     activeToolKey = 'codex';
     codexState = { ...codexState, threadId: 'root-thread' };
@@ -1180,10 +1183,10 @@ test('Codex lazily loads folded tool and subagent details', async ({ page }) => 
     commitCodexChatRender();
   });
 
-  const toolGroup = page.locator('.codex-work-group:not(.codex-subagent-group)').first();
+  const toolGroup = (await conversationView(page)).locator('.codex-work-group:not(.codex-subagent-group)').first();
   await toolGroup.locator(':scope > summary').click();
-  await expect.poll(() => page.evaluate(() => window.__codexDetailRequests.length)).toBe(1);
-  await page.evaluate(async () => {
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => window.__codexDetailRequests.length)).toBe(1);
+  await (await conversationView(page)).evaluate(async () => {
     const request = window.__codexDetailRequests[0];
     applyCodexDetailResponse({
       type: 'codex-detail-response',
@@ -1200,7 +1203,7 @@ test('Codex lazily loads folded tool and subagent details', async ({ page }) => 
   await expect(toolGroup).toHaveAttribute('open', '');
   await expect(toolGroup).toContainText('50 tests passed');
 
-  await page.evaluate(() => applyCodexEvent({
+  await (await conversationView(page)).evaluate(() => applyCodexEvent({
     type: 'message-updated',
     message: {
       id: 'tool-lazy', providerId: 'tool-provider', kind: 'tool', threadId: 'root-thread',
@@ -1208,8 +1211,8 @@ test('Codex lazily loads folded tool and subagent details', async ({ page }) => 
       hasDetail: true, detailRevision: 6, createdAt: 2, updatedAt: 6
     }
   }));
-  await expect.poll(() => page.evaluate(() => window.__codexDetailRequests.length)).toBe(2);
-  await page.evaluate(async () => {
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => window.__codexDetailRequests.length)).toBe(2);
+  await (await conversationView(page)).evaluate(async () => {
     const request = window.__codexDetailRequests[1];
     applyCodexDetailResponse({
       requestId: request.requestId,
@@ -1223,10 +1226,10 @@ test('Codex lazily loads folded tool and subagent details', async ({ page }) => 
   });
   await expect(toolGroup).toContainText('51 tests passed');
 
-  const subagentGroup = page.locator('.codex-subagent-group').first();
+  const subagentGroup = (await conversationView(page)).locator('.codex-subagent-group').first();
   await subagentGroup.locator(':scope > summary').click();
-  await expect.poll(() => page.evaluate(() => window.__codexDetailRequests.length)).toBe(3);
-  await page.evaluate(async () => {
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => window.__codexDetailRequests.length)).toBe(3);
+  await (await conversationView(page)).evaluate(async () => {
     const request = window.__codexDetailRequests[2];
     applyCodexDetailResponse({
       type: 'codex-detail-response',
@@ -1242,15 +1245,15 @@ test('Codex lazily loads folded tool and subagent details', async ({ page }) => 
   await expect(subagentGroup).toHaveAttribute('open', '');
   await expect(subagentGroup).toContainText('Subagent completed its investigation.');
 
-  await page.evaluate(() => applyCodexEvent({
+  await (await conversationView(page)).evaluate(() => applyCodexEvent({
     type: 'message-updated',
     message: {
       id: 'agent-message', kind: 'assistant', threadId: 'agent-thread', turnId: 'agent-turn',
       hasDetail: true, detailRevision: 8, createdAt: 4, updatedAt: 8
     }
   }));
-  await expect.poll(() => page.evaluate(() => window.__codexDetailRequests.length)).toBe(4);
-  await page.evaluate(async () => {
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => window.__codexDetailRequests.length)).toBe(4);
+  await (await conversationView(page)).evaluate(async () => {
     const request = window.__codexDetailRequests[3];
     applyCodexDetailResponse({
       requestId: request.requestId,
@@ -1262,11 +1265,11 @@ test('Codex lazily loads folded tool and subagent details', async ({ page }) => 
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   });
   await expect(subagentGroup).toContainText('Subagent received a running update.');
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     document.querySelector('.codex-subagent-group').open = false;
     applyCodexState({ activeSubagentCount: 1 });
   });
-  const subagentJump = page.getByRole('button', { name: 'Jump to active subagent' });
+  const subagentJump = (await conversationView(page)).getByRole('button', { name: 'Jump to active subagent' });
   await expect(subagentJump).toBeVisible();
   await expect(subagentJump.locator('xpath=..')).toHaveAttribute('id', 'session-attention-rail');
   await subagentJump.click();
@@ -1277,7 +1280,7 @@ test('Codex lazily loads folded tool and subagent details', async ({ page }) => 
 test('Codex active-subagent jump ignores a later completed group', async ({ page }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeSessionId = 'subagent-jump';
     activeToolKey = 'codex';
     codexState = { ...createDefaultCodexState(), status: 'running', threadId: 'root-thread' };
@@ -1300,20 +1303,20 @@ test('Codex active-subagent jump ignores a later completed group', async ({ page
     commitCodexChatRender();
   });
 
-  const activeGroup = page.locator('.codex-subagent-group[data-codex-thread-id="active-child"]');
-  const completedGroup = page.locator('.codex-subagent-group[data-codex-thread-id="completed-child"]');
+  const activeGroup = (await conversationView(page)).locator('.codex-subagent-group[data-codex-thread-id="active-child"]');
+  const completedGroup = (await conversationView(page)).locator('.codex-subagent-group[data-codex-thread-id="completed-child"]');
   await expect(activeGroup).not.toHaveAttribute('open', '');
   await expect(completedGroup).not.toHaveAttribute('open', '');
 
-  await page.getByRole('button', { name: 'Jump to active subagent' }).click();
+  await (await conversationView(page)).getByRole('button', { name: 'Jump to active subagent' }).click();
   await expect(activeGroup).not.toHaveAttribute('open', '');
   await expect(completedGroup).not.toHaveAttribute('open', '');
 
-  await page.evaluate(() => applyCodexState({
+  await (await conversationView(page)).evaluate(() => applyCodexState({
     activeSubagentCount: 1,
     activeSubagentThreadIds: ['active-child']
   }));
-  await page.getByRole('button', { name: 'Jump to active subagent' }).click();
+  await (await conversationView(page)).getByRole('button', { name: 'Jump to active subagent' }).click();
 
   await expect(activeGroup).toHaveAttribute('open', '');
   await expect(completedGroup).not.toHaveAttribute('open', '');
@@ -1322,7 +1325,7 @@ test('Codex active-subagent jump ignores a later completed group', async ({ page
 test('mobile Codex live updates keep authored text size and the conversation tail reachable', async ({ page }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  const result = await page.evaluate(async () => {
+  const result = await (await conversationView(page)).evaluate(async () => {
     activeSessionId = 'mobile-text-sizing';
     activeToolKey = 'codex';
     codexState = { ...createDefaultCodexState(), status: 'running', threadId: 'root-thread' };
@@ -1385,7 +1388,7 @@ test('Codex unlocks resume controls after the server rejects recovery', async ({
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeSessionId = 'failing-resume';
     activeToolKey = 'codex';
     codexState = { ...codexState, status: 'idle', resuming: false };
@@ -1408,16 +1411,16 @@ test('Codex unlocks resume controls after the server rejects recovery', async ({
     applyCodexState({});
   });
 
-  await page.evaluate(() => selectCodexResumeThread('busy-thread'));
+  await (await conversationView(page)).evaluate(() => selectCodexResumeThread('busy-thread'));
 
-  await expect(page.locator('#codex-state-bar')).not.toContainText('Resuming conversation');
-  await expect(page.locator('#codex-resume-panel')).toContainText('already has an active writer');
-  await expect(page.locator('#codex-resume-btn')).toBeEnabled();
-  await expect(page.locator('#codex-fork-btn')).toBeEnabled();
-  await expect(page.locator('#codex-abort-btn')).toBeDisabled();
+  await expect((await conversationView(page)).locator('#codex-state-bar')).not.toContainText('Resuming conversation');
+  await expect((await conversationView(page)).locator('#codex-resume-panel')).toContainText('already has an active writer');
+  await expect((await conversationView(page)).locator('#codex-resume-btn')).toBeEnabled();
+  await expect((await conversationView(page)).locator('#codex-fork-btn')).toBeEnabled();
+  await expect((await conversationView(page)).locator('#codex-abort-btn')).toBeDisabled();
 
-  await page.evaluate(() => toggleCodexResumePanel());
-  await expect(page.locator('#codex-resume-panel .claude-resume-item')).toContainText('Retry conversation');
+  await (await conversationView(page)).evaluate(() => toggleCodexResumePanel());
+  await expect((await conversationView(page)).locator('#codex-resume-panel .claude-resume-item')).toContainText('Retry conversation');
   expect(pageErrors).toEqual([]);
 });
 
@@ -1426,7 +1429,7 @@ test('Codex status renders current primary and secondary rate-limit windows', as
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeToolKey = 'codex';
     codexMessages = [{
       id: 'status-current-schema',
@@ -1461,7 +1464,7 @@ test('Codex status renders current primary and secondary rate-limit windows', as
     commitCodexChatRender();
   });
 
-  const card = page.locator('.codex-status-card');
+  const card = (await conversationView(page)).locator('.codex-status-card');
   await expect(card).toContainText('user@example.com · plus');
   const items = card.locator('.codex-status-item');
   await expect(items.filter({ hasText: 'Weekly limit' }).filter({ hasText: '52% left' })).toHaveCount(1);
@@ -1482,16 +1485,16 @@ test('Codex queues a status request until a new session socket opens', async ({ 
   });
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeSessionId = 'new-empty-session';
     activeToolKey = 'codex';
     initCodexSession(activeSessionId);
     requestCodexStatus();
   });
-  await expect.poll(() => page.evaluate(() => window.__codexSocketSends)).toEqual([]);
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => window.__codexSocketSends)).toEqual([]);
 
-  await page.evaluate(() => window.__codexSocket.open());
-  await expect.poll(() => page.evaluate(() => window.__codexSocketSends)).toEqual([{ type: 'codex-status' }]);
+  await (await conversationView(page)).evaluate(() => window.__codexSocket.open());
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => window.__codexSocketSends)).toEqual([{ type: 'codex-status' }]);
 });
 
 test('Codex shows per-turn context energy and context compaction controls', async ({ page }, testInfo) => {
@@ -1499,7 +1502,7 @@ test('Codex shows per-turn context energy and context compaction controls', asyn
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     const now = Date.now();
     activeSessionId = 'test-codex-context';
     activeToolKey = 'codex';
@@ -1532,7 +1535,7 @@ test('Codex shows per-turn context energy and context compaction controls', asyn
     commitCodexChatRender();
   });
 
-  const meter = page.locator('.codex-context-meter');
+  const meter = (await conversationView(page)).locator('.codex-context-meter');
   await expect(meter).toHaveText('213K / 258K（83%）');
   await expect(meter).toHaveAttribute('style', /83%/);
   const meterColors = await meter.evaluate(element => ({
@@ -1545,14 +1548,14 @@ test('Codex shows per-turn context energy and context compaction controls', asyn
     background: 'rgb(239, 250, 243)',
     fill: 'rgb(188, 235, 201)'
   });
-  await expect(page.locator('.codex-compaction-card')).toContainText('Context compacted');
+  await expect((await conversationView(page)).locator('.codex-compaction-card')).toContainText('Context compacted');
 
-  await page.locator('#codex-control-rail').evaluate(element => { element.scrollLeft = element.scrollWidth; });
-  const compactButton = page.getByRole('button', { name: 'Compact' });
+  await (await conversationView(page)).locator('#codex-control-rail').evaluate(element => { element.scrollLeft = element.scrollWidth; });
+  const compactButton = (await conversationView(page)).getByRole('button', { name: 'Compact' });
   await expect(compactButton).toBeInViewport();
   await expect(compactButton).toBeEnabled();
   await compactButton.click();
-  await expect.poll(() => page.evaluate(() => window.__codexSent)).toEqual({ type: 'codex-compact' });
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => window.__codexSent)).toEqual({ type: 'codex-compact' });
   await expect(compactButton).toBeDisabled();
   await expect(compactButton).toHaveText('Compacting');
 
@@ -1585,7 +1588,7 @@ test('Codex renders warning cards and paginates four-line prompt history with fu
   });
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeSessionId = 'test-codex-prompts';
     activeToolKey = 'codex';
     codexState = { ...codexState, status: 'idle', threadId: 'prompt-thread' };
@@ -1603,20 +1606,20 @@ test('Codex renders warning cards and paginates four-line prompt history with fu
     commitCodexChatRender();
   });
 
-  const warning = page.locator('.codex-warning-card');
+  const warning = (await conversationView(page)).locator('.codex-warning-card');
   await expect(warning).toContainText('recorded with model A');
   await expect(warning.locator('button')).toHaveCount(0);
 
-  await page.locator('#codex-control-rail').evaluate(element => { element.scrollLeft = element.scrollWidth; });
-  await page.locator('#codex-prompts-btn').click();
-  const panel = page.locator('#codex-prompt-panel');
+  await (await conversationView(page)).locator('#codex-control-rail').evaluate(element => { element.scrollLeft = element.scrollWidth; });
+  await (await conversationView(page)).locator('#codex-prompts-btn').click();
+  const panel = (await conversationView(page)).locator('#codex-prompt-panel');
   await expect(panel).toHaveClass(/active/);
   await expect(panel.locator('.codex-prompt-item')).toHaveCount(30);
   await expect(panel.locator('.codex-prompt-header')).toContainText('30 / 35');
   const firstPrompt = panel.locator('.codex-prompt-text').first();
   await expect.poll(() => firstPrompt.evaluate(element => getComputedStyle(element).webkitLineClamp)).toBe('4');
   await panel.locator('.codex-prompt-copy').first().click();
-  await expect.poll(() => page.evaluate(() => window.__copiedPrompt)).toContain('Line six must still be copied.');
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => window.__copiedPrompt)).toContain('Line six must still be copied.');
 
   await panel.getByRole('button', { name: 'Load more' }).click();
   await expect(panel.locator('.codex-prompt-item')).toHaveCount(35);
@@ -1670,7 +1673,7 @@ test('Codex selects a skill with a removable floating bubble and sends structure
   }));
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeSessionId = 'test-codex-skills';
     activeToolKey = 'codex';
     codexState = { ...codexState, status: 'running', threadId: 'skills-thread' };
@@ -1683,15 +1686,15 @@ test('Codex selects a skill with a removable floating bubble and sends structure
     commitCodexChatRender();
   });
 
-  const workingBox = await page.locator('.codex-working-indicator').boundingBox();
+  const workingBox = await (await conversationView(page)).locator('.codex-working-indicator').boundingBox();
   expect(workingBox).not.toBeNull();
-  await page.evaluate(() => applyCodexState({ status: 'idle' }));
-  await page.locator('#codex-control-rail').evaluate(element => { element.scrollLeft = element.scrollWidth; });
-  const skillsButton = page.getByRole('button', { name: 'Skills' });
+  await (await conversationView(page)).evaluate(() => applyCodexState({ status: 'idle' }));
+  await (await conversationView(page)).locator('#codex-control-rail').evaluate(element => { element.scrollLeft = element.scrollWidth; });
+  const skillsButton = (await conversationView(page)).getByRole('button', { name: 'Skills' });
   await expect(skillsButton).toBeInViewport();
   const buttonBoxBefore = await skillsButton.boundingBox();
   await skillsButton.click();
-  const skillPanel = page.locator('#codex-skill-panel');
+  const skillPanel = (await conversationView(page)).locator('#codex-skill-panel');
   await expect(skillPanel).toHaveClass(/active/);
   await expect(skillPanel.getByRole('searchbox', { name: 'Search skills' })).toBeFocused();
   await expect(skillPanel.locator('.codex-skill-section-title > span:first-child')).toHaveText(['Current project', 'Personal', 'Other']);
@@ -1706,7 +1709,7 @@ test('Codex selects a skill with a removable floating bubble and sends structure
   const search = skillPanel.getByRole('searchbox', { name: 'Search skills' });
   await search.evaluate(element => { window.__codexSkillSearchElement = element; });
   await search.fill('/opt/plugins');
-  await expect.poll(() => page.evaluate(() => (
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => (
     window.__codexSkillSearchElement === document.getElementById('codex-skill-search')
     && document.activeElement === window.__codexSkillSearchElement
   ))).toBe(true);
@@ -1718,14 +1721,14 @@ test('Codex selects a skill with a removable floating bubble and sends structure
 
   await skillPanel.locator('[data-codex-skill-path="/workspace/.agents/skills/pdf/SKILL.md"]').click();
 
-  const bubble = page.locator('.codex-skill-bubble');
+  const bubble = (await conversationView(page)).locator('.codex-skill-bubble');
   await expect(bubble).toContainText('Skill · pdf');
   const bubbleBox = await bubble.boundingBox();
-  const inputBox = await page.locator('#cmd-input').boundingBox();
+  const inputBox = await (await conversationView(page)).locator('#cmd-input').boundingBox();
   const buttonBoxAfter = await skillsButton.boundingBox();
   expect(Math.abs(bubbleBox.x - inputBox.x)).toBeLessThanOrEqual(2);
   expect(Math.abs((bubbleBox.y + bubbleBox.height) - inputBox.y)).toBeLessThanOrEqual(2);
-  await expect(page.locator('#composer-skill-prefix')).toHaveClass(/active/);
+  await expect((await conversationView(page)).locator('#composer-skill-prefix')).toHaveClass(/active/);
   expect(buttonBoxAfter).toEqual(buttonBoxBefore);
 
   await bubble.getByRole('button', { name: 'Remove selected skill' }).click();
@@ -1737,25 +1740,25 @@ test('Codex selects a skill with a removable floating bubble and sends structure
     .locator('[data-codex-skill-path="/workspace/.agents/skills/pdf/SKILL.md"]').click();
   await expect(bubble).toBeVisible();
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeSessionHydrated = true;
     currentSocket = { readyState: 1, send: value => { window.__codexSkillSent = JSON.parse(value); } };
     handleComposerSocketOpen();
   });
-  await page.locator('#cmd-input').fill('Analyze the attached report');
-  await page.locator('#send-btn').click();
-  await expect.poll(() => page.evaluate(() => window.__codexSkillSent)).toMatchObject({
+  await (await conversationView(page)).locator('#cmd-input').fill('Analyze the attached report');
+  await (await conversationView(page)).locator('#send-btn').click();
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => window.__codexSkillSent)).toMatchObject({
     type: 'codex-input',
     text: 'Analyze the attached report',
     attachmentIds: [],
     skills: [{ name: 'pdf', path: '/workspace/.agents/skills/pdf/SKILL.md' }]
   });
-  await page.evaluate(() => handleComposerSendResult({
+  await (await conversationView(page)).evaluate(() => handleComposerSendResult({
     type: 'send-result', accepted: true, clientMessageId: window.__codexSkillSent.clientMessageId
   }));
   await expect(bubble).toHaveCount(0);
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     codexMessages = [{
       id: 'resumed-skill-message',
       kind: 'user',
@@ -1765,7 +1768,7 @@ test('Codex selects a skill with a removable floating bubble and sends structure
     }];
     commitCodexChatRender();
   });
-  const messageBlock = page.locator('[data-codex-key="message-resumed-skill-message"]');
+  const messageBlock = (await conversationView(page)).locator('[data-codex-key="message-resumed-skill-message"]');
   const messageSkills = messageBlock.locator('.codex-message-skills');
   const messageBubble = messageBlock.locator('.codex-message.user');
   const messageMeta = messageBlock.locator('.codex-message-meta');
@@ -1789,7 +1792,7 @@ test('Claude approval stays inline and its bubble preserves reading state', asyn
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeToolKey = 'claude-code';
     claudeStatus = 'thinking';
     claudeState = { ...claudeState, status: 'thinking', pendingPermissionCount: 1 };
@@ -1824,10 +1827,10 @@ test('Claude approval stays inline and its bubble preserves reading state', asyn
     chat.scrollTop = chat.scrollHeight;
   });
 
-  const target = page.locator('[data-claude-permission-id="claude-approval-1"]');
+  const target = (await conversationView(page)).locator('[data-claude-permission-id="claude-approval-1"]');
   await expect(target).toHaveCount(1);
   await expect(target).not.toBeVisible();
-  const claudeApprovalJump = page.getByRole('button', { name: 'Jump to pending Claude approval' });
+  const claudeApprovalJump = (await conversationView(page)).getByRole('button', { name: 'Jump to pending Claude approval' });
   await expect(claudeApprovalJump.locator('xpath=..')).toHaveAttribute('id', 'session-attention-rail');
   await claudeApprovalJump.click();
 
@@ -1841,7 +1844,7 @@ test('Claude approval stays inline and its bubble preserves reading state', asyn
 
 test('Claude shows one Working bubble and keeps controls in one freely scrolling row', async ({ page }, testInfo) => {
   await page.goto('/', { waitUntil: 'networkidle' });
-  const layout = await page.evaluate(() => {
+  const layout = await (await conversationView(page)).evaluate(() => {
     activeToolKey = 'claude-code';
     claudeStatus = 'thinking';
     claudeState = { ...claudeState, status: 'thinking', canAbort: true, claudeSessionId: 'claude-current' };
@@ -1879,14 +1882,14 @@ test('Claude shows one Working bubble and keeps controls in one freely scrolling
   expect(layout.firstPageDisplay).toBe('flex');
   expect(layout.secondPageDisplay).toBe('flex');
   expect(layout.scrollSnapType).toBe('none');
-  await expect(page.getByRole('status', { name: 'Claude is working' })).toBeVisible();
-  await expect(page.locator('.claude-working-indicator')).toHaveCount(1);
-  await expect(page.getByText('Claude is working...', { exact: true })).toHaveCount(0);
-  await expect(page.locator('.claude-status')).toHaveCount(0);
-  await expect(page.locator('#claude-status-btn')).toBeInViewport();
+  await expect((await conversationView(page)).getByRole('status', { name: 'Claude is working' })).toBeVisible();
+  await expect((await conversationView(page)).locator('.claude-working-indicator')).toHaveCount(1);
+  await expect((await conversationView(page)).getByText('Claude is working...', { exact: true })).toHaveCount(0);
+  await expect((await conversationView(page)).locator('.claude-status')).toHaveCount(0);
+  await expect((await conversationView(page)).locator('#claude-status-btn')).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath('claude-primary-controls.png'), fullPage: true });
-  await page.locator('.claude-control-rail').evaluate(element => { element.scrollLeft = element.scrollWidth; });
-  await expect(page.getByRole('button', { name: 'Permission mode', exact: true })).toBeInViewport();
+  await (await conversationView(page)).locator('.claude-control-rail').evaluate(element => { element.scrollLeft = element.scrollWidth; });
+  await expect((await conversationView(page)).getByRole('button', { name: 'Permission mode', exact: true })).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath('claude-secondary-controls.png'), fullPage: true });
 });
 
@@ -1899,12 +1902,12 @@ test('responsive shell, bottom composer, and themes follow the new layout', asyn
   await page.getByRole('button', { name: 'Settings' }).click();
   const appearance = page.locator('[data-settings-nav="appearance"]');
   if (await appearance.isVisible()) await appearance.click();
-  await page.getByRole('button', { name: 'Dark', exact: true }).click();
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await (await conversationView(page)).getByRole('button', { name: 'Dark', exact: true }).click();
+  await expect((await conversationView(page)).locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect.poll(() => page.evaluate(() => localStorage.getItem('glad-theme'))).toBe('dark');
   await page.locator('#settings-modal-overlay').click({ position: { x: 5, y: 5 } });
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeToolKey = 'claude-code';
     claudeStatus = 'idle';
     claudeState = { ...claudeState, status: 'idle', canAbort: false };
@@ -1956,18 +1959,18 @@ test('responsive shell, bottom composer, and themes follow the new layout', asyn
   expect(geometry.utilityButtonsInRail).toBe(true);
   expect(geometry.railOverflowX).toBe('auto');
   if (geometry.viewportWidth <= 480) expect(geometry.railScrollWidth).toBeGreaterThan(geometry.railClientWidth);
-  await expect(page.locator('#attachment-btn use')).toHaveAttribute('href', '#icon-file');
-  await expect(page.locator('#schedule-send-btn use')).toHaveAttribute('href', '#icon-schedule');
-  await expect(page.locator('#icon-schedule circle')).toHaveCount(1);
+  await expect((await conversationView(page)).locator('#attachment-btn use')).toHaveAttribute('href', '#icon-file');
+  await expect((await conversationView(page)).locator('#schedule-send-btn use')).toHaveAttribute('href', '#icon-schedule');
+  await expect((await conversationView(page)).locator('#icon-schedule circle')).toHaveCount(1);
   await expect(page.locator('#schedule-create-button use')).toHaveAttribute('href', '#icon-calendar');
-  await expect(page.locator('#attach-image-btn')).toHaveCount(0);
-  await expect(page.locator('#codex-terminal-switch')).toHaveCount(0);
-  await page.locator('#attachment-btn').focus();
-  await expect(page.locator('#composer-action-tooltip')).toHaveText('Attachment');
-  await expect(page.locator('#composer-action-tooltip')).toBeVisible();
-  await page.locator('#claude-model-picker-btn').focus();
-  await expect(page.locator('#composer-action-tooltip')).toHaveText('Model');
-  const touchTooltipState = await page.evaluate(() => {
+  await expect((await conversationView(page)).locator('#attach-image-btn')).toHaveCount(0);
+  await expect((await conversationView(page)).locator('#codex-terminal-switch')).toHaveCount(0);
+  await (await conversationView(page)).locator('#attachment-btn').focus();
+  await expect((await conversationView(page)).locator('#composer-action-tooltip')).toHaveText('Attachment');
+  await expect((await conversationView(page)).locator('#composer-action-tooltip')).toBeVisible();
+  await (await conversationView(page)).locator('#claude-model-picker-btn').focus();
+  await expect((await conversationView(page)).locator('#composer-action-tooltip')).toHaveText('Model');
+  const touchTooltipState = await (await conversationView(page)).evaluate(() => {
     document.activeElement?.blur?.();
     hideComposerActionTooltip();
     const button = document.getElementById('attachment-btn');
@@ -1999,7 +2002,7 @@ test('responsive shell, bottom composer, and themes follow the new layout', asyn
   }
 
   await page.reload({ waitUntil: 'networkidle' });
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect((await conversationView(page)).locator('html')).toHaveAttribute('data-theme', 'dark');
   expect(pageErrors).toEqual([]);
 });
 
@@ -2008,7 +2011,7 @@ test('model pickers stay compact and normalize provider model data', async ({ pa
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeToolKey = 'codex';
     document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
     document.getElementById('terminal-view').classList.add('active');
@@ -2028,17 +2031,17 @@ test('model pickers stay compact and normalize provider model data', async ({ pa
     });
   });
 
-  const codexButton = page.locator('#codex-model-btn');
+  const codexButton = (await conversationView(page)).locator('#codex-model-btn');
   await expect(codexButton).toHaveText('Model');
   await expect(codexButton).toHaveAttribute('title', 'Model and effort');
   expect(Math.round((await codexButton.boundingBox()).width)).toBe(40);
   await codexButton.click();
-  await expect(page.locator('#codex-model-panel')).toContainText('GPT-5.6-Sol');
-  await expect(page.locator('#codex-model-panel')).toContainText('low');
-  await expect(page.locator('#codex-model-panel')).toContainText('high');
-  await expect(page.locator('#codex-model-panel')).not.toContainText('[object Object]');
+  await expect((await conversationView(page)).locator('#codex-model-panel')).toContainText('GPT-5.6-Sol');
+  await expect((await conversationView(page)).locator('#codex-model-panel')).toContainText('low');
+  await expect((await conversationView(page)).locator('#codex-model-panel')).toContainText('high');
+  await expect((await conversationView(page)).locator('#codex-model-panel')).not.toContainText('[object Object]');
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeToolKey = 'claude-code';
     setClaudeModeEnabled(true);
     applyClaudeRuntimeConfig({
@@ -2052,16 +2055,16 @@ test('model pickers stay compact and normalize provider model data', async ({ pa
     applyClaudeState({ model: 'deepseek-v4-pro[1m]', effort: 'max', status: 'idle' });
   });
 
-  const claudeButton = page.locator('#claude-model-picker-btn');
+  const claudeButton = (await conversationView(page)).locator('#claude-model-picker-btn');
   await expect(claudeButton).toHaveText('Model');
   await expect(claudeButton).toHaveAttribute('title', 'deepseek-v4-pro[1m] · Max');
   expect(Math.round((await claudeButton.boundingBox()).width)).toBe(40);
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     claudePickerOpen = 'model';
     renderClaudePicker('model');
   });
-  await expect(page.locator('#claude-picker-panel')).toContainText('Environment');
-  await expect(page.locator('#claude-picker-panel')).toContainText('deepseek-v4-pro[1m]');
+  await expect((await conversationView(page)).locator('#claude-picker-panel')).toContainText('Environment');
+  await expect((await conversationView(page)).locator('#claude-picker-panel')).toContainText('deepseek-v4-pro[1m]');
   expect(pageErrors).toEqual([]);
 });
 
@@ -2069,7 +2072,7 @@ test('Claude combines model and effort and presents refreshed status in its info
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto('/', { waitUntil: 'networkidle' });
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeSessionId = 'test-claude';
     activeToolKey = 'claude-code';
     claudeStatus = 'idle';
@@ -2084,24 +2087,24 @@ test('Claude combines model and effort and presents refreshed status in its info
     currentSocket = { readyState: 1, send: value => { window.__claudeSent = JSON.parse(value); } };
   });
 
-  const modelButton = page.locator('#claude-model-picker-btn');
+  const modelButton = (await conversationView(page)).locator('#claude-model-picker-btn');
   await modelButton.click();
-  const picker = page.locator('#claude-picker-panel');
+  const picker = (await conversationView(page)).locator('#claude-picker-panel');
   await expect(picker).toHaveClass(/combined/);
   await expect(picker.locator('.claude-picker-column')).toHaveCount(2);
   await expect(picker.locator('.claude-picker-title')).toHaveText(['Model', 'Effort']);
   await page.screenshot({ path: testInfo.outputPath('claude-model-effort-picker.png'), fullPage: true });
   await picker.locator('.claude-picker-column').nth(1).getByRole('button', { name: 'High', exact: true }).click();
-  await expect(page.locator('#claude-effort-select')).toHaveValue('high');
+  await expect((await conversationView(page)).locator('#claude-effort-select')).toHaveValue('high');
   await expect(picker).toBeVisible();
   await modelButton.click();
 
-  const statusButton = page.locator('#claude-status-btn');
+  const statusButton = (await conversationView(page)).locator('#claude-status-btn');
   await statusButton.click();
-  await expect.poll(() => page.evaluate(() => window.__claudeSent)).toEqual({ type: 'claude-status' });
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => window.__claudeSent)).toEqual({ type: 'claude-status' });
   await expect(statusButton).toBeDisabled();
   await expect(statusButton).toHaveText('Loading');
-  await page.evaluate(() => applyClaudeEvent({
+  await (await conversationView(page)).evaluate(() => applyClaudeEvent({
     type: 'message',
     message: {
       id: 'status-card-1',
@@ -2119,7 +2122,7 @@ test('Claude combines model and effort and presents refreshed status in its info
     }
   }));
 
-  const panel = page.getByRole('dialog', { name: 'Claude status', exact: true });
+  const panel = (await conversationView(page)).getByRole('dialog', { name: 'Claude status', exact: true });
   await expect(panel).toBeVisible();
   const card = panel.locator('.claude-status-card');
   await expect(card).toBeVisible();
@@ -2131,13 +2134,13 @@ test('Claude combines model and effort and presents refreshed status in its info
   await expect(card).toContainText('163.9K tokens');
   await expect(statusButton).toBeEnabled();
   await expect(page.locator('#claude-usage-panel')).toHaveCount(0);
-  await expect(page.locator('.claude-context-size-badge')).toHaveCount(0);
-  await expect(page.locator('#claude-chat-container .claude-status-card')).toHaveCount(1);
+  await expect((await conversationView(page)).locator('.claude-context-size-badge')).toHaveCount(0);
+  await expect((await conversationView(page)).locator('#claude-chat-container .claude-status-card')).toHaveCount(1);
   expect(pageErrors).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath('claude-model-effort-and-usage.png'), fullPage: true });
   await panel.getByRole('button', { name: 'Close Claude status', exact: true }).click();
   await expect(panel).toBeHidden();
-  await expect(page.locator('#claude-info-content .claude-status-card')).toHaveCount(0);
+  await expect((await conversationView(page)).locator('#claude-info-content .claude-status-card')).toHaveCount(0);
 });
 
 test('Claude conversation settles tool state and keeps resume controls usable', async ({ page }, testInfo) => {
@@ -2158,7 +2161,7 @@ test('Claude conversation settles tool state and keeps resume controls usable', 
   }));
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  const scrollBefore = await page.evaluate(() => {
+  const scrollBefore = await (await conversationView(page)).evaluate(() => {
     const now = Date.now();
     activeSessionId = 'test-claude';
     activeToolKey = 'claude-code';
@@ -2199,26 +2202,26 @@ test('Claude conversation settles tool state and keeps resume controls usable', 
     return before;
   });
 
-  const tool = page.locator('[data-claude-key="tool-tool-timed"]');
+  const tool = (await conversationView(page)).locator('[data-claude-key="tool-tool-timed"]');
   await expect(tool).toHaveAttribute('open', '');
   await expect(tool.locator('.claude-tool-status')).not.toHaveText('running');
   await expect(tool.locator('.claude-tool-duration')).toHaveText('2s');
-  await expect(page.locator('.claude-message-time')).toHaveCount(20);
-  await expect.poll(() => page.locator('#claude-chat-container').evaluate(element => element.scrollTop)).toBeCloseTo(scrollBefore, 0);
+  await expect((await conversationView(page)).locator('.claude-message-time')).toHaveCount(20);
+  await expect.poll(async () => (await conversationView(page)).locator('#claude-chat-container').evaluate(element => element.scrollTop)).toBeCloseTo(scrollBefore, 0);
 
-  const controls = page.locator('.claude-control-rail').first();
+  const controls = (await conversationView(page)).locator('.claude-control-rail').first();
   await expectInsideViewport(controls, page);
-  const resumeButton = page.getByTitle('Choose a Claude session to resume');
-  const forkButton = page.getByTitle('Fork a Claude session');
+  const resumeButton = (await conversationView(page)).getByTitle('Choose a Claude session to resume');
+  const forkButton = (await conversationView(page)).getByTitle('Fork a Claude session');
   await expect(resumeButton).toBeEnabled();
   await expect(forkButton).toBeEnabled();
   await resumeButton.click();
-  const resumePanel = page.locator('#claude-resume-panel');
+  const resumePanel = (await conversationView(page)).locator('#claude-resume-panel');
   await expect(resumePanel.getByText('Latest maintenance question')).toBeVisible();
   await expect(resumePanel.getByText('Previous architecture question')).toBeVisible();
   await resumeButton.click();
   await forkButton.click();
-  const forkPanel = page.locator('#claude-fork-panel');
+  const forkPanel = (await conversationView(page)).locator('#claude-fork-panel');
   await expect(forkPanel.getByText('Latest maintenance question')).toBeVisible();
   await expect(forkPanel.getByText('Previous architecture question')).toBeVisible();
   expect(pageErrors).toEqual([]);
@@ -2259,7 +2262,7 @@ test('Claude supports edit diffs, image sends, and session forks', async ({ page
   });
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     const now = Date.now();
     activeSessionId = 'test-claude';
     activeToolKey = 'claude-code';
@@ -2281,51 +2284,51 @@ test('Claude supports edit diffs, image sends, and session forks', async ({ page
     handleComposerSocketOpen();
   });
 
-  const editTool = page.locator('[data-claude-key="tool-edit-tool"]');
+  const editTool = (await conversationView(page)).locator('[data-claude-key="tool-edit-tool"]');
   await editTool.locator(':scope > summary').click();
   await expect(editTool.locator('.codex-diff-line.del')).toContainText('-const oldValue = 1;');
   await expect(editTool.locator('.codex-diff-line.add')).toContainText('+const newValue = 2;');
 
-  await page.locator('#attachment-file-input').setInputFiles({
+  await (await conversationView(page)).locator('#attachment-file-input').setInputFiles({
     name: 'diagram.png',
     mimeType: 'image/png',
     buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])
   });
-  await expect(page.locator('.attachment-chip')).toContainText('diagram.png');
-  await page.locator('#cmd-input').fill('Describe this diagram');
-  await page.locator('#send-btn').click();
-  await expect.poll(() => page.evaluate(() => window.__claudeSent)).toMatchObject({
+  await expect((await conversationView(page)).locator('.attachment-chip')).toContainText('diagram.png');
+  await (await conversationView(page)).locator('#cmd-input').fill('Describe this diagram');
+  await (await conversationView(page)).locator('#send-btn').click();
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => window.__claudeSent)).toMatchObject({
     type: 'claude-input', text: 'Describe this diagram', attachmentIds: ['image-claude-1']
   });
-  await expect(page.locator('#send-btn')).toBeDisabled();
-  await page.evaluate(() => applyClaudeState({ status: 'thinking', canAbort: true }, { providerStateReceived: true }));
-  await expect(page.locator('#send-btn')).toBeDisabled();
-  await page.evaluate(() => handleComposerSendResult({
+  await expect((await conversationView(page)).locator('#send-btn')).toBeDisabled();
+  await (await conversationView(page)).evaluate(() => applyClaudeState({ status: 'thinking', canAbort: true }, { providerStateReceived: true }));
+  await expect((await conversationView(page)).locator('#send-btn')).toBeDisabled();
+  await (await conversationView(page)).evaluate(() => handleComposerSendResult({
     type: 'send-result', accepted: true, clientMessageId: window.__claudeSent.clientMessageId
   }));
-  await page.evaluate(() => applyClaudeState({ status: 'idle', canAbort: false }, { providerStateReceived: true }));
-  await expect(page.locator('#send-btn')).toBeEnabled();
+  await (await conversationView(page)).evaluate(() => applyClaudeState({ status: 'idle', canAbort: false }, { providerStateReceived: true }));
+  await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled();
 
-  await page.locator('#attachment-file-input').setInputFiles({
+  await (await conversationView(page)).locator('#attachment-file-input').setInputFiles({
     name: 'notes.txt',
     mimeType: 'text/plain',
     buffer: Buffer.from('Review these notes')
   });
-  await expect(page.locator('.attachment-chip.file')).toContainText('notes.txt');
-  await page.locator('#cmd-input').fill('Review the attachment');
-  await page.locator('#send-btn').click();
-  await expect.poll(() => page.evaluate(() => window.__claudeSent)).toMatchObject({
+  await expect((await conversationView(page)).locator('.attachment-chip.file')).toContainText('notes.txt');
+  await (await conversationView(page)).locator('#cmd-input').fill('Review the attachment');
+  await (await conversationView(page)).locator('#send-btn').click();
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => window.__claudeSent)).toMatchObject({
     type: 'claude-input', text: 'Review the attachment', attachmentIds: [], fileAttachmentIds: ['file-claude-1']
   });
-  await page.evaluate(() => handleComposerSendResult({
+  await (await conversationView(page)).evaluate(() => handleComposerSendResult({
     type: 'send-result', accepted: true, clientMessageId: window.__claudeSent.clientMessageId
   }));
-  await page.evaluate(() => applyClaudeState({ status: 'idle', canAbort: false }, { providerStateReceived: true }));
+  await (await conversationView(page)).evaluate(() => applyClaudeState({ status: 'idle', canAbort: false }, { providerStateReceived: true }));
 
-  await page.evaluate(() => toggleClaudeForkPanel());
-  await expect(page.getByText('Fork this Claude work')).toBeVisible();
-  await page.locator('#claude-fork-panel [data-claude-history-action]').click();
-  await expect.poll(() => page.evaluate(() => claudeState.claudeSessionId)).toBe('33333333-3333-4333-8333-333333333333');
+  await (await conversationView(page)).evaluate(() => toggleClaudeForkPanel());
+  await expect((await conversationView(page)).getByText('Fork this Claude work')).toBeVisible();
+  await (await conversationView(page)).locator('#claude-fork-panel [data-claude-history-action]').click();
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => claudeState.claudeSessionId)).toBe('33333333-3333-4333-8333-333333333333');
   expect(pageErrors).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath('claude-p2-features.png'), fullPage: true });
 });

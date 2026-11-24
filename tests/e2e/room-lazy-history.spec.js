@@ -1,3 +1,4 @@
+const { conversationView } = require('./helpers/conversation');
 const { test, expect } = require('@playwright/test');
 
 async function checkedJSON(response) {
@@ -36,10 +37,10 @@ test('only the latest question and answer per session load in full; old replies 
     page.on('request', request => { if (request.url().includes(`/entries/${oldAnswer.id}/text?`)) textReads.push(request.url()); });
     await page.goto('/', { waitUntil: 'networkidle' });
     await page.evaluate(id => openRoom(id), group.id);
-    await expect(page.locator('#room-message-list .room-entry.expanded')).toHaveCount(4);
-    await expect(page.locator('#room-message-list .room-entry.deferred')).toHaveCount(4);
+    await expect((await conversationView(page)).locator('#room-message-list .room-entry.expanded')).toHaveCount(4);
+    await expect((await conversationView(page)).locator('#room-message-list .room-entry.deferred')).toHaveCount(4);
     expect(textReads).toHaveLength(0);
-    const old = page.locator(`[data-room-entry-id="${oldAnswer.id}"]`);
+    const old = (await conversationView(page)).locator(`[data-room-entry-id="${oldAnswer.id}"]`);
     const previewHeight = await old.locator('.room-entry-text').evaluate(text => ({ height: text.clientHeight, line: parseFloat(getComputedStyle(text).lineHeight) }));
     expect(previewHeight.height).toBeLessThanOrEqual(previewHeight.line * 3 + 1);
     await old.locator('.room-entry-bubble').click();
@@ -47,7 +48,7 @@ test('only the latest question and answer per session load in full; old replies 
     await expect(old).not.toHaveClass(/deferred/);
     await expect(old).toContainText('Hidden answer ending');
     expect(textReads.length).toBeGreaterThan(1);
-    expect(await page.evaluate(() => activeRoom.entries.length)).toBe(8);
+    expect(await (await conversationView(page)).evaluate(() => activeRoom.entries.length)).toBe(8);
     await old.locator('.room-entry-bubble').click();
     await expect(old).not.toHaveClass(/expanded/);
     const reads = textReads.length;
@@ -60,8 +61,8 @@ test('only the latest question and answer per session load in full; old replies 
     await checkedJSON(await page.request.post(`/api/sessions/${sessions[0].id}/claude-resume`, {
       data: { resumeSessionId: snapshot.members[0].nativeConversationId }
     }));
-    await expect(page.locator('#room-message-list .room-entry')).toHaveCount(8);
-    await expect(page.locator(`[data-room-entry-id="${oldAnswer.id}"]`)).toHaveCount(0);
+    await expect((await conversationView(page)).locator('#room-message-list .room-entry')).toHaveCount(8);
+    await expect((await conversationView(page)).locator(`[data-room-entry-id="${oldAnswer.id}"]`)).toHaveCount(0);
   } finally {
     await page.request.delete(`/api/rooms/${group.id}`);
     for (const session of sessions) await page.request.delete(`/api/sessions/${session.id}`);
@@ -77,14 +78,14 @@ test('existing sessions stay available in the same open picker after each additi
     })));
     await page.goto('/', { waitUntil: 'networkidle' });
     await page.evaluate(id => openRoom(id), group.id);
-    await page.getByRole('button', { name: 'Members', exact: true }).click();
-    await page.getByRole('button', { name: 'Add running session', exact: true }).click();
-    const picker = page.locator('#room-session-picker');
+    await (await conversationView(page)).getByRole('button', { name: 'Members', exact: true }).click();
+    await (await conversationView(page)).getByRole('button', { name: 'Add running session', exact: true }).click();
+    const picker = (await conversationView(page)).locator('#room-session-picker');
     for (let i = 1; i <= 3; i++) {
       await picker.getByRole('button', { name: new RegExp(`Add continuously ${i}`) }).click();
-      await expect(page.locator('#room-members-list .room-manage-member')).toHaveCount(i);
+      await expect((await conversationView(page)).locator('#room-members-list .room-manage-member')).toHaveCount(i);
       await expect(picker.getByRole('button', { name: new RegExp(`Add continuously ${i}`) })).toHaveCount(0);
-      await expect(page.locator('#room-members-overlay')).toHaveClass(/active/);
+      await expect((await conversationView(page)).locator('#room-members-overlay')).toHaveClass(/active/);
       if (i < 3) await expect(picker.getByRole('button', { name: new RegExp(`Add continuously ${i + 1}`) })).toBeVisible();
     }
     await expect(picker).toContainText('Every running session is already in this group.');
@@ -110,19 +111,19 @@ test('resuming a loaded session replaces history and allows loading earlier page
     const snapshot = await checkedJSON(await page.request.get(`/api/rooms/${group.id}`));
     await page.goto('/', { waitUntil: 'networkidle' });
     await page.evaluate(id => openRoom(id), group.id);
-    const entries = page.locator('#room-message-list > .room-entry');
+    const entries = (await conversationView(page)).locator('#room-message-list > .room-entry');
     await expect(entries).toHaveCount(48);
-    await page.locator('#room-message-list').evaluate(list => list.scrollTo({ top: 0, behavior: 'instant' }));
+    await (await conversationView(page)).locator('#room-message-list').evaluate(list => list.scrollTo({ top: 0, behavior: 'instant' }));
     await expect(entries).toHaveCount(56);
-    await expect.poll(() => page.evaluate(() => activeRoom.hasBefore)).toBe(false);
+    await expect.poll(async () => (await conversationView(page)).evaluate(() => activeRoom.hasBefore)).toBe(false);
     await checkedJSON(await page.request.post(`/api/sessions/${session.id}/claude-resume`, {
       data: { resumeSessionId: snapshot.members[0].nativeConversationId }
     }));
     await expect(entries).toHaveCount(48);
-    await expect.poll(() => page.evaluate(() => activeRoom.hasBefore)).toBe(true);
-    await page.locator('#room-message-list').evaluate(list => list.scrollTo({ top: 0, behavior: 'instant' }));
+    await expect.poll(async () => (await conversationView(page)).evaluate(() => activeRoom.hasBefore)).toBe(true);
+    await (await conversationView(page)).locator('#room-message-list').evaluate(list => list.scrollTo({ top: 0, behavior: 'instant' }));
     await expect(entries).toHaveCount(56);
-    await expect.poll(() => page.evaluate(() => activeRoom.hasBefore)).toBe(false);
+    await expect.poll(async () => (await conversationView(page)).evaluate(() => activeRoom.hasBefore)).toBe(false);
   } finally {
     await page.request.delete(`/api/rooms/${group.id}`);
     await page.request.delete(`/api/sessions/${session.id}`);

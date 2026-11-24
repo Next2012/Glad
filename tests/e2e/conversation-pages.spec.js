@@ -1,3 +1,4 @@
+const { conversationView } = require('./helpers/conversation');
 const { test, expect } = require('@playwright/test');
 
 const agyChat = '#antigravity-chat-container';
@@ -23,11 +24,11 @@ test('a delayed Claude initialization cannot replace the session selected afterw
     await page.evaluate(id => { joinSession(id, 'Delayed Claude', 'claude-code'); }, sessions[0].id);
     await ready;
     await page.evaluate(id => { joinSession(id, 'Selected Codex', 'codex'); }, sessions[1].id);
-    await page.waitForFunction(id => activeSessionId === id && activeToolKey === 'codex' && activeSessionHydrated, sessions[1].id);
+    await (await conversationView(page)).waitForFunction(id => activeSessionId === id && activeToolKey === 'codex' && activeSessionHydrated, sessions[1].id);
     release(); await settled;
-    await expect(page.locator('#codex-chat-container')).toBeVisible();
-    expect(await page.evaluate(() => activeToolKey)).toBe('codex');
-    expect(await page.evaluate(() => currentSocket.url)).toContain(sessions[1].id);
+    await expect((await conversationView(page)).locator('#codex-chat-container')).toBeVisible();
+    expect(await (await conversationView(page)).evaluate(() => activeToolKey)).toBe('codex');
+    expect(await (await conversationView(page)).evaluate(() => currentSocket.url)).toContain(sessions[1].id);
   } finally {
     release();
     for (const session of sessions) await page.request.delete(`/api/sessions/${session.id}`);
@@ -51,8 +52,8 @@ async function createWindowSession(page, nativeId) {
 async function joinWindowSession(page, id) {
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.locator(`.session-card[data-session-id="${id}"]`).getByRole('button', { name: 'Connect', exact: true }).click();
-  await expect(page.locator(agyChat)).toContainText('WINDOW_ASSISTANT_120');
-  await expect(page.locator('#send-btn')).toBeEnabled();
+  await expect((await conversationView(page)).locator(agyChat)).toContainText('WINDOW_ASSISTANT_120');
+  await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled();
 }
 
 function captureAgyFrames(page) {
@@ -68,14 +69,14 @@ function captureAgyFrames(page) {
 }
 
 async function visibleTurnNumbers(page, kind = 'user') {
-  return page.locator(`${agyChat} .codex-message-block.${kind} > .codex-message`).evaluateAll((elements, kind) => {
+  return (await conversationView(page)).locator(`${agyChat} .codex-message-block.${kind} > .codex-message`).evaluateAll((elements, kind) => {
     const pattern = new RegExp(`WINDOW_${kind === 'user' ? 'USER' : 'ASSISTANT'}_(\\d+)`);
     return elements.map(element => element.textContent.match(pattern)).filter(Boolean).map(match => Number(match[1]));
   }, kind);
 }
 
 async function expectUniqueAgyCards(page) {
-  const ids = await page.locator(`${agyChat} .codex-message-block[data-agy-key]`).evaluateAll(elements => elements.map(element => element.dataset.agyKey));
+  const ids = await (await conversationView(page)).locator(`${agyChat} .codex-message-block[data-agy-key]`).evaluateAll(elements => elements.map(element => element.dataset.agyKey));
   expect(new Set(ids).size).toBe(ids.length);
 }
 
@@ -128,7 +129,7 @@ test('Antigravity opens a bounded native history, expands UTF-8 text and prepend
   let gate;
   try {
     await joinWindowSession(page, id);
-    const container = page.locator(agyChat);
+    const container = (await conversationView(page)).locator(agyChat);
     await expect.poll(() => visibleTurnNumbers(page)).toEqual(Array.from({ length: 12 }, (_, index) => 109 + index));
     await expect.poll(() => visibleTurnNumbers(page, 'assistant')).toEqual(Array.from({ length: 12 }, (_, index) => 109 + index));
     const initial = frames.find(frame => frame.payload.type === 'antigravity-snapshot' && frame.payload.snapshot.id === id);
@@ -161,8 +162,8 @@ test('Antigravity opens a bounded native history, expands UTF-8 text and prepend
     gate = await gateOlderPage(page, id);
     await olderButton(container).click();
     await gate.ready;
-    await page.locator('#cmd-input').fill('Continue after loading older history');
-    await page.locator('#send-btn').click();
+    await (await conversationView(page)).locator('#cmd-input').fill('Continue after loading older history');
+    await (await conversationView(page)).locator('#send-btn').click();
     await expect(container).toContainText('AGY fixture reply: Continue after loading older history');
     gate.release();
     await gate.done;
@@ -171,22 +172,22 @@ test('Antigravity opens a bounded native history, expands UTF-8 text and prepend
     await expect(container.locator('.codex-message-block.assistant').last()).toContainText('AGY fixture reply: Continue after loading older history');
     await expectUniqueAgyCards(page);
 
-    await page.locator('#cmd-input').fill('agy-approval');
-    await page.locator('#send-btn').click();
-    const approval = container.locator('[data-agy-permission]').filter({ has: page.getByRole('button', { name: 'Reject', exact: true }) });
-    await expect(page.locator('#session-attention-rail .approval')).toBeVisible();
-    await page.locator('#session-attention-rail .approval').click();
+    await (await conversationView(page)).locator('#cmd-input').fill('agy-approval');
+    await (await conversationView(page)).locator('#send-btn').click();
+    const approval = container.locator('[data-agy-permission]').filter({ has: (await conversationView(page)).getByRole('button', { name: 'Reject', exact: true }) });
+    await expect((await conversationView(page)).locator('#session-attention-rail .approval')).toBeVisible();
+    await (await conversationView(page)).locator('#session-attention-rail .approval').click();
     await expect(approval.getByRole('button', { name: 'Reject', exact: true })).toBeEnabled();
     await olderButton(container).click();
     await expect.poll(() => visibleTurnNumbers(page)).toEqual(Array.from({ length: 48 }, (_, index) => 73 + index));
-    await expect(page.locator('#session-attention-rail .approval')).toBeVisible();
-    await page.locator('#session-attention-rail .approval').click();
+    await expect((await conversationView(page)).locator('#session-attention-rail .approval')).toBeVisible();
+    await (await conversationView(page)).locator('#session-attention-rail .approval').click();
     await expect(approval.getByRole('button', { name: 'Reject', exact: true })).toBeVisible();
-    await expect(page.locator('#send-btn')).toBeDisabled();
+    await expect((await conversationView(page)).locator('#send-btn')).toBeDisabled();
     await screenshot(page, testInfo, 'paged-history-pending-approval');
     await approval.getByRole('button', { name: 'Reject', exact: true }).click();
     await expect(container).toContainText('AGY approval denied');
-    await expect(page.locator('#send-btn')).toBeEnabled();
+    await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled();
   } finally {
     if (gate) await gate.dispose();
     await page.request.delete(`/api/sessions/${id}`);
@@ -198,7 +199,7 @@ test('an Antigravity native conversation change rejects the old cursor and ignor
   let gate;
   try {
     await joinWindowSession(page, id);
-    const container = page.locator(agyChat);
+    const container = (await conversationView(page)).locator(agyChat);
     const snapshot = await (await page.request.get(`/api/sessions/${id}?history=tail`)).json();
     const cursor = snapshot.historyPage.beforeCursor;
     gate = await gateOlderPage(page, id);
@@ -219,7 +220,7 @@ test('an Antigravity native conversation change rejects the old cursor and ignor
     await expect(container).not.toContainText('agy-window-history-before');
     await expect(container.locator('.conversation-page-error')).toHaveCount(0);
     await expectUniqueAgyCards(page);
-    await expect(page.locator('#send-btn')).toBeEnabled();
+    await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled();
     await screenshot(page, testInfo, 'native-conversation-new-epoch');
   } finally {
     if (gate) await gate.dispose();
@@ -228,7 +229,7 @@ test('an Antigravity native conversation change rejects the old cursor and ignor
 });
 
 async function activateProviderHarness(page, kind, sessionId, epoch, fresh = false) {
-  await page.evaluate(({ kind, sessionId, epoch, fresh }) => {
+  await (await conversationView(page)).evaluate(({ kind, sessionId, epoch, fresh }) => {
     activeSessionId = sessionId;
     activeToolKey = kind;
     activeSessionHydrated = true;
@@ -269,7 +270,7 @@ for (const kind of ['codex', 'claude-code']) {
   test(`${kind} keeps newer live content when an older page arrives and isolates a new session`, async ({ page }, testInfo) => {
     await page.goto('/', { waitUntil: 'networkidle' });
     const sessionId = `page-harness-${kind}`;
-    const container = page.locator(kind === 'codex' ? '#codex-chat-container' : '#claude-chat-container');
+    const container = (await conversationView(page)).locator(kind === 'codex' ? '#codex-chat-container' : '#claude-chat-container');
     let gate;
     try {
       await activateProviderHarness(page, kind, sessionId, 'epoch-a');
@@ -279,7 +280,7 @@ for (const kind of ['codex', 'claude-code']) {
       });
       await olderButton(container).click();
       await gate.ready;
-      await page.evaluate(kind => {
+      await (await conversationView(page)).evaluate(kind => {
         const apply = kind === 'codex' ? applyCodexEvent : applyClaudeEvent;
         apply({ type: 'message-updated', message: { id: 'older-099', kind: 'assistant', text: 'LIVE_OLDER_UPDATED_099', historyIndex: 0, revision: 20 } });
         apply({ type: 'message', message: { id: 'new-103', kind: 'assistant', text: 'LIVE_NEW_REPLY_103', historyIndex: 4, revision: 21 } });
@@ -308,7 +309,7 @@ for (const kind of ['codex', 'claude-code']) {
       await expect.poll(() => providerTexts(container, kind)).toEqual(['FRESH_OTHER_SESSION']);
       await expect(container).not.toContainText('WRONG_SESSION_OLD_PAGE');
       await expect(olderButton(container)).toHaveCount(0);
-      await expect(page.locator('#send-btn')).toBeEnabled();
+      await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled();
       await screenshot(page, testInfo, `${kind}-paged-session-isolation`);
     } finally {
       if (gate) await gate.dispose();
@@ -334,7 +335,7 @@ for (const kind of ['codex', 'claude-code', 'antigravity']) {
       return route.fulfill({ json: { text: bodies[id], version: `version-${id}`, nextOffset: Buffer.byteLength(bodies[id]), hasMore: false } });
     });
     await page.goto('/', { waitUntil: 'networkidle' });
-    await page.evaluate(({ kind, sessionId, bodies }) => {
+    await (await conversationView(page)).evaluate(({ kind, sessionId, bodies }) => {
       activeSessionId = sessionId;
       activeToolKey = kind;
       activeSessionHydrated = true;
@@ -370,7 +371,7 @@ for (const kind of ['codex', 'claude-code', 'antigravity']) {
       }
       handleComposerSocketOpen();
     }, { kind, sessionId, bodies });
-    const container = page.locator(kind === 'codex' ? '#codex-chat-container' : kind === 'claude-code' ? '#claude-chat-container' : '#antigravity-chat-container');
+    const container = (await conversationView(page)).locator(kind === 'codex' ? '#codex-chat-container' : kind === 'claude-code' ? '#claude-chat-container' : '#antigravity-chat-container');
     const ids = kind === 'claude-code' ? ['long-event', 'group-result', 'orphan-result', 'long-reasoning'] : ['long-event'];
     for (const id of ids) {
       const button = container.locator(`.conversation-expand-message[data-conversation-message="${id}"]`);

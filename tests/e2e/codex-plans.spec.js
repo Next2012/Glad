@@ -1,9 +1,10 @@
+const { conversationView } = require('./helpers/conversation');
 const { test, expect } = require('@playwright/test');
 
 async function connect(page, id) {
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.locator(`.session-card[data-session-id="${id}"]`).getByRole('button', { name: 'Connect' }).click();
-  await page.waitForFunction(() => currentSocket?.readyState === WebSocket.OPEN);
+  await (await conversationView(page)).waitForFunction(() => currentSocket?.readyState === WebSocket.OPEN);
 }
 
 async function openPlan(page, prompt = '__GLAD_E2E_PLAN_HOLD__') {
@@ -11,17 +12,17 @@ async function openPlan(page, prompt = '__GLAD_E2E_PLAN_HOLD__') {
   expect(response.ok()).toBe(true);
   const { id } = await response.json();
   await connect(page, id);
-  await page.locator('#cmd-input').fill(prompt);
-  await page.locator('#send-btn').click();
-  await expect(page.locator('#codex-chat-container .codex-plan-card.floating')).toBeVisible();
+  await (await conversationView(page)).locator('#cmd-input').fill(prompt);
+  await (await conversationView(page)).locator('#send-btn').click();
+  await expect((await conversationView(page)).locator('#codex-chat-container .codex-plan-card.floating')).toBeVisible();
   return id;
 }
 
-const floating = page => page.locator('#codex-chat-container .codex-plan-card.floating');
-const historyPlans = page => page.locator('#codex-chat-container .codex-conversation > .codex-plan-history');
+const floating = async page => (await conversationView(page)).locator('#codex-chat-container .codex-plan-card.floating');
+const historyPlans = async page => (await conversationView(page)).locator('#codex-chat-container .codex-conversation > .codex-plan-history');
 
 async function expectConversationOrder(page, expected) {
-  await expect.poll(() => page.locator('#codex-chat-container .codex-conversation').evaluate(element =>
+  await expect.poll(async () => (await conversationView(page)).locator('#codex-chat-container .codex-conversation').evaluate(element =>
     Array.from(element.children).flatMap(child => child.matches('.codex-message-block.user') ? ['user']
       : child.matches('.codex-message-block.assistant') ? ['assistant']
       : child.matches('.codex-plan-history') ? ['plan'] : [])
@@ -39,24 +40,24 @@ test('saved plans restore in fresh sessions, retain their turn status, and survi
         const response = await page.request.post(`/api/sessions/${id}/codex-resume`, { data: { threadId: 'plan-history-e2e' } });
         expect(response.ok()).toBe(true);
         if (resume === 0) await connect(page, id);
-        const cards = historyPlans(page);
+        const cards = (await historyPlans(page));
         await expect(cards).toHaveCount(2);
         await expect(cards.first()).toHaveAttribute('data-plan-phase', 'completed');
         await expect(cards.first().locator('.codex-plan-count')).toHaveText('3/3');
         await expect(cards.last()).toHaveAttribute('data-plan-phase', 'stopped');
         await expect(cards.last().locator('.codex-plan-count')).toHaveText('1/3');
-        await expect(floating(page)).toHaveCount(0);
+        await expect((await floating(page))).toHaveCount(0);
         await expectConversationOrder(page, ['user', 'plan', 'assistant', 'user', 'plan', 'assistant']);
       }
       await connect(page, id);
-      await expect(historyPlans(page)).toHaveCount(2);
-      await historyPlans(page).last().locator('summary').click();
-      await expect(historyPlans(page).last().locator('.codex-plan-step.current')).toContainText('恢复步骤状态');
-      await expect(historyPlans(page).last().locator('.spinning')).toHaveCount(0);
+      await expect((await historyPlans(page))).toHaveCount(2);
+      await (await historyPlans(page)).last().locator('summary').click();
+      await expect((await historyPlans(page)).last().locator('.codex-plan-step.current')).toContainText('恢复步骤状态');
+      await expect((await historyPlans(page)).last().locator('.spinning')).toHaveCount(0);
       const forked = await page.request.post(`/api/sessions/${id}/codex-fork`, { data: { threadId: 'plan-history-e2e' } });
       expect(forked.ok()).toBe(true);
-      await expect.poll(() => page.evaluate(() => codexState.threadId)).toBe('fork-of-plan-history-e2e');
-      await expect(historyPlans(page)).toHaveCount(2);
+      await expect.poll(async () => (await conversationView(page)).evaluate(() => codexState.threadId)).toBe('fork-of-plan-history-e2e');
+      await expect((await historyPlans(page))).toHaveCount(2);
       await expectConversationOrder(page, ['user', 'plan', 'assistant', 'user', 'plan', 'assistant']);
       await page.screenshot({ path: test.info().outputPath(`restored-task-plans-${attempt}.png`) });
       await page.request.delete(`/api/sessions/${id}`);
@@ -70,8 +71,8 @@ test('live plans update one card, preserve collapse, and survive reconnect', asy
   page.on('pageerror', error => errors.push(error.message));
   const id = await openPlan(page);
   try {
-    const card = floating(page);
-    const wide = await page.locator('#codex-chat-container').evaluate(element => element.clientWidth >= 640);
+    const card = (await floating(page));
+    const wide = await (await conversationView(page)).locator('#codex-chat-container').evaluate(element => element.clientWidth >= 640);
     await expect(card).toHaveJSProperty('open', wide);
     if (wide) await card.locator('summary').click();
     await expect(card.locator('.codex-plan-count')).toHaveText('2/4');
@@ -93,9 +94,9 @@ test('live plans update one card, preserve collapse, and survive reconnect', asy
 test('each finished plan moves between its command and first reply, including after reconnect', async ({ page }) => {
   const id = await openPlan(page, '__GLAD_E2E_PLAN__');
   try {
-    const liveCard = floating(page);
+    const liveCard = (await floating(page));
     if (!(await liveCard.evaluate(element => element.open))) await liveCard.locator('summary').click();
-    const card = historyPlans(page);
+    const card = (await historyPlans(page));
     await expect(card).toHaveAttribute('data-plan-phase', 'completed');
     await expect(liveCard).toHaveCount(0);
     await expect(card).toHaveJSProperty('open', false);
@@ -104,10 +105,10 @@ test('each finished plan moves between its command and first reply, including af
     await expect(card.locator('.codex-plan-step.completed')).toHaveCount(4);
     await expect(card.locator('.spinning')).toHaveCount(0);
     await expectConversationOrder(page, ['user', 'plan', 'assistant', 'assistant']);
-    await page.waitForFunction(() => codexState.status === 'idle');
-    await expect(page.locator('#send-btn')).toBeEnabled();
-    await page.locator('#cmd-input').fill('__GLAD_E2E_PLAN_SECOND__');
-    await page.locator('#send-btn').click();
+    await (await conversationView(page)).waitForFunction(() => codexState.status === 'idle');
+    await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled();
+    await (await conversationView(page)).locator('#cmd-input').fill('__GLAD_E2E_PLAN_SECOND__');
+    await (await conversationView(page)).locator('#send-btn').click();
     await expect(liveCard).toBeVisible();
     await expect(card).toHaveCount(1);
     await expect(card).toHaveCount(2, { timeout: 10000 });
@@ -118,8 +119,8 @@ test('each finished plan moves between its command and first reply, including af
     await expectConversationOrder(page, order);
     await expect(card).toHaveCount(2);
     await page.screenshot({ path: test.info().outputPath('completed-plans-between-messages.png') });
-    await page.locator('#cmd-input').fill('Next question without a plan');
-    await page.locator('#send-btn').click();
+    await (await conversationView(page)).locator('#cmd-input').fill('Next question without a plan');
+    await (await conversationView(page)).locator('#send-btn').click();
     await expect(liveCard).toHaveCount(0);
     await expect(card).toHaveCount(2);
     await expectConversationOrder(page, [...order, 'user']);
@@ -131,11 +132,11 @@ test('each finished plan moves between its command and first reply, including af
 test('stopping a turn preserves progress and keeps child tasks out of the root card', async ({ page }) => {
   const id = await openPlan(page, '__GLAD_E2E_PLAN_CHILD_HOLD__');
   try {
-    const card = floating(page);
+    const card = (await floating(page));
     await expect(card.locator('.codex-plan-count')).toHaveText('2/4');
     await expect(card).not.toContainText('子任务独立检查');
-    await page.locator('#codex-abort-btn').click();
-    const history = historyPlans(page);
+    await (await conversationView(page)).locator('#codex-abort-btn').click();
+    const history = (await historyPlans(page));
     await expect(history).toHaveAttribute('data-plan-phase', 'stopped');
     await expect(card).toHaveCount(0);
     await expect(history.locator('.codex-plan-count')).toHaveText('2/4');
@@ -144,7 +145,7 @@ test('stopping a turn preserves progress and keeps child tasks out of the root c
     await history.locator('summary').click();
     await expect(history.locator('.codex-plan-step.current')).toHaveCount(1);
     await history.locator('summary').click();
-    const child = page.locator('.codex-subagent-group');
+    const child = (await conversationView(page)).locator('.codex-subagent-group');
     await child.locator(':scope > summary').click();
     await expect(child.locator('.codex-plan-card')).toHaveAttribute('data-plan-phase', 'stopped');
     await expect(child.locator('.codex-plan-count')).toHaveText('0/1');
@@ -154,9 +155,9 @@ test('stopping a turn preserves progress and keeps child tasks out of the root c
 test('failed turns do not mark unfinished tasks completed', async ({ page }) => {
   const id = await openPlan(page, '__GLAD_E2E_PLAN_FAIL__');
   try {
-    const card = historyPlans(page);
+    const card = (await historyPlans(page));
     await expect(card).toHaveAttribute('data-plan-phase', 'failed');
-    await expect(floating(page)).toHaveCount(0);
+    await expect((await floating(page))).toHaveCount(0);
     await expect(card.locator('.codex-plan-count')).toHaveText('2/4');
     await expect(card).toHaveJSProperty('open', false);
     await expect(card.locator('.spinning')).toHaveCount(0);
@@ -167,16 +168,16 @@ test('failed turns do not mark unfinished tasks completed', async ({ page }) => 
 test('long plans stay within the chat pane and support both themes', async ({ page }) => {
   const id = await openPlan(page, '__GLAD_E2E_PLAN_LONG_HOLD__');
   try {
-    const card = floating(page);
+    const card = (await floating(page));
     if (!(await card.evaluate(element => element.open))) await card.locator('summary').click();
     await expect(card.locator('.codex-plan-step')).toHaveCount(28);
-    const pane = await page.locator('#codex-chat-container').boundingBox();
+    const pane = await (await conversationView(page)).locator('#codex-chat-container').boundingBox();
     const box = await card.boundingBox();
     expect(box.x).toBeGreaterThanOrEqual(pane.x);
     expect(box.x + box.width).toBeLessThanOrEqual(pane.x + pane.width);
     expect(box.y).toBeGreaterThanOrEqual(pane.y);
     expect(box.height).toBeLessThanOrEqual(pane.height / 3 + 3);
-    const chat = page.locator('#codex-chat-container');
+    const chat = (await conversationView(page)).locator('#codex-chat-container');
     expect(await chat.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
     await chat.evaluate(element => { element.scrollTop = 0; });
     const top = (await card.boundingBox()).y;
@@ -187,9 +188,9 @@ test('long plans stay within the chat pane and support both themes', async ({ pa
     await body.evaluate(element => { element.scrollTop = element.scrollHeight; });
     expect(await body.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
     await body.evaluate(element => { element.scrollTop = 0; });
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(await (await conversationView(page)).evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     for (const theme of ['dark', 'light']) {
-      await page.evaluate(value => setGladTheme(value), theme);
+      await (await conversationView(page)).evaluate(value => setGladTheme(value), theme);
       await page.screenshot({ path: test.info().outputPath(`task-plan-${theme}.png`) });
     }
   } finally { await page.request.delete(`/api/sessions/${id}`); }
@@ -201,7 +202,7 @@ test('tiled sessions keep separate, locally expandable plan cards', async ({ pag
   let second;
   try {
     second = await openPlan(page);
-    await page.getByRole('button', { name: 'Collapse lobby and tile sessions' }).click();
+    await page.evaluate(() => toggleTiledMode());
     const firstTile = page.locator(`.tile-session-window[data-session-id="${first}"]`);
     const secondTile = page.locator(`.tile-session-window[data-session-id="${second}"]`);
     const firstCard = firstTile.locator('.codex-plan-card.floating');
@@ -218,7 +219,7 @@ test('tiled sessions keep separate, locally expandable plan cards', async ({ pag
     const pane = await firstTile.locator('.tile-chat-surface').boundingBox();
     const box = await firstCard.boundingBox();
     expect(box.height).toBeLessThanOrEqual(pane.height / 3 + 3);
-    await page.evaluate(id => renderTileConversation(id), first);
+    await (await conversationView(page)).evaluate(id => renderTileConversation(id), first);
     await expect(firstCard).toHaveJSProperty('open', true);
     await page.screenshot({ path: test.info().outputPath('task-plan-tiles.png') });
   } finally {

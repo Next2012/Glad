@@ -144,8 +144,10 @@ func TestAntigravityBootstrapAndAutoStartValidation(t *testing.T) {
 func TestAntigravityGroupDispatchAndHistoryIdentity(t *testing.T) {
 	p := antigravityFixture(t)
 	sessions := NewSessionManager(p.session.WorkingDirectory)
+	p.session.mu.Lock()
 	p.session.events = sessions.events
 	p.session.turnIndexes = sessions.turnIndexes
+	p.session.mu.Unlock()
 	sessions.sessions[p.session.ID] = p.session
 	store, err := OpenRoomStoreAt(t.TempDir())
 	if err != nil {

@@ -2,7 +2,7 @@
 
 Thanks for your interest in contributing to Glad.
 
-Glad is a local-first Web interface for the official Codex and Claude CLIs. Contributions that improve stability, UX, compatibility, documentation, and release quality are welcome.
+Glad is a local-first Web interface for the official Codex, Claude, and Antigravity CLIs. Contributions that improve stability, UX, compatibility, documentation, and release quality are welcome.
 
 ## Code of Conduct
 
@@ -41,7 +41,7 @@ Be respectful, specific, and constructive.
 - Preserve existing runtime behavior unless the change intentionally alters it.
 - Prefer small, explicit modules over broad refactors.
 - Format Go with `gofmt`; retain the existing script style in browser and packaging code.
-- Keep provider-specific wire details inside `internal/app/claude.go` or `internal/app/codex.go`.
+- Keep provider-specific wire details inside the corresponding Claude, Codex, or Antigravity adapter in `internal/app`.
 - Preserve the browser HTTP/WebSocket contract unless the UI and tests change in the same pull request.
 - Update user-facing docs when behavior changes.
 
@@ -63,6 +63,16 @@ For Web UI or responsive layout changes, install Chromium once and run the brows
 npx playwright install chromium
 npm run test:e2e
 ```
+
+Desktop conversations and groups run in persistent tab frames. Use
+`conversationView(page)` from `tests/e2e/helpers/conversation.js` for conversation
+controls, provider state, and readiness checks. Keep lobby navigation, network
+routes, browser events, and screenshots on the main `Page`. After an asynchronous
+group-creation action, wait for its tab to appear before resolving the view.
+Renderer-only harnesses and mobile conversations continue to use the main page.
+
+`playwright.webkit.config.js` adds Linux WebKit coverage for real WebSocket
+transport and desktop tabs; it does not replace testing on physical Apple devices.
 
 If you changed the packaged binary flow, build the affected targets and stage the npm package as described in `docs/releasing.md`.
 
@@ -89,7 +99,7 @@ When submitting a pull request:
 
 ## Provider Support
 
-Glad intentionally supports Codex and Claude. A proposal to add another provider must include:
+Glad intentionally supports Codex, Claude, and Antigravity. A proposal to add another provider must include:
 
 - a stable structured protocol rather than terminal scraping
 - interactive approval, interruption, resume and cleanup behavior

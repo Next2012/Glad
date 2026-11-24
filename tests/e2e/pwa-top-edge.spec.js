@@ -67,11 +67,11 @@ test('iOS standalone keeps a solid full-width top edge across layout changes', a
 
     if (viewport.width >= 920) {
       await page.locator('#lobby-collapse-button').click();
-      await expect(page.locator('#tile-workspace')).toBeVisible();
+      await expect(page.locator('#lobby-view')).toBeHidden();
+      await expect(page.locator('#tile-workspace')).toBeHidden();
       await expectSolidTopEdge(page, 'rgb(0, 0, 0)');
-      const tileButton = await page.locator('#tile-layout-trigger').boundingBox();
-      // The floating tab deliberately overlaps its pane edge by one border pixel.
-      expect(tileButton.y + 1).toBeGreaterThanOrEqual(12);
+      const collapseButton = await page.locator('#lobby-collapse-button').boundingBox();
+      expect(collapseButton.y).toBeGreaterThanOrEqual(12);
       await page.locator('#lobby-collapse-button').click();
     }
 

@@ -1,0 +1,307 @@
+#desktop-workspace {
+    flex: 1;
+    flex-direction: column;
+    width: 100%;
+    overflow: hidden;
+    background: var(--bg);
+}
+#desktop-workspace.active {
+    display: flex;
+}
+
+#workspace-tab-list {
+    display: flex;
+    align-items: stretch;
+    flex: 0 0 42px;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    background: var(--surface-soft);
+    box-shadow: inset 0 -1px 0 var(--line);
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+}
+#workspace-tab-list:hover {
+    scrollbar-color: var(--line) transparent;
+}
+#workspace-tab-list::-webkit-scrollbar {
+    height: 3px;
+}
+#workspace-tab-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+#workspace-tab-list::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 999px;
+}
+#workspace-tab-list:hover::-webkit-scrollbar-thumb {
+    background: var(--line);
+}
+
+.workspace-tab-item {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    flex: 0 0 auto;
+    min-width: 128px;
+    max-width: 240px;
+    background: transparent;
+    box-shadow: inset 0 -1px 0 var(--line);
+    transition: background-color 140ms ease;
+}
+
+/* 非活动标签之间的 16px 短竖分割线 */
+.workspace-tab-item::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: 0;
+    width: 1px;
+    height: 16px;
+    transform: translateY(-50%);
+    background: var(--line);
+    pointer-events: none;
+    transition: opacity 140ms ease;
+}
+
+.workspace-tab-item:hover {
+    background: color-mix(in srgb, var(--surface-raised) 62%, transparent);
+}
+
+/* 激活标签：与下方画布齐平融合 + 顶部 2px 主色细条 */
+.workspace-tab-item:has([aria-selected="true"]) {
+    z-index: 1;
+    background: var(--bg);
+    box-shadow: inset 1px 0 0 var(--line), inset -1px 0 0 var(--line);
+}
+.workspace-tab-item:first-child:has([aria-selected="true"]) {
+    box-shadow: inset -1px 0 0 var(--line);
+}
+.workspace-tab-item:has([aria-selected="true"])::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--primary);
+    pointer-events: none;
+}
+.workspace-tab-item:has([aria-selected="true"])::after,
+.workspace-tab-item:has(+ .workspace-tab-item [aria-selected="true"])::after {
+    opacity: 0;
+}
+
+.workspace-tab {
+    display: flex;
+    align-items: center;
+    flex: 1 1 auto;
+    gap: 7px;
+    min-width: 0;
+    padding: 0 6px 0 12px;
+    border: 0;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 400;
+    line-height: 1.2;
+    letter-spacing: -0.005em;
+    text-align: left;
+    transition: color 140ms ease, opacity 120ms ease;
+}
+.workspace-tab-item:hover .workspace-tab {
+    color: color-mix(in srgb, var(--text) 82%, var(--text-dim));
+}
+.workspace-tab[aria-selected="true"] {
+    color: var(--text);
+    font-weight: 500;
+}
+.workspace-tab:active {
+    opacity: 0.78;
+}
+
+/* 未读或等待人工介入的非活动标签：轻微提亮标题层次 */
+.workspace-tab[aria-selected="false"]:has(.workspace-tab-status.unread),
+.workspace-tab[aria-selected="false"]:has(.workspace-tab-status[data-status="waiting_approval"]),
+.workspace-tab[aria-selected="false"]:has(.workspace-tab-status[data-status="waiting_input"]) {
+    color: color-mix(in srgb, var(--text) 86%, var(--text-dim));
+}
+
+.workspace-tab:focus-visible {
+    outline: 1.5px solid var(--primary);
+    outline-offset: -3px;
+    border-radius: 4px;
+}
+
+/* 单聊 / 群聊 SVG 图标 */
+.workspace-tab-icon {
+    flex: 0 0 15px;
+    width: 15px;
+    height: 15px;
+    display: block;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.35;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    color: var(--text-dim);
+    opacity: 0.72;
+    transition: color 140ms ease, opacity 140ms ease;
+}
+.workspace-tab-item:hover .workspace-tab-icon {
+    opacity: 0.94;
+}
+.workspace-tab[aria-selected="true"] .workspace-tab-icon {
+    color: color-mix(in srgb, var(--primary) 82%, var(--text));
+    opacity: 1;
+}
+
+.workspace-tab-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+/* 状态指示点（固定占位避免切换时抖动） */
+.workspace-tab-status {
+    flex: 0 0 6px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: transparent;
+    transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+.workspace-tab-status.unread {
+    background: #22c55e;
+    box-shadow: 0 0 0 2px color-mix(in srgb, #22c55e 20%, transparent);
+}
+.workspace-tab-status[data-status="running"],
+.workspace-tab-status[data-status="thinking"],
+.workspace-tab-status[data-status="connecting"] {
+    background: #0ea5e9;
+    box-shadow: 0 0 0 2px color-mix(in srgb, #0ea5e9 22%, transparent);
+    animation: workspace-tab-pulse 1.8s ease-in-out infinite;
+}
+.workspace-tab-status[data-status="waiting_approval"],
+.workspace-tab-status[data-status="waiting_input"] {
+    background: #f59e0b;
+    box-shadow: 0 0 0 2px color-mix(in srgb, #f59e0b 26%, transparent);
+    animation: none;
+}
+
+@keyframes workspace-tab-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.38; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .workspace-tab-status[data-status="running"],
+    .workspace-tab-status[data-status="thinking"],
+    .workspace-tab-status[data-status="connecting"] {
+        animation: none;
+    }
+}
+
+/* 关闭按钮：恒定占位，桌面非活动弱化，键盘与触屏保持可见 */
+.workspace-tab-close {
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 22px;
+    width: 22px;
+    height: 22px;
+    margin-right: 7px;
+    padding: 0;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    opacity: 0.56;
+    transition: opacity 120ms ease, background-color 120ms ease, color 120ms ease, transform 100ms ease;
+}
+.workspace-tab-close svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    width: 13px;
+    height: 13px;
+    display: block;
+}
+@media (hover: hover) and (pointer: fine) {
+    .workspace-tab-close {
+        opacity: 0;
+    }
+    .workspace-tab-item:hover .workspace-tab-close,
+    .workspace-tab-item:focus-within .workspace-tab-close,
+    .workspace-tab-item:has([aria-selected="true"]) .workspace-tab-close {
+        opacity: 0.62;
+    }
+}
+.workspace-tab-close:hover {
+    opacity: 1;
+    background: var(--line);
+    color: var(--text);
+}
+.workspace-tab-close:active {
+    opacity: 1;
+    background: var(--line);
+    transform: scale(0.92);
+}
+.workspace-tab-close:focus-visible {
+    opacity: 1;
+    color: var(--text);
+    outline: 1.5px solid var(--primary);
+    outline-offset: 0;
+}
+
+#workspace-tab-panels {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+/* Keep inactive documents at their full size so history and terminal positions
+   survive switching. Hidden panels cannot receive pointer or keyboard input. */
+.workspace-tab-panel {
+    position: absolute;
+    inset: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+.workspace-tab-panel.selected {
+    visibility: visible;
+    pointer-events: auto;
+}
+.workspace-conversation {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: var(--bg);
+}
+html.glad-embed #desktop-workspace,
+html.glad-embed .room-back-button {
+    display: none !important;
+}
+@media (min-width: 920px) {
+    body.sidebar-collapsed #lobby-view,
+    body.sidebar-collapsed #sidebar-resizer {
+        display: none !important;
+    }
+    body.sidebar-collapsed #lobby-collapse-button {
+        left: -1px;
+        border-radius: 5px 11px 11px 5px;
+    }
+}
+@media (max-width: 919px) {
+    html:not(.glad-embed) #desktop-workspace {
+        display: none !important;
+    }
+}

@@ -1,3 +1,4 @@
+const { conversationView, closeConversation } = require('./helpers/conversation');
 const { test, expect } = require('@playwright/test');
 
 test('group chat adds sessions, dispatches mentions, quotes replies, and opens the full mini session', async ({ page }) => {
@@ -15,33 +16,34 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.locator('#lobby-tab-rooms').click();
   await page.locator(`.room-list-card[data-room-id="${room.id}"] .btn-join`).click();
-  await expect(page.locator('#room-title')).toHaveText('Architecture room (1)');
-  await expect(page.locator('#lobby-view')).toBeHidden();
-  const groupHeaderHeight = await page.locator('.room-header').evaluate(element => element.getBoundingClientRect().height);
-  const titleCenterOffset = await page.locator('#room-title').evaluate(element => {
+  await expect((await conversationView(page)).locator('#room-title')).toHaveText('Architecture room (1)');
+  if (page.viewportSize().width >= 920) await expect(page.locator('#lobby-view')).toBeVisible();
+  else await expect(page.locator('#lobby-view')).toBeHidden();
+  const groupHeaderHeight = await (await conversationView(page)).locator('.room-header').evaluate(element => element.getBoundingClientRect().height);
+  const titleCenterOffset = await (await conversationView(page)).locator('#room-title').evaluate(element => {
     const box = element.getBoundingClientRect();
     return Math.abs((box.left + box.width / 2) - innerWidth / 2);
   });
   expect(titleCenterOffset).toBeLessThan(2);
 
-  await page.locator('#room-mention-button').click();
-  await expect(page.locator('.room-mention-option')).toContainText('Room reviewer');
-  await page.locator('.room-mention-option').click();
-  await page.locator('.room-mention-picker-title button').click();
-  await expect(page.locator('.room-context-chip.mention')).toContainText('@Room reviewer');
-  await page.locator('#room-input').fill('__GLAD_E2E_SUBAGENT_LIFECYCLE__ discuss this');
-  await page.locator('#room-send-button').click();
-  await expect(page.locator('.room-entry.user')).toContainText('discuss this');
-  await expect(page.locator('.room-entry.session')).toContainText('root completed after child', { timeout: 15000 });
-  await expect(page.locator('.room-entry.session .room-provider-label')).toHaveText('Codex');
-  await expect(page.locator('.room-entry.user').first()).not.toHaveClass(/collapsible/);
-  await page.locator('#room-input').fill('This is a deliberately long room message. '.repeat(30));
-  await page.locator('#room-send-button').click();
-  const longUserMessage = page.locator('.room-entry.user').last();
+  await (await conversationView(page)).locator('#room-mention-button').click();
+  await expect((await conversationView(page)).locator('.room-mention-option')).toContainText('Room reviewer');
+  await (await conversationView(page)).locator('.room-mention-option').click();
+  await (await conversationView(page)).locator('.room-mention-picker-title button').click();
+  await expect((await conversationView(page)).locator('.room-context-chip.mention')).toContainText('@Room reviewer');
+  await (await conversationView(page)).locator('#room-input').fill('__GLAD_E2E_SUBAGENT_LIFECYCLE__ discuss this');
+  await (await conversationView(page)).locator('#room-send-button').click();
+  await expect((await conversationView(page)).locator('.room-entry.user')).toContainText('discuss this');
+  await expect((await conversationView(page)).locator('.room-entry.session')).toContainText('root completed after child', { timeout: 15000 });
+  await expect((await conversationView(page)).locator('.room-entry.session .room-provider-label')).toHaveText('Codex');
+  await expect((await conversationView(page)).locator('.room-entry.user').first()).not.toHaveClass(/collapsible/);
+  await (await conversationView(page)).locator('#room-input').fill('This is a deliberately long room message. '.repeat(30));
+  await (await conversationView(page)).locator('#room-send-button').click();
+  const longUserMessage = (await conversationView(page)).locator('.room-entry.user').last();
   await expect(longUserMessage).toHaveClass(/collapsible/);
   await longUserMessage.locator('.room-entry-bubble').click();
   await expect(longUserMessage).toHaveClass(/expanded/);
-  const replyLayout = await page.locator('.room-entry.session').first().evaluate(entry => {
+  const replyLayout = await (await conversationView(page)).locator('.room-entry.session').first().evaluate(entry => {
     const bubble = entry.querySelector('.room-entry-bubble').getBoundingClientRect();
     const column = entry.querySelector('.room-entry-column').getBoundingClientRect();
     const avatar = entry.querySelector('.room-entry-avatar').getBoundingClientRect();
@@ -54,39 +56,39 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
   await page.reload({ waitUntil: 'networkidle' });
   await page.locator('#lobby-tab-rooms').click();
   await page.locator(`.room-list-card[data-room-id="${room.id}"] .btn-join`).click();
-  await expect(page.locator('.room-entry.session')).toContainText('root completed after child');
-  await page.locator('#room-history-resume').click();
-  const historyItem = page.locator('.room-history-item').filter({ hasText: 'Architecture room' }).first();
+  await expect((await conversationView(page)).locator('.room-entry.session')).toContainText('root completed after child');
+  await (await conversationView(page)).locator('#room-history-resume').click();
+  const historyItem = (await conversationView(page)).locator('.room-history-item').filter({ hasText: 'Architecture room' }).first();
   await expect(historyItem.getByRole('button', { name: 'Preview' })).toBeVisible();
   await expect(historyItem.getByRole('button', { name: 'Resume', exact: true })).toBeVisible();
   await expect(historyItem.getByRole('button', { name: 'Fork', exact: true })).toHaveCount(0);
   await historyItem.getByRole('button', { name: 'Preview' }).click();
   await expect(historyItem.locator('.room-history-preview')).toContainText('discuss this');
-  await page.locator('#room-history-panel > header .icon-btn').click();
-  await page.locator('#room-history-fork').click();
-  const forkHistoryItem = page.locator('.room-history-item').filter({ hasText: 'Architecture room' }).first();
+  await (await conversationView(page)).locator('#room-history-panel > header .icon-btn').click();
+  await (await conversationView(page)).locator('#room-history-fork').click();
+  const forkHistoryItem = (await conversationView(page)).locator('.room-history-item').filter({ hasText: 'Architecture room' }).first();
   await expect(forkHistoryItem.getByRole('button', { name: 'Fork', exact: true })).toBeVisible();
   await expect(forkHistoryItem.getByRole('button', { name: 'Resume', exact: true })).toHaveCount(0);
-  await page.locator('#room-history-panel > header .icon-btn').click();
+  await (await conversationView(page)).locator('#room-history-panel > header .icon-btn').click();
 
-  const quotedReply = page.locator('.room-entry.session').first();
-  await expect(page.locator('.room-quote-button')).toHaveCount(0);
-  await page.locator('#room-title').hover();
+  const quotedReply = (await conversationView(page)).locator('.room-entry.session').first();
+  await expect((await conversationView(page)).locator('.room-quote-button')).toHaveCount(0);
+  await (await conversationView(page)).locator('#room-title').hover();
   await expect(quotedReply.locator('.room-selection-circle')).toBeHidden();
   await quotedReply.dispatchEvent('pointerdown', { pointerType: 'touch', clientX: 20, clientY: 20 });
   await page.waitForTimeout(650);
   await quotedReply.dispatchEvent('pointerup', { pointerType: 'touch', clientX: 20, clientY: 20 });
-  await expect(page.locator('.room-context-chip.quote')).toBeVisible();
-  await expect(page.locator('#room-selection-cancel')).toBeVisible();
-  await expect(page.locator('.room-selected-preview-button')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /Preview 1/ })).toBeVisible();
-  await page.getByRole('button', { name: /Preview 1/ }).click();
-  await expect(page.locator('#room-quotes-overlay')).toBeVisible();
-  await expect(page.locator('#room-quotes-title')).toHaveText('Selected messages');
-  await expect(page.locator('.room-selection-preview-item')).toContainText('root completed after child');
-  await expect(page.locator('.room-selection-preview-item .room-entry-reference')).toHaveCount(0);
-  await page.locator('#room-quotes-overlay .icon-btn').click();
-  const firstUserMessage = page.locator('.room-entry.user').first();
+  await expect((await conversationView(page)).locator('.room-context-chip.quote')).toBeVisible();
+  await expect((await conversationView(page)).locator('#room-selection-cancel')).toBeVisible();
+  await expect((await conversationView(page)).locator('.room-selected-preview-button')).toHaveCount(0);
+  await expect((await conversationView(page)).getByRole('button', { name: /Preview 1/ })).toBeVisible();
+  await (await conversationView(page)).getByRole('button', { name: /Preview 1/ }).click();
+  await expect((await conversationView(page)).locator('#room-quotes-overlay')).toBeVisible();
+  await expect((await conversationView(page)).locator('#room-quotes-title')).toHaveText('Selected messages');
+  await expect((await conversationView(page)).locator('.room-selection-preview-item')).toContainText('root completed after child');
+  await expect((await conversationView(page)).locator('.room-selection-preview-item .room-entry-reference')).toHaveCount(0);
+  await (await conversationView(page)).locator('#room-quotes-overlay .icon-btn').click();
+  const firstUserMessage = (await conversationView(page)).locator('.room-entry.user').first();
   await expect(firstUserMessage.locator('.room-selection-circle')).toBeVisible();
   const userLayout = await firstUserMessage.evaluate(entry => {
     const column = entry.querySelector('.room-entry-column').getBoundingClientRect();
@@ -95,69 +97,74 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
   });
   expect(userLayout.gutter).toBeGreaterThanOrEqual(44);
   expect(userLayout.circleBeforeMessage).toBe(true);
-  await page.locator('#room-mention-button').click();
-  await page.locator('.room-mention-option').click();
-  await page.locator('.room-mention-picker-title button').click();
-  await page.locator('#room-file-input').setInputFiles({
+  await (await conversationView(page)).locator('#room-mention-button').click();
+  await (await conversationView(page)).locator('.room-mention-option').click();
+  await (await conversationView(page)).locator('.room-mention-picker-title button').click();
+  await (await conversationView(page)).locator('#room-file-input').setInputFiles({
     name: 'room-notes.txt', mimeType: 'text/plain', buffer: Buffer.from('temporary room attachment')
   });
-  await expect(page.locator('#room-file-chips')).toContainText('room-notes.txt');
-  await page.locator('#room-input').fill('Review the quoted result');
-  await page.locator('#room-send-button').click();
-  await expect(page.locator('.room-entry.user').last()).toContainText('Review the quoted result');
-  await expect(page.locator('.room-entry.user').last()).toContainText('Chat history');
-  await page.locator('.room-entry.user').last().locator('.room-entry-reference').click();
-  await expect(page.locator('#room-quotes-overlay')).toBeVisible();
-  await expect(page.locator('.room-forward-item')).toContainText('root completed after child');
-  await page.locator('.room-forward-item').click();
-  await expect(page.locator('#room-quotes-overlay')).toBeHidden();
-  await expect(page.locator('.room-entry-jump')).toBeVisible();
+  await expect((await conversationView(page)).locator('#room-file-chips')).toContainText('room-notes.txt');
+  await (await conversationView(page)).locator('#room-input').fill('Review the quoted result');
+  await (await conversationView(page)).locator('#room-send-button').click();
+  await expect((await conversationView(page)).locator('.room-entry.user').last()).toContainText('Review the quoted result');
+  await expect((await conversationView(page)).locator('.room-entry.user').last()).toContainText('Chat history');
+  await (await conversationView(page)).locator('.room-entry.user').last().locator('.room-entry-reference').click();
+  await expect((await conversationView(page)).locator('#room-quotes-overlay')).toBeVisible();
+  await expect((await conversationView(page)).locator('.room-forward-item')).toContainText('root completed after child');
+  await (await conversationView(page)).locator('.room-forward-item').click();
+  await expect((await conversationView(page)).locator('#room-quotes-overlay')).toBeHidden();
+  await expect((await conversationView(page)).locator('.room-entry-jump')).toBeVisible();
 
-  await page.locator('button.room-entry-avatar').first().click();
-  await expect(page.locator('body')).toHaveClass(/room-session-open/);
-  await expect(page.locator('#terminal-view')).toBeVisible();
-  await expect(page.locator('#cmd-input')).toBeVisible();
-  await expect(page.locator('#attachment-btn')).toBeVisible();
-  await expect(page.locator('.codex-message-block.user').last()).toContainText('room-notes.txt');
-  await page.locator('#nav-bar').getByTitle('History').click();
-  await expect(page.locator('#history-view')).toBeVisible();
-  await expect(page.locator('#room-view')).toHaveClass(/active/);
-  await page.locator('#history-view').getByRole('button', { name: /Terminal/ }).click();
-  await expect(page.locator('#terminal-view')).toBeVisible();
-  await page.locator('#nav-bar').getByTitle('Git').click();
-  await expect(page.locator('#git-view')).toBeVisible();
-  await page.locator('#git-view').getByRole('button', { name: /Terminal/ }).click();
-  await expect(page.locator('#terminal-view')).toBeVisible();
-  const miniLayout = await page.evaluate(() => {
+  await (await conversationView(page)).locator('button.room-entry-avatar').first().click();
+  if (page.viewportSize().width >= 920) await expect(page.getByRole('tab')).toHaveCount(2);
+  else await expect((await conversationView(page)).locator('body')).toHaveClass(/room-session-open/);
+  await expect((await conversationView(page)).locator('#terminal-view')).toBeVisible();
+  await expect((await conversationView(page)).locator('#cmd-input')).toBeVisible();
+  await expect((await conversationView(page)).locator('#attachment-btn')).toBeVisible();
+  await expect((await conversationView(page)).locator('.codex-message-block.user').last()).toContainText('room-notes.txt');
+  await (await conversationView(page)).locator('#nav-bar').getByTitle('History').click();
+  await expect((await conversationView(page)).locator('#history-view')).toBeVisible();
+  if (page.viewportSize().width >= 920) {
+    const groupFrame = page.frameLocator(`.workspace-tab-panel[data-target-id="${room.id}"] iframe`);
+    await expect(groupFrame.locator('#room-view')).toHaveClass(/active/);
+  } else await expect((await conversationView(page)).locator('#room-view')).toHaveClass(/active/);
+  await (await conversationView(page)).locator('#history-view').getByRole('button', { name: /Terminal/ }).click();
+  await expect((await conversationView(page)).locator('#terminal-view')).toBeVisible();
+  await (await conversationView(page)).locator('#nav-bar').getByTitle('Git').click();
+  await expect((await conversationView(page)).locator('#git-view')).toBeVisible();
+  await (await conversationView(page)).locator('#git-view').getByRole('button', { name: /Terminal/ }).click();
+  await expect((await conversationView(page)).locator('#terminal-view')).toBeVisible();
+  const miniLayout = await (await conversationView(page)).evaluate(() => {
     const chat = document.getElementById('codex-chat-container').getBoundingClientRect();
     const controls = document.getElementById('terminal-controls').getBoundingClientRect();
     const nav = document.getElementById('nav-bar').getBoundingClientRect();
     return { chatTop: chat.top, controlsTop: controls.top, navHeight: nav.height };
   });
   expect(miniLayout.controlsTop).toBeGreaterThan(miniLayout.chatTop);
-  expect(Math.abs(miniLayout.navHeight - groupHeaderHeight)).toBeLessThan(1);
+  if (page.viewportSize().width >= 920) expect(miniLayout.navHeight).toBeGreaterThanOrEqual(40);
+  else expect(Math.abs(miniLayout.navHeight - groupHeaderHeight)).toBeLessThan(1);
   // The quoted dispatch above is asynchronous. This step starts a new turn;
   // a running turn exposes an enabled steering button with different semantics.
   await expect.poll(async () => (await (await page.request.get(`/api/sessions/${session.id}`)).json()).status,
     { timeout: 15000 }).toBe('idle');
-  await page.waitForFunction(() => activeSessionHydrated && codexState.status === 'idle' && !codexCanSteer(), undefined, { timeout: 15000 });
-  await expect(page.locator('#send-btn')).toHaveAttribute('aria-label', 'Send');
-  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
-  const assistantCount = await page.locator('.codex-message.assistant').count();
-  await page.locator('#cmd-input').fill('__GLAD_E2E_SUBAGENT_LIFECYCLE__ direct mini message');
-  await page.locator('#send-btn').click();
-  await expect(page.locator('#cmd-input')).toHaveValue('');
-  await expect(page.locator('.codex-message.assistant')).toHaveCount(assistantCount + 1, { timeout: 15000 });
-  await expect(page.locator('.codex-message.assistant').last()).toContainText('root completed after child');
-  await page.locator('#nav-bar').getByTitle('History').click();
-  await expect(page.locator('#history-view')).toBeVisible();
-  await expect(page.locator('#room-session-close')).toHaveCount(0);
-  await page.locator('#history-view').getByRole('button', { name: /Terminal/ }).click();
-  await page.locator('#back-btn').click();
-  await expect(page.locator('#room-view')).toBeVisible();
-  await expect(page.locator('#history-view')).toBeHidden();
-  await expect(page.locator('.room-entry.user').last()).toContainText('direct mini message');
-  await expect(page.locator('.room-entry.session').last()).toContainText('root completed after child');
+  await (await conversationView(page)).waitForFunction(() => activeSessionHydrated && codexState.status === 'idle' && !codexCanSteer(), undefined, { timeout: 15000 });
+  await expect((await conversationView(page)).locator('#send-btn')).toHaveAttribute('aria-label', 'Send');
+  await (await conversationView(page)).evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+  const assistantCount = await (await conversationView(page)).locator('.codex-message.assistant').count();
+  await (await conversationView(page)).locator('#cmd-input').fill('__GLAD_E2E_SUBAGENT_LIFECYCLE__ direct mini message');
+  await (await conversationView(page)).locator('#send-btn').click();
+  await expect((await conversationView(page)).locator('#cmd-input')).toHaveValue('');
+  await expect((await conversationView(page)).locator('.codex-message.assistant')).toHaveCount(assistantCount + 1, { timeout: 15000 });
+  await expect((await conversationView(page)).locator('.codex-message.assistant').last()).toContainText('root completed after child');
+  await (await conversationView(page)).locator('#nav-bar').getByTitle('History').click();
+  await expect((await conversationView(page)).locator('#history-view')).toBeVisible();
+  await expect((await conversationView(page)).locator('#room-session-close')).toHaveCount(0);
+  await (await conversationView(page)).locator('#history-view').getByRole('button', { name: /Terminal/ }).click();
+  await closeConversation(page);
+  await expect((await conversationView(page)).locator('#room-view')).toBeVisible();
+  await expect((await conversationView(page)).locator('#history-view')).toBeHidden();
+  await expect((await conversationView(page)).locator('.room-entry.user').last()).toContainText('direct mini message');
+  await expect((await conversationView(page)).locator('.room-entry.session').last()).toContainText('root completed after child');
 
   let resumedSessionId = null;
   if (page.viewportSize().width > 1000) {
@@ -187,8 +194,8 @@ test('group chat adds sessions, dispatches mentions, quotes replies, and opens t
     await page.locator(`.room-list-card[data-room-id="${room.id}"] .btn-join`).click();
     const unavailableRoom = await (await page.request.get(`/api/rooms/${room.id}`)).json();
     expect(unavailableRoom.members[0].available).toBe(false);
-    await page.locator('#room-history-resume').click();
-    await page.locator(`.room-history-item[data-room-history-id="${forkedRoom.historyId}"]`).getByRole('button', { name: 'Resume', exact: true }).click();
+    await (await conversationView(page)).locator('#room-history-resume').click();
+    await (await conversationView(page)).locator(`.room-history-item[data-room-history-id="${forkedRoom.historyId}"]`).getByRole('button', { name: 'Resume', exact: true }).click();
     await expect.poll(async () => {
       const current = await (await page.request.get(`/api/rooms/${room.id}`)).json();
       return current.members[0].available;
@@ -235,14 +242,14 @@ test('group dynamically projects pre-join history and opens neighboring turns wi
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.locator('#lobby-tab-rooms').click();
   await page.locator(`.room-list-card[data-room-id="${room.id}"] .btn-join`).click();
-  await expect(page.locator('.room-entry.user').first()).toContainText('@History source');
-  await page.locator('.room-entry.session').first().getByRole('button', { name: 'Context' }).click();
-  await expect(page.locator('#room-context-overlay')).toBeVisible();
-  await expect(page.locator('.room-context-turn')).toHaveCount(2);
-  await expect(page.locator('.room-context-turn.anchor')).toContainText('first before group');
-  await expect(page.locator('.room-context-turn').last()).toContainText('second before group');
-  await page.locator('.room-context-turn.anchor .room-turn-details-button').click();
-  await expect(page.locator('.room-context-turn.anchor .room-turn-details')).toContainText('Assistant message');
+  await expect((await conversationView(page)).locator('.room-entry.user').first()).toContainText('@History source');
+  await (await conversationView(page)).locator('.room-entry.session').first().getByRole('button', { name: 'Context' }).click();
+  await expect((await conversationView(page)).locator('#room-context-overlay')).toBeVisible();
+  await expect((await conversationView(page)).locator('.room-context-turn')).toHaveCount(2);
+  await expect((await conversationView(page)).locator('.room-context-turn.anchor')).toContainText('first before group');
+  await expect((await conversationView(page)).locator('.room-context-turn').last()).toContainText('second before group');
+  await (await conversationView(page)).locator('.room-context-turn.anchor .room-turn-details-button').click();
+  await expect((await conversationView(page)).locator('.room-context-turn.anchor .room-turn-details')).toContainText('Assistant message');
 
   await page.request.delete(`/api/rooms/${room.id}`);
   await page.request.delete(`/api/sessions/${session.id}`);
@@ -269,14 +276,14 @@ test('new empty groups survive returning and reloading alongside existing groups
     const oldCard = page.locator(`.room-list-card[data-room-id="${oldRoom.id}"]`);
     await expect(oldCard).toContainText('111');
     await expect(oldCard).toContainText('2 sessions');
-    await page.evaluate(() => Promise.all([createRoomFromLobby(), createRoomFromLobby()]));
-    await expect(page.locator('#room-title')).toHaveText('New group (0)');
-    const newId = await page.evaluate(() => activeRoomId);
+    await (await conversationView(page)).evaluate(() => Promise.all([createRoomFromLobby(), createRoomFromLobby()]));
+    await expect((await conversationView(page)).locator('#room-title')).toHaveText('New group (0)');
+    const newId = await (await conversationView(page)).evaluate(() => activeRoomId);
     roomIds.push(newId);
     expect(newId).not.toBe(oldRoom.id);
     expect(await (await page.request.get('/api/rooms')).json()).toHaveLength(before.length + 1);
 
-    await page.locator('.room-back-button').click();
+    await closeConversation(page, '.room-back-button');
     const newCard = page.locator(`.room-list-card[data-room-id="${newId}"]`);
     await expect(newCard).toBeVisible();
     await expect(newCard).toContainText('New group');
@@ -286,7 +293,7 @@ test('new empty groups survive returning and reloading alongside existing groups
     await expect(newCard).toBeVisible();
     await expect(oldCard).toContainText('2 sessions');
     await newCard.locator('.btn-join').click();
-    await expect(page.locator('#room-title')).toHaveText('New group (0)');
+    await expect((await conversationView(page)).locator('#room-title')).toHaveText('New group (0)');
     // Reloading an open empty group triggers pagehide, another former cleanup path.
     await page.reload({ waitUntil: 'networkidle' });
     const newRoom = await (await page.request.get(`/api/rooms/${newId}`)).json();
@@ -341,39 +348,40 @@ test('group history previews are read only and resume and fork switch the curren
     });
     await page.goto('/', { waitUntil: 'networkidle' });
     await page.getByRole('button', { name: 'New group chat', exact: true }).click();
-    await expect(page.locator('#room-title')).toHaveText('New group (0)');
-    const runtimeId = await page.evaluate(() => activeRoomId);
+    await page.locator(page.viewportSize().width >= 920 ? '#desktop-workspace.active .workspace-tab-panel.selected iframe' : '#room-view.active').waitFor();
+    await expect((await conversationView(page)).locator('#room-title')).toHaveText('New group (0)');
+    const runtimeId = await (await conversationView(page)).evaluate(() => activeRoomId);
     roomIds.push(runtimeId);
     expect(operations).toEqual([]);
-    await page.locator('#room-history-resume').click();
-    const savedItem = page.locator(`.room-history-item[data-room-history-id="${source.id}"]`);
+    await (await conversationView(page)).locator('#room-history-resume').click();
+    const savedItem = (await conversationView(page)).locator(`.room-history-item[data-room-history-id="${source.id}"]`);
     await savedItem.getByRole('button', { name: 'Preview', exact: true }).click();
     await expect(savedItem.locator('.room-history-preview')).toContainText('saved group question');
-    expect(await page.evaluate(() => activeRoomId)).toBe(runtimeId);
+    expect(await (await conversationView(page)).evaluate(() => activeRoomId)).toBe(runtimeId);
     expect(await (await page.request.get('/api/sessions')).json()).toEqual(sessionsBeforePreview);
     expect(operations).toEqual([]);
 
     await savedItem.getByRole('button', { name: 'Resume', exact: true }).click();
-    await expect(page.locator('#room-title')).toHaveText('Saved group (1)');
-    expect(await page.evaluate(() => activeRoomId)).toBe(runtimeId);
+    await expect((await conversationView(page)).locator('#room-title')).toHaveText('Saved group (1)');
+    expect(await (await conversationView(page)).evaluate(() => activeRoomId)).toBe(runtimeId);
     const resumed = await (await page.request.get(`/api/rooms/${runtimeId}`)).json();
     expect(resumed.historyId).toBe(source.id);
     expect(resumed.members[0].available).toBe(true);
     sessionIds.push(resumed.members[0].sessionId);
     const original = await (await page.request.get(`/api/room-history/${source.id}`)).json();
 
-    await page.locator('#room-history-fork').click();
+    await (await conversationView(page)).locator('#room-history-fork').click();
     await savedItem.getByRole('button', { name: 'Fork', exact: true }).click();
     await expect.poll(async () => (await (await page.request.get(`/api/rooms/${runtimeId}`)).json()).historyId).not.toBe(source.id);
     const forked = await (await page.request.get(`/api/rooms/${runtimeId}`)).json();
-    expect(await page.evaluate(() => activeRoomId)).toBe(runtimeId);
+    expect(await (await conversationView(page)).evaluate(() => activeRoomId)).toBe(runtimeId);
     expect(forked.members[0].sessionId).not.toBe(original.members[0].sessionId);
     expect(forked.members[0].nativeConversationId).not.toBe(original.members[0].nativeConversationId);
     sessionIds.push(forked.members[0].sessionId);
     const preserved = await (await page.request.get(`/api/room-history/${source.id}`)).json();
     expect(preserved.members).toEqual(original.members);
     expect(preserved.entries).toEqual(original.entries);
-    await page.locator('.room-back-button').click();
+    await closeConversation(page, '.room-back-button');
     await page.locator('#lobby-tab-rooms').click();
     await expect(page.locator(`.room-list-card[data-room-id="${runtimeId}"]`)).toBeVisible();
     await expect(page.locator(`.room-list-card[data-room-id="${source.id}"]`)).toHaveCount(0);
@@ -427,7 +435,7 @@ test('a new group imports the complete history of an existing member session', a
   await page.request.delete(`/api/sessions/${session.id}`);
 });
 
-test('landscape tablet gives the room the full canvas and keeps mini-session composer at the bottom', async ({ page }, testInfo) => {
+test('landscape desktop keeps the sidebar and opens a full-height member conversation tab', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'iPad Air 7', 'Landscape room layout runs once');
   await page.setViewportSize({ width: 1024, height: 700 });
   const session = await (await page.request.post('/api/sessions', { data: { toolKey: 'codex', name: 'Landscape reviewer' } })).json();
@@ -436,8 +444,9 @@ test('landscape tablet gives the room the full canvas and keeps mini-session com
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.locator('#lobby-tab-rooms').click();
   await page.locator(`.room-list-card[data-room-id="${room.id}"] .btn-join`).click();
-  await expect(page.locator('#lobby-view')).toBeHidden();
-  const roomLayout = await page.evaluate(() => {
+  if (page.viewportSize().width >= 920) await expect(page.locator('#lobby-view')).toBeVisible();
+  else await expect(page.locator('#lobby-view')).toBeHidden();
+  const roomLayout = await (await conversationView(page)).evaluate(() => {
     const roomView = document.getElementById('room-view').getBoundingClientRect();
     const composer = document.querySelector('.room-composer').getBoundingClientRect();
     const controls = ['room-attachment-button', 'room-mention-button', 'room-history-resume', 'room-history-fork', 'room-send-button']
@@ -452,27 +461,28 @@ test('landscape tablet gives the room the full canvas and keeps mini-session com
       firstActionId: document.querySelector('.room-action-rail').firstElementChild.id
     };
   });
-  expect(roomLayout.roomWidth).toBeGreaterThan(980);
+  const pane = await page.locator('#detail-pane').boundingBox();
+  expect(roomLayout.roomWidth).toBeCloseTo(pane.width, 0);
   expect(Math.abs(roomLayout.viewportHeight - roomLayout.composerBottom)).toBeLessThan(2);
   expect(Math.max(...roomLayout.controlBottoms) - Math.min(...roomLayout.controlBottoms)).toBeLessThan(1);
   expect(new Set(roomLayout.buttonHeights.map(Math.round)).size).toBe(1);
   expect(roomLayout.toolbarTop).toBeGreaterThanOrEqual(roomLayout.inputBottom);
   expect(roomLayout.railOverflowX).toBe('auto');
   expect(roomLayout.firstActionId).toBe('room-mention-button');
-  await expect(page.locator('#room-member-strip')).toHaveCount(0);
-  await page.locator('#room-mention-button').click();
-  const pickerWidth = await page.locator('#room-mention-picker').evaluate(element => element.getBoundingClientRect().width);
+  await expect((await conversationView(page)).locator('#room-member-strip')).toHaveCount(0);
+  await (await conversationView(page)).locator('#room-mention-button').click();
+  const pickerWidth = await (await conversationView(page)).locator('#room-mention-picker').evaluate(element => element.getBoundingClientRect().width);
   expect(pickerWidth).toBeLessThanOrEqual(362);
-  await page.locator('.room-mention-picker-title button').click();
-  await page.evaluate(memberId => openRoomSession(memberId), member.memberId);
-  const mini = await page.evaluate(() => {
+  await (await conversationView(page)).locator('.room-mention-picker-title button').click();
+  await (await conversationView(page)).evaluate(memberId => openRoomSession(memberId), member.memberId);
+  const mini = await (await conversationView(page)).evaluate(() => {
     const dialog = document.getElementById('terminal-view').getBoundingClientRect();
     const chat = document.getElementById('codex-chat-container').getBoundingClientRect();
     const controls = document.getElementById('terminal-controls').getBoundingClientRect();
-    return { dialogTop: dialog.top, dialogBottom: dialog.bottom, chatTop: chat.top, controlsTop: controls.top };
+    return { dialogTop: dialog.top, dialogBottom: dialog.bottom, chatTop: chat.top, controlsTop: controls.top, viewportHeight: innerHeight };
   });
-  expect(mini.dialogTop).toBeGreaterThan(20);
-  expect(mini.dialogBottom).toBeLessThan(680);
+  expect(mini.dialogTop).toBe(0);
+  expect(mini.dialogBottom).toBeCloseTo(mini.viewportHeight, 0);
   expect(mini.controlsTop).toBeGreaterThan(mini.chatTop);
   await page.request.delete(`/api/rooms/${room.id}`);
   await page.request.delete(`/api/sessions/${session.id}`);
@@ -486,22 +496,22 @@ test('group timeline surfaces member permission requests and opens the approval 
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.locator('#lobby-tab-rooms').click();
   await page.locator(`.room-list-card[data-room-id="${room.id}"] .btn-join`).click();
-  await page.locator('#room-mention-button').click();
-  await page.locator('.room-mention-option').click();
-  await page.locator('.room-mention-picker-title button').click();
-  await page.locator('#room-input').fill('__GLAD_E2E_APPROVAL__ group permission');
-  await page.locator('#room-send-button').click();
-  await expect(page.locator('.room-attention-pill')).toContainText('Permission required', { timeout: 10000 });
-  await expect(page.locator('.room-entry-attention')).toContainText('Permission required');
-  const runningAvatar = page.locator('.room-entry-avatar .room-avatar-running');
+  await (await conversationView(page)).locator('#room-mention-button').click();
+  await (await conversationView(page)).locator('.room-mention-option').click();
+  await (await conversationView(page)).locator('.room-mention-picker-title button').click();
+  await (await conversationView(page)).locator('#room-input').fill('__GLAD_E2E_APPROVAL__ group permission');
+  await (await conversationView(page)).locator('#room-send-button').click();
+  await expect((await conversationView(page)).locator('.room-attention-pill')).toContainText('Permission required', { timeout: 10000 });
+  await expect((await conversationView(page)).locator('.room-entry-attention')).toContainText('Permission required');
+  const runningAvatar = (await conversationView(page)).locator('.room-entry-avatar .room-avatar-running');
   await expect(runningAvatar).toBeVisible();
   expect(await runningAvatar.evaluate(element => getComputedStyle(element).animationName)).toContain('room-avatar-flow');
-  await page.locator('.room-entry-attention').click();
-  const approval = page.locator('#codex-chat-container [data-codex-permission-id]');
+  await (await conversationView(page)).locator('.room-entry-attention').click();
+  const approval = (await conversationView(page)).locator('#codex-chat-container [data-codex-permission-id]');
   await expect(approval).toBeVisible();
   await approval.getByRole('button', { name: 'Yes', exact: true }).click();
-  await page.locator('#back-btn').click();
-  await expect(page.locator('.room-attention-pill')).toHaveCount(0, { timeout: 10000 });
+  await closeConversation(page);
+  await expect((await conversationView(page)).locator('.room-attention-pill')).toHaveCount(0, { timeout: 10000 });
   await page.request.delete(`/api/rooms/${room.id}`);
   await page.request.delete(`/api/sessions/${session.id}`);
 });
@@ -519,27 +529,27 @@ test('group and member names are editable without leaving the room and user mess
   await page.locator(`.room-list-card[data-room-id="${room.id}"] .room-list-edit`).click();
   await expect(page.locator(`.room-list-card[data-room-id="${room.id}"] .room-list-name`)).toHaveText('Renamed group');
   await page.locator(`.room-list-card[data-room-id="${room.id}"] .btn-join`).click();
-  await page.getByRole('button', { name: 'Members' }).click();
-  const membersCenterOffset = await page.locator('.room-members-modal').evaluate(element => {
+  await (await conversationView(page)).getByRole('button', { name: 'Members' }).click();
+  const membersCenterOffset = await (await conversationView(page)).locator('.room-members-modal').evaluate(element => {
     const box = element.getBoundingClientRect();
     return Math.abs((box.top + box.height / 2) - innerHeight / 2);
   });
   expect(membersCenterOffset).toBeLessThan(2);
   page.once('dialog', dialog => dialog.accept('审阅者'));
-  await page.locator('.room-manage-member').getByRole('button', { name: 'Rename' }).click();
-  await expect(page.locator('.room-manage-member strong')).toHaveText('审阅者');
-  await expect(page.locator('#members-back')).toBeHidden();
-  await page.getByRole('button', { name: 'Close members', exact: true }).click();
-  await page.locator('#room-input').fill('User avatar message');
-  await page.locator('#room-send-button').click();
-  const userEntry = page.locator('.room-entry.user').last();
+  await (await conversationView(page)).locator('.room-manage-member').getByRole('button', { name: 'Rename' }).click();
+  await expect((await conversationView(page)).locator('.room-manage-member strong')).toHaveText('审阅者');
+  await expect((await conversationView(page)).locator('#members-back')).toBeHidden();
+  await (await conversationView(page)).getByRole('button', { name: 'Close members', exact: true }).click();
+  await (await conversationView(page)).locator('#room-input').fill('User avatar message');
+  await (await conversationView(page)).locator('#room-send-button').click();
+  const userEntry = (await conversationView(page)).locator('.room-entry.user').last();
   await expect(userEntry.locator('.room-entry-avatar.user')).toBeVisible();
   await expect(userEntry.locator('.room-entry-avatar.user .room-avatar')).toHaveText('Y');
-  await page.evaluate(memberId => openRoomSession(memberId), member.memberId);
-  await expect(page.locator('#back-btn')).toHaveText('');
-  await expect(page.locator('#back-btn')).toHaveAttribute('aria-label', 'Back');
-  await page.locator('#back-btn').click();
-  await expect(page.locator('#room-view')).toBeVisible();
+  await (await conversationView(page)).evaluate(memberId => openRoomSession(memberId), member.memberId);
+  await expect((await conversationView(page)).locator('#back-btn')).toHaveText('');
+  await expect((await conversationView(page)).locator('#back-btn')).toHaveAttribute('aria-label', 'Back');
+  await closeConversation(page);
+  await expect((await conversationView(page)).locator('#room-view')).toBeVisible();
   await page.request.delete(`/api/rooms/${room.id}`);
   await page.request.delete(`/api/sessions/${session.id}`);
 });

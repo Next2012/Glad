@@ -49,16 +49,6 @@ func (store *AttachmentStore) StoreImage(session *Session, data []byte) (Attachm
 		return Attachment{}, errors.New("Image must be 50 MB or smaller")
 	}
 	session.mu.Lock()
-	images := 0
-	for _, item := range session.Attachments {
-		if item.MediaType != "" {
-			images++
-		}
-	}
-	if images >= 5 {
-		session.mu.Unlock()
-		return Attachment{}, errors.New("You can attach at most 5 images at a time")
-	}
 	directory := filepath.Join(store.root, session.ID)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		session.mu.Unlock()
@@ -170,17 +160,6 @@ func (store *AttachmentStore) AppendChunk(
 			"complete":   true,
 			"attachment": map[string]any{"id": attachment.ID, "name": attachment.Name, "size": attachment.Size},
 		}, nil
-	}
-	pending := 0
-	for _, item := range session.Attachments {
-		if item.MediaType == "" {
-			pending++
-		}
-	}
-	if pending >= 8 {
-		session.mu.Unlock()
-		_ = os.Remove(upload.Path)
-		return nil, errors.New("You can attach at most 8 files at a time")
 	}
 	directory := filepath.Join(store.root, session.ID)
 	if err := os.MkdirAll(directory, 0o700); err != nil {

@@ -1,3 +1,4 @@
+const { conversationView } = require('./helpers/conversation');
 const { test, expect } = require('@playwright/test');
 const fs = require('node:fs');
 
@@ -23,9 +24,9 @@ async function openSession(page, testInfo) {
   try {
     await page.goto('/', { waitUntil: 'networkidle' });
     await page.locator(`.session-card[data-session-id="${id}"]`).getByRole('button', { name: 'Connect' }).click();
-    await page.waitForFunction(() => activeSessionHydrated && currentSocket?.readyState === WebSocket.OPEN);
-    await expect(page.locator('#send-btn')).toBeEnabled();
-    const negotiation = await page.evaluate(() => {
+    await (await conversationView(page)).waitForFunction(() => activeSessionHydrated && currentSocket?.readyState === WebSocket.OPEN);
+    await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled();
+    const negotiation = await (await conversationView(page)).evaluate(() => {
       window.__transportSocket = currentSocket;
       window.__transportCloses = [];
       currentSocket.addEventListener('close', event => window.__transportCloses.push({ code: event.code, reason: event.reason }));
@@ -47,11 +48,11 @@ async function openSession(page, testInfo) {
 }
 
 async function sendAndComplete(page, session, text, turns) {
-  await expect(page.locator('#send-btn')).toBeEnabled();
-  await page.locator('#cmd-input').fill(text);
-  await page.locator('#send-btn').click();
-  await expect(page.locator('#cmd-input')).toHaveValue('');
-  await page.waitForFunction(() => codexState.status === 'idle' && !composerPendingSend);
+  await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled();
+  await (await conversationView(page)).locator('#cmd-input').fill(text);
+  await (await conversationView(page)).locator('#send-btn').click();
+  await expect((await conversationView(page)).locator('#cmd-input')).toHaveValue('');
+  await (await conversationView(page)).waitForFunction(() => codexState.status === 'idle' && !composerPendingSend);
   await expect.poll(async () => {
     const snapshot = await (await page.request.get(`/api/sessions/${session.id}`)).json();
     return snapshot.messages.filter(message => message.kind === 'turn-end').length;
@@ -67,7 +68,7 @@ async function assertHistory(page, session, texts) {
   expect(session.received.filter(message => message.type === 'send-result' && message.accepted)
     .map(message => message.clientMessageId).sort()).toEqual(inputs.map(message => message.clientMessageId).sort());
   expect(session.errors).toEqual([]);
-  await expect(page.locator('#app-toast')).not.toContainText('Sending result is unconfirmed');
+  await expect((await conversationView(page)).locator('#app-toast')).not.toContainText('Sending result is unconfirmed');
 }
 
 test('real socket accepts first thread identity and long UTF-8 without reconnecting or duplicating', async ({ page }, testInfo) => {
@@ -76,7 +77,7 @@ test('real socket accepts first thread identity and long UTF-8 without reconnect
     expect(session.negotiation.threadId).toBe('');
     expect(session.received.find(message => message.type === 'codex-snapshot')?.snapshot.messages).toEqual([]);
     await sendAndComplete(page, session, 'hello', 1);
-    await expect.poll(() => page.evaluate(() => codexState.threadId)).toBe('thread-e2e');
+    await expect.poll(async () => (await conversationView(page)).evaluate(() => codexState.threadId)).toBe('thread-e2e');
     expect(session.received.some(message => message.type === 'codex-event'
       && message.event?.type === 'history-reset' && message.event.state?.threadId === 'thread-e2e')).toBe(true);
     const text = '长中文消息传输：你好，世界。'.repeat(2000);
@@ -84,8 +85,8 @@ test('real socket accepts first thread identity and long UTF-8 without reconnect
     await sendAndComplete(page, session, text, 2);
     await assertHistory(page, session, ['hello', text]);
     expect(session.connections).toHaveLength(1);
-    expect(await page.evaluate(() => currentSocket === window.__transportSocket && currentSocket.readyState === WebSocket.OPEN)).toBe(true);
-    expect(await page.evaluate(() => window.__transportCloses)).toEqual([]);
+    expect(await (await conversationView(page)).evaluate(() => currentSocket === window.__transportSocket && currentSocket.readyState === WebSocket.OPEN)).toBe(true);
+    expect(await (await conversationView(page)).evaluate(() => window.__transportCloses)).toEqual([]);
   } finally {
     await page.request.delete(`/api/sessions/${session.id}`);
   }
@@ -95,19 +96,19 @@ test('real socket reconnect restores its snapshot and continues the same native 
   const session = await openSession(page, testInfo);
   try {
     await sendAndComplete(page, session, 'Before transport recovery', 1);
-    await page.evaluate(() => currentSocket.close(1000, 'Transport recovery regression'));
-    await expect(page.locator('#send-btn')).toBeDisabled();
-    await page.waitForFunction(() => currentSocket !== window.__transportSocket
+    await (await conversationView(page)).evaluate(() => currentSocket.close(1000, 'Transport recovery regression'));
+    await expect((await conversationView(page)).locator('#send-btn')).toBeDisabled();
+    await (await conversationView(page)).waitForFunction(() => currentSocket !== window.__transportSocket
       && currentSocket?.readyState === WebSocket.OPEN && activeSessionHydrated);
-    await expect(page.locator('#send-btn')).toBeEnabled();
-    await expect(page.locator('.codex-message-block.user')).toContainText('Before transport recovery');
-    expect(await page.evaluate(() => codexState.threadId)).toBe('thread-e2e');
-    expect(await page.evaluate(() => currentSocket.extensions)).toBe(session.negotiation.extensions);
+    await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled();
+    await expect((await conversationView(page)).locator('.codex-message-block.user')).toContainText('Before transport recovery');
+    expect(await (await conversationView(page)).evaluate(() => codexState.threadId)).toBe('thread-e2e');
+    expect(await (await conversationView(page)).evaluate(() => currentSocket.extensions)).toBe(session.negotiation.extensions);
     await sendAndComplete(page, session, 'After transport recovery', 2);
     await assertHistory(page, session, ['Before transport recovery', 'After transport recovery']);
     expect(session.connections).toHaveLength(2);
     expect(session.received.filter(message => message.type === 'codex-snapshot')).toHaveLength(2);
-    expect(await page.evaluate(() => window.__transportCloses)).toEqual([{ code: 1000, reason: 'Transport recovery regression' }]);
+    expect(await (await conversationView(page)).evaluate(() => window.__transportCloses)).toEqual([{ code: 1000, reason: 'Transport recovery regression' }]);
   } finally {
     await page.request.delete(`/api/sessions/${session.id}`);
   }

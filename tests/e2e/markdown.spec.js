@@ -1,3 +1,4 @@
+const { conversationView } = require('./helpers/conversation');
 const { test, expect } = require('@playwright/test');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -5,7 +6,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
 async function showRichMessage(page, markdown, provider = 'codex') {
-  await page.evaluate(({ markdown, provider }) => {
+  await (await conversationView(page)).evaluate(({ markdown, provider }) => {
     document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
     document.getElementById('terminal-view').classList.add('active');
     activeToolKey = provider === 'claude' ? 'claude-code' : provider;
@@ -22,7 +23,7 @@ async function showRichMessage(page, markdown, provider = 'codex') {
       commitClaudeChatRender();
     }
   }, { markdown, provider });
-  if (provider === 'antigravity') await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+  if (provider === 'antigravity') await (await conversationView(page)).evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
 }
 
 const diagram = '```mermaid\nflowchart TD\n A[原始数据] --> B[提取特征]\n B -->|通过| C[输出结果]\n```';
@@ -37,7 +38,7 @@ test('renders Mermaid and LaTeX in Codex, Claude and Antigravity using only bund
   await page.goto('/', { waitUntil: 'networkidle' });
   for (const provider of ['codex', 'claude', 'antigravity']) {
     await showRichMessage(page, `${diagram}\n\n${formula}\n\n行内公式 \\(q=wp/(1-p+wp)\\) 和 $E=mc^2$。`, provider);
-    const container = page.locator(`#${provider}-chat-container`);
+    const container = (await conversationView(page)).locator(`#${provider}-chat-container`);
     await expect(container.locator('.markdown-diagram-output svg')).toHaveCount(1);
     await expect(container.locator('.markdown-diagram-output')).toContainText('原始数据');
     await expect(container.locator('.katex')).toHaveCount(3);
@@ -48,7 +49,7 @@ test('renders Mermaid and LaTeX in Codex, Claude and Antigravity using only bund
     const geometry = await container.evaluate(element => ({ width: element.clientWidth, scrollWidth: element.scrollWidth }));
     expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width + 1);
   }
-  const resources = await page.evaluate(() => performance.getEntriesByType('resource').map(entry => new URL(entry.name))
+  const resources = await (await conversationView(page)).evaluate(() => performance.getEntriesByType('resource').map(entry => new URL(entry.name))
     .map(url => ({ origin: url.origin, path: url.pathname })));
   const origin = new URL(page.url()).origin;
   expect(resources.every(resource => resource.origin === origin)).toBe(true);
@@ -67,7 +68,7 @@ test('preserves formula syntax in code and prices, and protects math from Markdo
     '', '```latex', String.raw`\sum_{i=1}^{n} i`, '```',
     '', '$$', String.raw`\begin{aligned}a_i &= b_j \\ c_k &= d_l\end{aligned}`, '$$'
   ].join('\n'));
-  const container = page.locator('#codex-chat-container');
+  const container = (await conversationView(page)).locator('#codex-chat-container');
   await expect(container.locator('.katex')).toHaveCount(3);
   await expect(container).toContainText('$5 and $10');
   await expect(container.locator('pre code')).toContainText('$$y$$');
@@ -80,9 +81,9 @@ test('preserves formula syntax in code and prices, and protects math from Markdo
 test('keeps completed diagrams stable during streaming and redraws on theme changes', async ({ page }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
   for (const provider of ['codex', 'antigravity']) {
-    await page.evaluate(() => setGladTheme('dark'));
+    await (await conversationView(page)).evaluate(() => setGladTheme('dark'));
     await showRichMessage(page, diagram.slice(0, -3), provider);
-    const container = page.locator(`#${provider}-chat-container`);
+    const container = (await conversationView(page)).locator(`#${provider}-chat-container`);
     await expect(container.locator('svg')).toHaveCount(0);
     await showRichMessage(page, diagram, provider);
     const svg = container.locator('.markdown-diagram-output svg');
@@ -90,7 +91,7 @@ test('keeps completed diagrams stable during streaming and redraws on theme chan
     const firstID = await svg.getAttribute('id');
     await showRichMessage(page, `${diagram}\n\nNew streaming text`, provider);
     await expect(svg).toHaveAttribute('id', firstID);
-    await page.evaluate(() => setGladTheme('light'));
+    await (await conversationView(page)).evaluate(() => setGladTheme('light'));
     await expect(container.locator('.markdown-diagram')).toHaveAttribute('data-diagram-theme', 'light');
     expect(await svg.getAttribute('id')).not.toBe(firstID);
     await showRichMessage(page, `${diagram}\n\n${diagram}`, provider);
@@ -110,15 +111,15 @@ test('malformed diagrams and formulas retain readable source without executing c
     '', String.raw`\(\includegraphics{https://example.invalid/track.png}\)`,
     '', '```mermaid', 'flowchart TD', ' A[Safe] --> B[Result]', ' click A "javascript:window.richInjected=true"', '```'
   ].join('\n'));
-  await expect(page.locator('.markdown-diagram-error')).toHaveCount(1);
-  await expect(page.locator('.markdown-diagram-error + pre')).toContainText('not a valid diagram');
-  await expect(page.locator('.markdown-math-fallback')).toContainText('unknownCommand');
-  await expect(page.locator('.markdown-diagram-output svg')).toHaveCount(1);
-  expect(await page.locator('.markdown-diagram-output a').evaluateAll(links => links.every(link =>
+  await expect((await conversationView(page)).locator('.markdown-diagram-error')).toHaveCount(1);
+  await expect((await conversationView(page)).locator('.markdown-diagram-error + pre')).toContainText('not a valid diagram');
+  await expect((await conversationView(page)).locator('.markdown-math-fallback')).toContainText('unknownCommand');
+  await expect((await conversationView(page)).locator('.markdown-diagram-output svg')).toHaveCount(1);
+  expect(await (await conversationView(page)).locator('.markdown-diagram-output a').evaluateAll(links => links.every(link =>
     !link.getAttribute('href') && !link.getAttribute('xlink:href') && !link.getAttribute('onclick')))).toBe(true);
-  await expect(page.locator('#codex-chat-container img')).toHaveCount(0);
-  expect(await page.evaluate(() => window.richInjected)).toBeUndefined();
-  await expect(page.locator('.markdown-diagram-scratch')).toHaveCount(0);
+  await expect((await conversationView(page)).locator('#codex-chat-container img')).toHaveCount(0);
+  expect(await (await conversationView(page)).evaluate(() => window.richInjected)).toBeUndefined();
+  await expect((await conversationView(page)).locator('.markdown-diagram-scratch')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
@@ -131,15 +132,15 @@ test(`${provider} tiled conversation previews render diagrams and formulas`, asy
   try {
     await page.goto('/', { waitUntil: 'networkidle' });
     await page.locator(`.session-card[data-session-id="${id}"]`).getByRole('button', { name: 'Connect' }).click();
-    await expect(page.locator('#send-btn')).toBeEnabled();
-    await page.locator('#cmd-input').fill(`${diagram}\n\n${formula}`);
-    await page.locator('#send-btn').click();
-    await expect(page.locator('#cmd-input')).toHaveValue('');
-    await page.locator('#lobby-collapse-button').click();
+    await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled();
+    await (await conversationView(page)).locator('#cmd-input').fill(`${diagram}\n\n${formula}`);
+    await (await conversationView(page)).locator('#send-btn').click();
+    await expect((await conversationView(page)).locator('#cmd-input')).toHaveValue('');
+    await page.evaluate(() => toggleTiledMode());
     const tile = page.locator(`.tile-session-window[data-session-id="${id}"]`);
     await expect(tile.locator('.markdown-diagram-output svg').first()).toBeVisible();
     await expect(tile.locator('.katex').first()).toBeVisible();
-    await page.evaluate(id => renderTileConversation(id), id);
+    await (await conversationView(page)).evaluate(id => renderTileConversation(id), id);
     await expect(tile.locator('.markdown-diagram-output svg').first()).toBeVisible();
     await tile.locator('.markdown-diagram-source summary').first().click({ timeout: 5000 });
     await expect(tile.locator('.markdown-diagram-source code').first()).toBeVisible();
@@ -154,7 +155,7 @@ test('renders nested fenced code blocks without stalling', async ({ page }) => {
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  const rendered = await page.evaluate(() => {
+  const rendered = await (await conversationView(page)).evaluate(() => {
     const markdown = [
       'A four-backtick fence can contain a three-backtick example:',
       '',
@@ -187,7 +188,7 @@ test('renders nested fenced code blocks without stalling', async ({ page }) => {
 test('renders tilde fences and non-word info strings', async ({ page }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  const codeBlocks = await page.evaluate(() => {
+  const codeBlocks = await (await conversationView(page)).evaluate(() => {
     const container = document.createElement('div');
     container.innerHTML = renderMarkdown([
       '~~~c++',
@@ -213,7 +214,7 @@ test('renders tilde fences and non-word info strings', async ({ page }) => {
 test('preserves ordered list numbering and nested bullet structure', async ({ page }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  const lists = await page.evaluate(() => {
+  const lists = await (await conversationView(page)).evaluate(() => {
     const container = document.createElement('div');
     container.innerHTML = renderMarkdown([
       '1. **First item**',
@@ -246,7 +247,7 @@ test('preserves ordered list numbering and nested bullet structure', async ({ pa
 test('preserves intraword underscores while retaining intentional emphasis', async ({ page }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  const rendered = await page.evaluate(() => {
+  const rendered = await (await conversationView(page)).evaluate(() => {
     const container = document.createElement('div');
     container.innerHTML = renderMarkdown([
       'foo_bar_baz snake_case_name foo__bar__baz 前缀_中间_后缀',
@@ -294,7 +295,7 @@ test('renders task lists, nested blocks, strikethrough and all heading levels', 
     '\\*literal stars\\* and &copy; &#169;', '', '    const indented = 42;', '',
     '``contains a ` backtick``'
   ].join('\n'));
-  const content = page.locator('#codex-chat-container');
+  const content = (await conversationView(page)).locator('#codex-chat-container');
   await expect(content.locator('h5')).toHaveText('五级标题');
   await expect(content.locator('h6')).toHaveText('六级标题');
   await expect(content.locator('h1')).toHaveText('Setext title');
@@ -315,7 +316,7 @@ test('renders task lists, nested blocks, strikethrough and all heading levels', 
 test('renders table alignment and escaped pipes without splitting cells', async ({ page }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
   await showRichMessage(page, '| Left | Center | Right |\n| :--- | :---: | ---: |\n| A\\|B | `x\\|y` | \\(x_i\\) |');
-  const content = page.locator('#codex-chat-container');
+  const content = (await conversationView(page)).locator('#codex-chat-container');
   await expect(content.locator('tbody td')).toHaveCount(3);
   await expect(content.locator('tbody td').nth(0)).toHaveText('A|B');
   await expect(content.locator('tbody td').nth(1).locator('code')).toHaveText('x|y');
@@ -334,7 +335,7 @@ test('preserves bracket math inside paragraphs, nested lists and blockquotes', a
     '> \\[', '> \\frac{a}{b}', '> \\]', '',
     '> ```mermaid', '> flowchart LR', '> A[Start] --> B[Done]', '> ```'
   ].join('\n'));
-  const content = page.locator('#codex-chat-container');
+  const content = (await conversationView(page)).locator('#codex-chat-container');
   await expect(content.locator('.katex')).toHaveCount(5);
   await expect(content.locator('.katex-display')).toHaveCount(2);
   await expect(content.locator('ul ul .katex')).toHaveCount(1);
@@ -351,7 +352,7 @@ test('renders reference links, titles, balanced URLs, autolinks and scoped headi
     Array.from({ length: 60 }, (_, index) => `Paragraph ${index}`).join('\n\n'), '',
     '## Details', '', 'Destination content', '', Array(30).fill('Following content').join('\n\n')
   ].join('\n'));
-  const content = page.locator('#codex-chat-container');
+  const content = (await conversationView(page)).locator('#codex-chat-container');
   await expect(content.getByRole('link', { name: 'Reference', exact: true })).toHaveAttribute('href', 'https://example.com/guide');
   await expect(content.getByRole('link', { name: 'Title', exact: true })).toHaveAttribute('title', 'A title');
   await expect(content.getByRole('link', { name: 'Balanced', exact: true })).toHaveAttribute('href', 'https://example.com/a_(b)');
@@ -374,19 +375,19 @@ test('resolves local files and images in the correct conversation workspace', as
     expect(created.ok()).toBe(true);
     ({ id } = await created.json());
     await page.goto('/', { waitUntil: 'networkidle' });
-    await page.evaluate(id => { activeSessionId = id; }, id);
+    await (await conversationView(page)).evaluate(id => { activeSessionId = id; }, id);
     await showRichMessage(page, '[Local file](<./中文 notes.md>)\n\n![Local image](./pixel%20image.png "Pixel")');
-    const content = page.locator('#codex-chat-container');
+    const content = (await conversationView(page)).locator('#codex-chat-container');
     const href = await content.getByRole('link', { name: 'Local file' }).getAttribute('href');
     expect(href).toContain(`/api/sessions/${id}/workspace-resource?path=`);
     expect(await (await page.request.get(href)).text()).toBe('# Markdown workspace file');
     await expect.poll(() => content.getByAltText('Local image').evaluate(image => image.naturalWidth)).toBe(1);
     await content.getByRole('link', { name: 'Local file' }).click();
-    const preview = page.getByRole('dialog', { name: 'Document preview', exact: true });
+    const preview = (await conversationView(page)).getByRole('dialog', { name: 'Document preview', exact: true });
     await expect(preview).toBeVisible();
     await expect(preview.locator('.document-preview-markdown h1')).toHaveText('Markdown workspace file');
     await preview.getByRole('button', { name: 'Close document preview', exact: true }).click();
-    const tiledHTML = await page.evaluate(() => tileConversationHtml({ id: 'different-session', toolKey: 'codex' }, {
+    const tiledHTML = await (await conversationView(page)).evaluate(() => tileConversationHtml({ id: 'different-session', toolKey: 'codex' }, {
       hydrated: true, permissions: [], state: { status: 'idle' },
       messages: [{ id: 'local-link', kind: 'assistant', text: '[Workspace](./README.md)' }]
     }));
@@ -418,7 +419,7 @@ test('Antigravity native file URLs render as workspace links and images with enc
     expect(response.ok()).toBe(true);
     ({ id } = await response.json());
     await page.goto('/', { waitUntil: 'networkidle' });
-    await page.evaluate(id => { activeSessionId = id; }, id);
+    await (await conversationView(page)).evaluate(id => { activeSessionId = id; }, id);
     await showRichMessage(page, [
       `[原生源码](${sourceURL}#L2)`,
       `[Percent path](${percentURL})`,
@@ -427,7 +428,7 @@ test('Antigravity native file URLs render as workspace links and images with enc
       `![原生图片](${imageURL})`,
       '', '```js', codeSample, '```'
     ].join('\n'), 'antigravity');
-    const content = page.locator('#antigravity-chat-container');
+    const content = (await conversationView(page)).locator('#antigravity-chat-container');
     const sourceLink = content.getByRole('link', { name: '原生源码', exact: true });
     await expect(sourceLink).toHaveCount(1);
     await expect(content).not.toContainText('[原生源码](');
@@ -456,7 +457,7 @@ test('Antigravity native file URLs render as workspace links and images with enc
     await expect(content.locator('pre code')).toHaveText(`${codeSample}\n`);
     await expect(content.locator('pre a, a[href^="file:"], img[src^="file:"]')).toHaveCount(0);
     await sourceLink.click();
-    const preview = page.getByRole('dialog', { name: 'Document preview', exact: true });
+    const preview = (await conversationView(page)).getByRole('dialog', { name: 'Document preview', exact: true });
     await expect(preview).toBeVisible();
     await expect(preview.locator('.document-preview-code')).toContainText('Native file URL source');
     await expect(preview.locator('.document-preview-code')).toContainText('中文 and spaces');
@@ -472,7 +473,7 @@ test('Antigravity native file URLs render as workspace links and images with enc
 
 test('native file URL support rejects unsafe destinations and leaves unbound files without resource attributes', async ({ page }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
-  const result = await page.evaluate(() => {
+  const result = await (await conversationView(page)).evaluate(() => {
     const rejected = [
       'javascript:window.fileURLInjected=true', 'javascript&#58;alert%281%29', 'data:text/html,unsafe',
       'file://remote.example/tmp/private.md', 'file://user:password@localhost/tmp/private.md',
@@ -504,7 +505,7 @@ test('native file links and images pass their mapped session endpoint through th
   const imagePath = '/tmp/代理 image%.png';
   const sourceURL = pathToFileURL(sourcePath).href;
   const imageURL = pathToFileURL(imagePath).href;
-  const result = await page.evaluate(({ sourceURL, imageURL }) => {
+  const result = await (await conversationView(page)).evaluate(({ sourceURL, imageURL }) => {
     const original = window.gladWorkbenchResourceURL;
     const calls = [];
     window.gladWorkbenchResourceURL = value => { calls.push(value); return `/workbench-proxy${value}`; };
@@ -537,8 +538,8 @@ test('keeps raw HTML inert and rejects executable links with the new parser', as
     '<details><summary>Raw HTML</summary>Literal content</details>', '',
     '- [x] <script>window.markdownInjected=true</script>'
   ].join('\n'));
-  const content = page.locator('#codex-chat-container');
+  const content = (await conversationView(page)).locator('#codex-chat-container');
   await expect(content.locator('script, img, details, a')).toHaveCount(0);
   await expect(content.getByRole('checkbox')).toBeChecked();
-  expect(await page.evaluate(() => window.markdownInjected)).toBeUndefined();
+  expect(await (await conversationView(page)).evaluate(() => window.markdownInjected)).toBeUndefined();
 });

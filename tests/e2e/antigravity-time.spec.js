@@ -1,3 +1,4 @@
+const { conversationView } = require('./helpers/conversation');
 const { test, expect } = require('@playwright/test');
 
 const chat = '#antigravity-chat-container';
@@ -15,12 +16,12 @@ async function createSession(page) {
   const { id } = await response.json();
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.locator(`.session-card[data-session-id="${id}"]`).getByRole('button', { name: 'Connect' }).click();
-  await page.waitForFunction(() => activeSessionHydrated && antigravityState.status === 'idle');
+  await (await conversationView(page)).waitForFunction(() => activeSessionHydrated && antigravityState.status === 'idle');
   return id;
 }
 
 async function nativeMessageTimes(page) {
-  return page.evaluate(() => antigravityMessages.filter(item => ['user', 'assistant'].includes(item.kind) && item.text).map(item => ({
+  return (await conversationView(page)).evaluate(() => antigravityMessages.filter(item => ['user', 'assistant'].includes(item.kind) && item.text).map(item => ({
     id: item.id, kind: item.kind, streaming: Boolean(item.streaming),
     timestamp: item.kind === 'assistant' ? item.completedAtMs : item.createdAt
   })));
@@ -31,7 +32,7 @@ async function expectNativeTimes(page, expected) {
     expect(item.streaming).toBe(false);
     expect(Number.isFinite(item.timestamp)).toBe(true);
     expect(item.timestamp).toBeGreaterThan(0);
-    const time = page.locator(`${message(item.id)} .codex-message-meta > time.antigravity-message-time`);
+    const time = (await conversationView(page)).locator(`${message(item.id)} .codex-message-meta > time.antigravity-message-time`);
     await expect(time).toBeVisible();
     await expect(time).toHaveAttribute('datetime', new Date(item.timestamp).toISOString());
     await expect(time).toHaveAttribute('title', /\S/);
@@ -40,7 +41,7 @@ async function expectNativeTimes(page, expected) {
 
 async function openTimeHarness(page) {
   await page.goto('/', { waitUntil: 'networkidle' });
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     activeSessionId = 'antigravity-time-harness';
     activeToolKey = 'antigravity';
     activeSessionHydrated = true;
@@ -65,7 +66,7 @@ async function openTimeHarness(page) {
     applyAntigravityState(antigravityState);
     handleComposerSocketOpen();
   });
-  await expect(page.locator(message('known-user'))).toBeVisible();
+  await expect((await conversationView(page)).locator(message('known-user'))).toBeVisible();
 }
 
 async function expectKnownAndUnknownTimes(scope) {
@@ -84,36 +85,36 @@ async function expectKnownAndUnknownTimes(scope) {
 test('live Antigravity sent and completion times survive steering and reconnect', async ({ page }, testInfo) => {
   const id = await createSession(page);
   try {
-    await page.locator('#cmd-input').fill('agy-long');
-    await page.locator('#send-btn').click();
-    await expect(page.locator('#send-btn')).toHaveAttribute('aria-label', 'Add instruction');
-    await expect(page.locator(chat)).toContainText('AGY working before steering');
-    const original = await page.evaluate(() => antigravityMessages.find(item => item.kind === 'user'));
+    await (await conversationView(page)).locator('#cmd-input').fill('agy-long');
+    await (await conversationView(page)).locator('#send-btn').click();
+    await expect((await conversationView(page)).locator('#send-btn')).toHaveAttribute('aria-label', 'Add instruction');
+    await expect((await conversationView(page)).locator(chat)).toContainText('AGY working before steering');
+    const original = await (await conversationView(page)).evaluate(() => antigravityMessages.find(item => item.kind === 'user'));
     expect(original.createdAt).toBeGreaterThan(0);
-    await expect(page.locator(`${message(original.id)} time`)).toHaveAttribute('datetime', new Date(original.createdAt).toISOString());
-    const generating = page.locator(`${chat} .codex-message-block.assistant`).filter({ hasText: 'AGY working before steering' });
+    await expect((await conversationView(page)).locator(`${message(original.id)} time`)).toHaveAttribute('datetime', new Date(original.createdAt).toISOString());
+    const generating = (await conversationView(page)).locator(`${chat} .codex-message-block.assistant`).filter({ hasText: 'AGY working before steering' });
     await expect(generating.locator('time')).toHaveCount(0);
-    await page.locator('#cmd-input').fill('Keep the timestamp on this steering instruction.');
-    await page.locator('#send-btn').click();
-    await expect(page.locator(chat)).toContainText('AGY original turn completed after steering');
-    await page.waitForFunction(() => antigravityState.status === 'idle');
+    await (await conversationView(page)).locator('#cmd-input').fill('Keep the timestamp on this steering instruction.');
+    await (await conversationView(page)).locator('#send-btn').click();
+    await expect((await conversationView(page)).locator(chat)).toContainText('AGY original turn completed after steering');
+    await (await conversationView(page)).waitForFunction(() => antigravityState.status === 'idle');
     const expected = await nativeMessageTimes(page);
     expect(expected.filter(item => item.kind === 'user')).toHaveLength(2);
     expect(expected.some(item => item.kind === 'assistant')).toBe(true);
     await expectNativeTimes(page, expected);
-    await expect(page.locator('#antigravity-state-bar .codex-context-meter')).toHaveCount(0);
-    await expect(page.locator(`${chat} .codex-context-meter`)).toHaveCount(1);
-    await expect(page.locator(`${chat} .codex-message-block.assistant .codex-message-meta .codex-context-meter`)).toHaveCount(1);
-    const steering = await page.evaluate(() => antigravityMessages.find(item => item.kind === 'user' && item.text.includes('steering instruction')));
+    await expect((await conversationView(page)).locator('#antigravity-state-bar .codex-context-meter')).toHaveCount(0);
+    await expect((await conversationView(page)).locator(`${chat} .codex-context-meter`)).toHaveCount(1);
+    await expect((await conversationView(page)).locator(`${chat} .codex-message-block.assistant .codex-message-meta .codex-context-meter`)).toHaveCount(1);
+    const steering = await (await conversationView(page)).evaluate(() => antigravityMessages.find(item => item.kind === 'user' && item.text.includes('steering instruction')));
     expect(steering.createdAt).toBeGreaterThanOrEqual(original.createdAt);
     await saveEvidence(page, testInfo, 'antigravity-live-steering-times');
-    await page.evaluate(() => { window.__timeOldSocket = currentSocket; currentSocket.close(); });
-    await page.waitForFunction(() => currentSocket !== window.__timeOldSocket && currentSocket?.readyState === WebSocket.OPEN);
+    await (await conversationView(page)).evaluate(() => { window.__timeOldSocket = currentSocket; currentSocket.close(); });
+    await (await conversationView(page)).waitForFunction(() => currentSocket !== window.__timeOldSocket && currentSocket?.readyState === WebSocket.OPEN);
     await expect.poll(() => nativeMessageTimes(page)).toEqual(expected);
     await expectNativeTimes(page, expected);
 
     if (page.viewportSize().width >= 920) {
-      await page.getByRole('button', { name: 'Collapse lobby and tile sessions' }).click();
+      await page.evaluate(() => toggleTiledMode());
       const tile = page.locator(`.tile-session-window[data-session-id="${id}"]`);
       for (const item of expected) {
         await expect(tile.locator(`[data-agy-key="message-${item.id}"] time`)).toHaveAttribute('datetime', new Date(item.timestamp).toISOString());
@@ -128,16 +129,16 @@ test('live Antigravity sent and completion times survive steering and reconnect'
 test('Antigravity timestamps use trusted fields and remain legible at 375px in both themes', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await openTimeHarness(page);
-  await expectKnownAndUnknownTimes(page.locator(chat));
-  await expect(page.locator(`${message('streaming-assistant')} .antigravity-message-time`)).toHaveCount(0);
-  await page.evaluate(() => applyAntigravityEvent({ type: 'message-updated', message: {
+  await expectKnownAndUnknownTimes((await conversationView(page)).locator(chat));
+  await expect((await conversationView(page)).locator(`${message('streaming-assistant')} .antigravity-message-time`)).toHaveCount(0);
+  await (await conversationView(page)).evaluate(() => applyAntigravityEvent({ type: 'message-updated', message: {
     ...antigravityMessages.find(item => item.id === 'streaming-assistant'), streaming: false,
     text: 'The generated answer is complete.', completedAtMs: 1700000005789
   }, state: { status: 'idle', canAbort: false, canSteer: false } }));
-  await expect(page.locator(`${message('streaming-assistant')} time`)).toHaveAttribute('datetime', '2023-11-14T22:13:25.789Z');
+  await expect((await conversationView(page)).locator(`${message('streaming-assistant')} time`)).toHaveAttribute('datetime', '2023-11-14T22:13:25.789Z');
   for (const theme of ['light', 'dark']) {
-    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
-    const geometry = await page.locator(`${chat} .antigravity-message-time`).evaluateAll(elements => elements.map(element => {
+    await (await conversationView(page)).evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+    const geometry = await (await conversationView(page)).locator(`${chat} .antigravity-message-time`).evaluateAll(elements => elements.map(element => {
       const box = element.getBoundingClientRect();
       const block = element.closest('.codex-message-block').getBoundingClientRect();
       const bubble = element.closest('.codex-message-block').querySelector('.codex-message').getBoundingClientRect();
@@ -150,20 +151,20 @@ test('Antigravity timestamps use trusted fields and remain legible at 375px in b
     }));
     expect(geometry.length).toBe(8);
     for (const item of geometry) expect(item).toEqual({ fitsViewport: true, fitsMessage: true, belowText: true, readable: true });
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    expect(await (await conversationView(page)).evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     await saveEvidence(page, testInfo, `antigravity-message-times-${theme}-375`);
   }
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     for (const item of antigravityMessages) item.updatedAt = Date.now() + 60000;
     renderAntigravityChat();
   });
-  await expectKnownAndUnknownTimes(page.locator(chat));
-  await expect(page.locator(`${message('streaming-assistant')} time`)).toHaveAttribute('datetime', '2023-11-14T22:13:25.789Z');
+  await expectKnownAndUnknownTimes((await conversationView(page)).locator(chat));
+  await expect((await conversationView(page)).locator(`${message('streaming-assistant')} time`)).toHaveAttribute('datetime', '2023-11-14T22:13:25.789Z');
 });
 
 test('read-only preview and tile renderers preserve known and unknown message times', async ({ page }, testInfo) => {
   await openTimeHarness(page);
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     const messages = JSON.parse(JSON.stringify(antigravityMessages));
     const host = document.getElementById('antigravity-chat-container');
     host.innerHTML = '<section data-testid="time-preview"></section><section data-testid="time-tile"></section>';
@@ -176,8 +177,8 @@ test('read-only preview and tile renderers preserve known and unknown message ti
     });
     makeTileConversationReadOnly(tile);
   });
-  const preview = page.getByTestId('time-preview');
-  const tile = page.getByTestId('time-tile');
+  const preview = (await conversationView(page)).getByTestId('time-preview');
+  const tile = (await conversationView(page)).getByTestId('time-tile');
   await expectKnownAndUnknownTimes(preview);
   await expectKnownAndUnknownTimes(tile);
   expect(await preview.locator('time').evaluateAll(times => times.map(time => time.dateTime)))
@@ -193,15 +194,15 @@ test('native history without original timestamps shows unknown time in resume an
     const nativeId = 'agy-time-unknown-native-history';
     const response = await page.request.post(`/api/sessions/${id}/antigravity-resume`, { data: { sessionId: nativeId } });
     expect(response.ok()).toBe(true);
-    await expect(page.locator(chat)).toContainText('Historical fixture reply');
-    const imported = page.locator(`${chat} .codex-message-block.user, ${chat} .codex-message-block.assistant`);
+    await expect((await conversationView(page)).locator(chat)).toContainText('Historical fixture reply');
+    const imported = (await conversationView(page)).locator(`${chat} .codex-message-block.user, ${chat} .codex-message-block.assistant`);
     await expect(imported).toHaveCount(2);
     await expect(imported.locator('time[datetime]')).toHaveCount(0);
     await expect(imported.locator('[data-agy-time-unknown="true"]')).toHaveCount(2);
-    await page.locator('#antigravity-resume-btn').click();
-    await expect(page.locator('#antigravity-history-preview')).toBeAttached();
-    await page.evaluate(nativeId => previewAntigravitySession(nativeId), nativeId);
-    const preview = page.locator('#antigravity-history-preview');
+    await (await conversationView(page)).locator('#antigravity-resume-btn').click();
+    await expect((await conversationView(page)).locator('#antigravity-history-preview')).toBeAttached();
+    await (await conversationView(page)).evaluate(nativeId => previewAntigravitySession(nativeId), nativeId);
+    const preview = (await conversationView(page)).locator('#antigravity-history-preview');
     await expect(preview).toContainText('Historical fixture reply');
     await expect(preview.locator('time[datetime]')).toHaveCount(0);
     await expect(preview.locator('[data-agy-time-unknown="true"]')).toHaveCount(2);

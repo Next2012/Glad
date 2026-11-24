@@ -1,3 +1,4 @@
+const { conversationView, closeConversation } = require('./helpers/conversation');
 const { test, expect } = require('@playwright/test');
 
 async function openCodexSession(page) {
@@ -10,7 +11,7 @@ async function openCodexSession(page) {
   const { id } = await created.json();
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.locator(`.session-card[data-session-id="${id}"]`).getByRole('button', { name: 'Connect' }).click();
-  await page.waitForFunction(() => currentSocket?.readyState === WebSocket.OPEN);
+  await (await conversationView(page)).waitForFunction(() => currentSocket?.readyState === WebSocket.OPEN);
   return { id, sent };
 }
 
@@ -19,21 +20,21 @@ test('large UTF-8 input is acknowledged without reconnecting or duplicating the 
   const text = '长消息传输回归。'.repeat(4000);
   expect(Buffer.byteLength(JSON.stringify({ type: 'codex-input', text }))).toBeGreaterThan(32768);
   try {
-    await expect(page.locator('#send-btn')).toBeEnabled();
-    await page.evaluate(() => {
+    await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled();
+    await (await conversationView(page)).evaluate(() => {
       window.__largeInputSocket = currentSocket;
       window.__largeInputCloses = [];
       currentSocket.addEventListener('close', event => window.__largeInputCloses.push(event.code));
     });
-    await page.locator('#cmd-input').fill(text);
-    await page.locator('#send-btn').click();
-    await expect(page.locator('#cmd-input')).toHaveValue('');
+    await (await conversationView(page)).locator('#cmd-input').fill(text);
+    await (await conversationView(page)).locator('#send-btn').click();
+    await expect((await conversationView(page)).locator('#cmd-input')).toHaveValue('');
     await expect.poll(async () => (await (await page.request.get(`/api/sessions/${id}`)).json()).messages.filter(message => message.kind === 'turn-end').length).toBe(1);
     const snapshot = await (await page.request.get(`/api/sessions/${id}`)).json();
     expect(snapshot.messages.filter(message => message.kind === 'user').map(message => message.text)).toEqual([text]);
     expect(sent.filter(message => message.type === 'codex-input')).toHaveLength(1);
-    expect(await page.evaluate(() => currentSocket === window.__largeInputSocket && currentSocket.readyState === WebSocket.OPEN)).toBe(true);
-    expect(await page.evaluate(() => window.__largeInputCloses)).toEqual([]);
+    expect(await (await conversationView(page)).evaluate(() => currentSocket === window.__largeInputSocket && currentSocket.readyState === WebSocket.OPEN)).toBe(true);
+    expect(await (await conversationView(page)).evaluate(() => window.__largeInputCloses)).toEqual([]);
   } finally {
     await page.request.delete(`/api/sessions/${id}`);
   }
@@ -41,31 +42,31 @@ test('large UTF-8 input is acknowledged without reconnecting or duplicating the 
 
 test('Codex composer reconnects after its WebSocket closes', async ({ page }) => {
   const { id } = await openCodexSession(page);
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     window.__closedSocket = currentSocket;
     currentSocket.close();
   });
-  await page.waitForFunction(() => currentSocket !== window.__closedSocket
+  await (await conversationView(page)).waitForFunction(() => currentSocket !== window.__closedSocket
     && currentSocket?.readyState === WebSocket.OPEN);
-  await expect(page.locator('#send-btn')).toBeEnabled();
-  await page.locator('#cmd-input').fill('Reply after reconnect');
-  await page.locator('#send-btn').click();
-  await expect(page.locator('.codex-message-block.user')).toContainText('Reply after reconnect');
+  await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled();
+  await (await conversationView(page)).locator('#cmd-input').fill('Reply after reconnect');
+  await (await conversationView(page)).locator('#send-btn').click();
+  await expect((await conversationView(page)).locator('.codex-message-block.user')).toContainText('Reply after reconnect');
   await page.request.delete(`/api/sessions/${id}`);
 });
 
 test('structured send is acknowledged, idempotent, and preserves rejected drafts', async ({ page }) => {
   const first = await openCodexSession(page);
-  await page.locator('#attachment-file-input').setInputFiles({
+  await (await conversationView(page)).locator('#attachment-file-input').setInputFiles({
     name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('attachment body')
   });
-  await page.locator('.attachment-chip:not(.uploading)').waitFor();
-  await page.locator('#cmd-input').fill('Read the attachment and keep this visible');
-  await page.locator('#send-btn').click();
-  await expect(page.locator('#cmd-input')).toHaveValue('');
-  await expect(page.locator('.codex-message-block.user')).toHaveCount(1);
-  await expect(page.locator('.codex-message-block.user')).toContainText('Read the attachment and keep this visible');
-  await expect(page.locator('.codex-message-block.user')).toContainText('notes.txt');
+  await (await conversationView(page)).locator('.attachment-chip:not(.uploading)').waitFor();
+  await (await conversationView(page)).locator('#cmd-input').fill('Read the attachment and keep this visible');
+  await (await conversationView(page)).locator('#send-btn').click();
+  await expect((await conversationView(page)).locator('#cmd-input')).toHaveValue('');
+  await expect((await conversationView(page)).locator('.codex-message-block.user')).toHaveCount(1);
+  await expect((await conversationView(page)).locator('.codex-message-block.user')).toContainText('Read the attachment and keep this visible');
+  await expect((await conversationView(page)).locator('.codex-message-block.user')).toContainText('notes.txt');
   await page.waitForTimeout(500);
   const history = await (await page.request.get(`/api/sessions/${first.id}/history`)).json();
   expect((history.text.match(/User:/g) || [])).toHaveLength(1);
@@ -75,26 +76,28 @@ test('structured send is acknowledged, idempotent, and preserves rejected drafts
   await page.request.delete(`/api/sessions/${first.id}`);
 
   const missing = await openCodexSession(page);
-  await page.locator('#attachment-file-input').setInputFiles({
+  await (await conversationView(page)).locator('#attachment-file-input').setInputFiles({
     name: 'missing.txt', mimeType: 'text/plain', buffer: Buffer.from('remove before send')
   });
-  await page.locator('.attachment-chip:not(.uploading)').waitFor();
-  const attachmentId = await page.evaluate(() => selectedFileAttachments[0].id);
+  await (await conversationView(page)).locator('.attachment-chip:not(.uploading)').waitFor();
+  const attachmentId = await (await conversationView(page)).evaluate(() => selectedFileAttachments[0].id);
   await page.request.delete(`/api/sessions/${missing.id}/attachments/files/${attachmentId}`);
-  await page.locator('#cmd-input').fill('This draft must survive');
-  const rejection = page.waitForEvent('dialog');
-  await page.locator('#send-btn').click();
+  await (await conversationView(page)).locator('#cmd-input').fill('This draft must survive');
+  const rejection = page.waitForEvent('dialog').then(async dialog => {
+    await dialog.dismiss();
+    return dialog;
+  });
+  await (await conversationView(page)).locator('#send-btn').click();
   const dialog = await rejection;
   expect(dialog.message()).toContain('attachments are no longer available');
-  await dialog.dismiss();
-  await expect(page.locator('#cmd-input')).toHaveValue('This draft must survive');
-  await expect(page.locator('.attachment-chip')).toContainText('missing.txt');
-  await expect(page.locator('#send-btn')).toBeEnabled();
+  await expect((await conversationView(page)).locator('#cmd-input')).toHaveValue('This draft must survive');
+  await expect((await conversationView(page)).locator('.attachment-chip')).toContainText('missing.txt');
+  await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled();
   expect((await (await page.request.get(`/api/sessions/${missing.id}/history`)).json()).text).toBe('');
   await page.request.delete(`/api/sessions/${missing.id}`);
 
   const idempotent = await openCodexSession(page);
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     const payload = {
       type: 'codex-input', clientMessageId: 'same-message-id', text: 'Only once', attachmentIds: [], skills: []
     };
@@ -110,18 +113,18 @@ test('structured send is acknowledged, idempotent, and preserves rejected drafts
 
 test('disconnected and whitespace-only sends keep the draft', async ({ page }) => {
   const session = await openCodexSession(page);
-  await page.locator('#cmd-input').fill('Keep this after disconnect');
-  await page.evaluate(() => currentSocket.close());
-  await expect(page.locator('#send-btn')).toBeDisabled();
-  await page.evaluate(() => performSend());
-  await expect(page.locator('#cmd-input')).toHaveValue('Keep this after disconnect');
+  await (await conversationView(page)).locator('#cmd-input').fill('Keep this after disconnect');
+  await (await conversationView(page)).evaluate(() => currentSocket.close());
+  await expect((await conversationView(page)).locator('#send-btn')).toBeDisabled();
+  await (await conversationView(page)).evaluate(() => performSend());
+  await expect((await conversationView(page)).locator('#cmd-input')).toHaveValue('Keep this after disconnect');
   expect(session.sent.filter(item => item.type === 'codex-input')).toHaveLength(0);
   await page.request.delete(`/api/sessions/${session.id}`);
 
   const whitespace = await openCodexSession(page);
-  await page.locator('#cmd-input').fill('   \n  ');
-  await page.locator('#send-btn').click();
-  await expect(page.locator('#cmd-input')).toHaveValue('   \n  ');
+  await (await conversationView(page)).locator('#cmd-input').fill('   \n  ');
+  await (await conversationView(page)).locator('#send-btn').click();
+  await expect((await conversationView(page)).locator('#cmd-input')).toHaveValue('   \n  ');
   expect(whitespace.sent.filter(item => item.type === 'codex-input')).toHaveLength(0);
   await page.request.delete(`/api/sessions/${whitespace.id}`);
 });
@@ -136,10 +139,10 @@ test('completion dots only mark work finished outside the visible session', asyn
     await route.continue();
   });
 
-  await page.locator('#cmd-input').fill('visible completion');
-  await page.locator('#send-btn').click();
-  await expect(page.locator('#send-btn')).toBeEnabled();
-  await page.locator('#back-btn').click();
+  await (await conversationView(page)).locator('#cmd-input').fill('visible completion');
+  await (await conversationView(page)).locator('#send-btn').click();
+  await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled();
+  await closeConversation(page);
   await expect(page.locator(`.session-card[data-session-id="${session.id}"] .completion-dot`)).toHaveCount(0);
   await expect.poll(async () => {
     const sessions = await (await page.request.get('/api/sessions')).json();
@@ -147,9 +150,9 @@ test('completion dots only mark work finished outside the visible session', asyn
   }).toBe(false);
 
   await page.locator(`.session-card[data-session-id="${session.id}"]`).getByRole('button', { name: 'Connect' }).click();
-  await page.locator('#cmd-input').fill('__GLAD_E2E_SUBAGENT_LIFECYCLE__');
-  await page.locator('#send-btn').click();
-  await page.locator('#back-btn').click();
+  await (await conversationView(page)).locator('#cmd-input').fill('__GLAD_E2E_SUBAGENT_LIFECYCLE__');
+  await (await conversationView(page)).locator('#send-btn').click();
+  await closeConversation(page);
   await expect.poll(async () => {
     const sessions = await (await page.request.get('/api/sessions')).json();
     return sessions.find(item => item.id === session.id)?.hasUnreadCompletion;
@@ -170,12 +173,12 @@ test('visible tiled previews acknowledge completed work', async ({ page }) => {
   test.setTimeout(30000);
   const session = await openCodexSession(page);
 
-  await page.getByRole('button', { name: 'Collapse lobby and tile sessions' }).click();
+  await page.evaluate(() => toggleTiledMode());
   const tile = page.locator(`.tile-session-window[data-session-id="${session.id}"]`);
   await expect(tile).toBeVisible();
   await tile.getByRole('button', { name: 'Connect' }).click();
-  await page.locator('#cmd-input').fill('__GLAD_E2E_SUBAGENT_LIFECYCLE__');
-  await page.locator('#send-btn').click();
+  await (await conversationView(page)).locator('#cmd-input').fill('__GLAD_E2E_SUBAGENT_LIFECYCLE__');
+  await (await conversationView(page)).locator('#send-btn').click();
   await expect.poll(async () => {
     const sessions = await (await page.request.get('/api/sessions')).json();
     return sessions.find(item => item.id === session.id)?.status;
@@ -193,18 +196,20 @@ test('visible tiled previews acknowledge completed work', async ({ page }) => {
 test('provider rejection keeps the draft and unlocks send', async ({ page }) => {
   const session = await openCodexSession(page);
   const text = '__GLAD_E2E_FAIL_SEND__ keep this draft';
-  await page.locator('#cmd-input').fill(text);
-  const rejection = page.waitForEvent('dialog');
-  await page.evaluate(() => {
+  await (await conversationView(page)).locator('#cmd-input').fill(text);
+  const rejection = page.waitForEvent('dialog').then(async dialog => {
+    await dialog.dismiss();
+    return dialog;
+  });
+  await (await conversationView(page)).evaluate(() => {
     document.getElementById('send-btn').click();
     document.getElementById('cmd-input').value = '';
   });
   const dialog = await rejection;
   expect(dialog.message()).toContain('forced send failure');
-  await dialog.dismiss();
-  await expect(page.locator('#cmd-input')).toHaveValue(text);
-  await expect(page.locator('#send-btn')).toBeEnabled();
-  await expect(page.locator('.codex-message-block.user')).toHaveCount(0);
+  await expect((await conversationView(page)).locator('#cmd-input')).toHaveValue(text);
+  await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled();
+  await expect((await conversationView(page)).locator('.codex-message-block.user')).toHaveCount(0);
   await page.request.delete(`/api/sessions/${session.id}`);
 });
 
@@ -212,12 +217,12 @@ test('large Codex command output still reaches turn completion', async ({ page }
   test.skip(page.viewportSize().width < 920, 'Large stdout regression runs once on desktop');
   test.setTimeout(60000);
   const session = await openCodexSession(page);
-  await page.locator('#cmd-input').fill('__GLAD_E2E_LARGE_OUTPUT__');
-  await page.locator('#send-btn').click();
-  await expect(page.locator('#cmd-input')).toHaveValue('');
-  await expect(page.locator('.codex-tool')).toContainText('large-output', { timeout: 30000 });
-  await page.waitForFunction(() => codexState.status === 'idle', null, { timeout: 30000 });
-  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 30000 });
+  await (await conversationView(page)).locator('#cmd-input').fill('__GLAD_E2E_LARGE_OUTPUT__');
+  await (await conversationView(page)).locator('#send-btn').click();
+  await expect((await conversationView(page)).locator('#cmd-input')).toHaveValue('');
+  await expect((await conversationView(page)).locator('.codex-tool')).toContainText('large-output', { timeout: 30000 });
+  await (await conversationView(page)).waitForFunction(() => codexState.status === 'idle', null, { timeout: 30000 });
+  await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled({ timeout: 30000 });
   const debug = await (await page.request.get(`/api/sessions/${session.id}/debug`)).json();
   expect(debug.diagnostics.status).toBe('idle');
   await page.request.delete(`/api/sessions/${session.id}`);
@@ -225,23 +230,23 @@ test('large Codex command output still reaches turn completion', async ({ page }
 
 test('Codex tracks active subagents without marking the root turn idle', async ({ page }) => {
   const session = await openCodexSession(page);
-  await page.locator('#cmd-input').fill('__GLAD_E2E_SUBAGENT_LIFECYCLE__');
-  await page.locator('#send-btn').click();
+  await (await conversationView(page)).locator('#cmd-input').fill('__GLAD_E2E_SUBAGENT_LIFECYCLE__');
+  await (await conversationView(page)).locator('#send-btn').click();
 
-  const subagentJump = page.getByRole('button', { name: 'Jump to active subagent' });
+  const subagentJump = (await conversationView(page)).getByRole('button', { name: 'Jump to active subagent' });
   await expect(subagentJump).toContainText('1 subagent running');
   await expect.poll(async () => {
     const debug = await (await page.request.get(`/api/sessions/${session.id}/debug`)).json();
     return debug.diagnostics.status;
   }).toBe('running');
-  await expect(page.locator('#codex-abort-btn')).toBeEnabled();
-  await expect(page.locator('#send-btn')).toBeEnabled();
-  await expect(page.locator('#send-btn')).toHaveAttribute('aria-label', 'Add instruction');
+  await expect((await conversationView(page)).locator('#codex-abort-btn')).toBeEnabled();
+  await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled();
+  await expect((await conversationView(page)).locator('#send-btn')).toHaveAttribute('aria-label', 'Add instruction');
   await expect(subagentJump).toHaveCount(0);
 
-  await expect(page.locator('.codex-message-block.assistant')).toContainText('root completed after child');
-  await page.waitForFunction(() => codexState.status === 'idle');
-  await expect(page.locator('#send-btn')).toBeEnabled();
+  await expect((await conversationView(page)).locator('.codex-message-block.assistant')).toContainText('root completed after child');
+  await (await conversationView(page)).waitForFunction(() => codexState.status === 'idle');
+  await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled();
   const debug = await (await page.request.get(`/api/sessions/${session.id}/debug`)).json();
   expect(debug.diagnostics.status).toBe('idle');
   await page.request.delete(`/api/sessions/${session.id}`);
@@ -251,21 +256,21 @@ test('stuck Codex interrupt force-recovers and restarts before the next send', a
   test.skip(page.viewportSize().width < 920, 'Abort watchdog regression runs once on desktop');
   test.setTimeout(60000);
   const session = await openCodexSession(page);
-  await page.locator('#cmd-input').fill('__GLAD_E2E_STUCK_ABORT__');
-  await page.locator('#send-btn').click();
-  await expect(page.locator('.codex-tool')).toContainText('stuck-command');
-  await page.locator('#codex-abort-btn').click();
-  await expect(page.locator('#codex-state-bar')).toContainText('Stopping Codex');
-  await page.waitForFunction(() => codexState.status === 'idle', null, { timeout: 15000 });
-  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 15000 });
+  await (await conversationView(page)).locator('#cmd-input').fill('__GLAD_E2E_STUCK_ABORT__');
+  await (await conversationView(page)).locator('#send-btn').click();
+  await expect((await conversationView(page)).locator('.codex-tool')).toContainText('stuck-command');
+  await (await conversationView(page)).locator('#codex-abort-btn').click();
+  await expect((await conversationView(page)).locator('#codex-state-bar')).toContainText('Stopping Codex');
+  await (await conversationView(page)).waitForFunction(() => codexState.status === 'idle', null, { timeout: 15000 });
+  await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled({ timeout: 15000 });
   let debug = await (await page.request.get(`/api/sessions/${session.id}/debug`)).json();
   expect(debug.diagnostics.status).toBe('idle');
 
-  await page.locator('#cmd-input').fill('works after forced restart');
-  await page.locator('#send-btn').click();
-  await expect(page.locator('.codex-message-block.user').last()).toContainText('works after forced restart');
-  await page.waitForFunction(() => codexState.status === 'idle', null, { timeout: 15000 });
-  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 15000 });
+  await (await conversationView(page)).locator('#cmd-input').fill('works after forced restart');
+  await (await conversationView(page)).locator('#send-btn').click();
+  await expect((await conversationView(page)).locator('.codex-message-block.user').last()).toContainText('works after forced restart');
+  await (await conversationView(page)).waitForFunction(() => codexState.status === 'idle', null, { timeout: 15000 });
+  await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled({ timeout: 15000 });
   debug = await (await page.request.get(`/api/sessions/${session.id}/debug`)).json();
   expect(debug.diagnostics.status).toBe('idle');
   await page.request.delete(`/api/sessions/${session.id}`);
@@ -275,7 +280,7 @@ test('Codex resume can be stopped before a turn id exists', async ({ page }) => 
   test.skip(page.viewportSize().width < 920, 'Resume abort regression runs once on desktop');
   test.setTimeout(60000);
   const session = await openCodexSession(page);
-  await page.evaluate(sessionId => {
+  await (await conversationView(page)).evaluate(sessionId => {
     window.__resumeAbortResult = null;
     fetch(`/api/sessions/${sessionId}/codex-resume`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -283,14 +288,14 @@ test('Codex resume can be stopped before a turn id exists', async ({ page }) => 
     }).then(async response => ({ status: response.status, body: await response.json() }))
       .then(result => { window.__resumeAbortResult = result; });
   }, session.id);
-  await expect(page.locator('#codex-state-bar')).toContainText('Resuming conversation');
-  await page.locator('#codex-abort-btn').click();
-  await expect.poll(() => page.evaluate(() => window.__resumeAbortResult)).not.toBeNull();
-  const result = await page.evaluate(() => window.__resumeAbortResult);
+  await expect((await conversationView(page)).locator('#codex-state-bar')).toContainText('Resuming conversation');
+  await (await conversationView(page)).locator('#codex-abort-btn').click();
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => window.__resumeAbortResult)).not.toBeNull();
+  const result = await (await conversationView(page)).evaluate(() => window.__resumeAbortResult);
   expect(result.status).toBe(400);
   expect(result.body.error).toContain('resume aborted');
-  await page.waitForFunction(() => codexState.status === 'idle', null, { timeout: 15000 });
-  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 15000 });
+  await (await conversationView(page)).waitForFunction(() => codexState.status === 'idle', null, { timeout: 15000 });
+  await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled({ timeout: 15000 });
   const debug = await (await page.request.get(`/api/sessions/${session.id}/debug`)).json();
   expect(debug.diagnostics.status).toBe('idle');
   await page.request.delete(`/api/sessions/${session.id}`);
@@ -303,7 +308,9 @@ test('large paginated Codex history publishes one reset to two WebSockets', asyn
   expect(created.ok()).toBe(true);
   const { id } = await created.json();
   await page.goto('/', { waitUntil: 'networkidle' });
-  await page.evaluate(() => {
+  await page.locator(`.session-card[data-session-id="${id}"]`).getByRole('button', { name: 'Connect' }).click();
+  await (await conversationView(page)).waitForFunction(() => currentSocket?.readyState === WebSocket.OPEN);
+  await (await conversationView(page)).evaluate(() => {
     window.__mainHistoryResetCount = 0;
     const original = window.applyCodexEvent;
     window.applyCodexEvent = event => {
@@ -311,9 +318,7 @@ test('large paginated Codex history publishes one reset to two WebSockets', asyn
       return original(event);
     };
   });
-  await page.locator(`.session-card[data-session-id="${id}"]`).getByRole('button', { name: 'Connect' }).click();
-  await page.waitForFunction(() => currentSocket?.readyState === WebSocket.OPEN);
-  await page.evaluate(async sessionId => {
+  await (await conversationView(page)).evaluate(async sessionId => {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const url = `${protocol}//${location.host}/ws?sessionId=${encodeURIComponent(sessionId)}`;
     window.__historyEvents = [[]];
@@ -334,7 +339,7 @@ test('large paginated Codex history publishes one reset to two WebSockets', asyn
     const debug = await (await page.request.get(`/api/sessions/${id}/debug`)).json();
     return debug.diagnostics.clients;
   }).toBe(2);
-  await page.evaluate(() => window.__historyEvents.forEach(events => { events.length = 0; }));
+  await (await conversationView(page)).evaluate(() => window.__historyEvents.forEach(events => { events.length = 0; }));
 
   const started = Date.now();
   const resumed = await page.request.post(`/api/sessions/${id}/codex-resume`, {
@@ -342,21 +347,21 @@ test('large paginated Codex history publishes one reset to two WebSockets', asyn
   });
   expect(resumed.ok(), await resumed.text()).toBe(true);
   expect(Date.now() - started).toBeLessThan(30000);
-  await expect.poll(() => page.evaluate(() => window.__historyEvents.map(events => events
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => window.__historyEvents.map(events => events
     .filter(message => message.type === 'codex-event' && message.event?.type === 'history-reset').length)))
     .toEqual([1]);
-  await expect.poll(() => page.evaluate(() => window.__mainHistoryResetCount)).toBe(1);
-  await expect.poll(() => page.evaluate(() => codexMessages.length)).toBeGreaterThan(0);
-  expect(await page.evaluate(() => codexMessages.length)).toBeLessThanOrEqual(128);
-  await expect(page.getByRole('button', { name: 'Load earlier messages', exact: true })).toBeVisible();
-  const legacyReset = await page.evaluate(() => window.__historyEvents[0].find(message => message.event?.type === 'history-reset'));
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => window.__mainHistoryResetCount)).toBe(1);
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => codexMessages.length)).toBeGreaterThan(0);
+  expect(await (await conversationView(page)).evaluate(() => codexMessages.length)).toBeLessThanOrEqual(128);
+  await expect((await conversationView(page)).getByRole('button', { name: 'Load earlier messages', exact: true })).toBeVisible();
+  const legacyReset = await (await conversationView(page)).evaluate(() => window.__historyEvents[0].find(message => message.event?.type === 'history-reset'));
   expect(legacyReset.event.messages).toHaveLength(1480);
-  const incrementalCounts = await page.evaluate(() => window.__historyEvents.map(events => events
+  const incrementalCounts = await (await conversationView(page)).evaluate(() => window.__historyEvents.map(events => events
     .filter(message => message.type === 'codex-event' && ['message', 'message-updated'].includes(message.event?.type)).length));
   expect(incrementalCounts).toEqual([0]);
   const debug = await (await page.request.get(`/api/sessions/${id}/debug`)).json();
   expect(debug.diagnostics.status).toBe('idle');
   expect(debug.diagnostics.messages).toBe(1480);
-  await page.evaluate(() => window.__historySockets.forEach(socket => socket.close()));
+  await (await conversationView(page)).evaluate(() => window.__historySockets.forEach(socket => socket.close()));
   await page.request.delete(`/api/sessions/${id}`);
 });

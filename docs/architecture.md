@@ -29,6 +29,35 @@ The repository root contains only the native entrypoint and its `go:embed` decla
 
 ## Browser contract
 
+### Desktop conversation workspace
+
+`workspace-tabs.js` owns the desktop tab strip and sidebar preference. A tab is
+identified by its kind and runtime ID, so single conversations and groups share
+one navigation model. Connect activates an existing tab instead of opening a
+second view of the same target. Keyboard navigation follows the visible tab
+order, including tabs reopened while an upload is still pending.
+
+Each tab mounts the existing application through its same-origin embed entry.
+`embed.js` owns that document's renderer, connection, history pages, expanded
+content, drafts, attachments, and scroll anchor. Inactive documents retain their
+size and remain mounted; switching tabs does not reinitialize the provider view
+or reload its history. Completion acknowledgements consult the host's visible
+tab, so background output remains unread until its conversation is shown.
+
+Closing a tab removes its navigation entry, never its provider session. A view
+with an in-flight upload, send acknowledgement, question answer, or recovery
+stays mounted invisibly until that operation settles. Its unused draft
+attachments are then cleaned up and its document is released. Accepted model
+execution continues under the server-owned session lifecycle. The mobile
+lobby/chat flow continues to use the main document.
+
+Glad does not impose an attachment-count cap in single conversations, group
+dispatch, or Codex question answers. Uploads retain the existing 50 MiB per-file
+limit, supported image formats, chunk validation, and provider capability checks.
+Group attachments are uploaded separately to each explicitly mentioned member.
+
+### Session transport
+
 The HTTP and WebSocket contracts are implemented entirely by the Go daemon. Structured sessions receive a `codex-snapshot`, `claude-snapshot`, or `antigravity-snapshot` on connection and incremental provider events afterward.
 
 Structured user inputs carry a `clientMessageId`. The daemon serializes commands per session, validates every attachment, and replies with `send-result`; repeated IDs return the cached result without starting a second provider turn. The browser keeps its draft and attachments until it receives that correlated acceptance. A disconnect before the acknowledgement leaves the delivery result unconfirmed; the browser preserves the draft and does not automatically resend it.

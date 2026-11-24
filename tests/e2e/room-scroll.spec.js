@@ -1,3 +1,4 @@
+const { conversationView } = require('./helpers/conversation');
 const { test, expect } = require('@playwright/test');
 const { mockVisualViewport } = require('./helpers/visual-viewport');
 
@@ -24,7 +25,7 @@ async function openScrollingRoom(page) {
   });
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.evaluate(() => openRoom('scroll-room'));
-  await expect(page.locator('#room-message-list .room-entry')).toHaveCount(48);
+  await expect((await conversationView(page)).locator('#room-message-list .room-entry')).toHaveCount(48);
   await expect.poll(() => Boolean(socket)).toBe(true);
   return {
     room,
@@ -32,13 +33,13 @@ async function openScrollingRoom(page) {
       change(room);
       room.snapshotRevision++;
       socket.send(JSON.stringify({ type: 'room-snapshot', room, timedInputs: [] }));
-      await expect.poll(() => page.evaluate(() => activeRoom.snapshotRevision)).toBe(room.snapshotRevision);
+      await expect.poll(async () => (await conversationView(page)).evaluate(() => activeRoom.snapshotRevision)).toBe(room.snapshotRevision);
     }
   };
 }
 
 async function readingPosition(page) {
-  return page.locator('#room-message-list').evaluate(list => {
+  return (await conversationView(page)).locator('#room-message-list').evaluate(list => {
     const top = list.getBoundingClientRect().top;
     const entry = [...list.children].find(element => element.getBoundingClientRect().bottom > top);
     return { id: entry.dataset.roomEntryId, offset: entry.getBoundingClientRect().top - top, scrollTop: list.scrollTop };
@@ -46,7 +47,7 @@ async function readingPosition(page) {
 }
 
 async function readMiddle(page) {
-  await page.locator('#room-message-list').evaluate(list => {
+  await (await conversationView(page)).locator('#room-message-list').evaluate(list => {
     list.scrollTo({ top: (list.scrollHeight - list.clientHeight) * .6, behavior: 'instant' });
     window.scrollProbeEntry = [...list.children].find(entry => entry.getBoundingClientRect().top > list.getBoundingClientRect().top + 40);
   });
@@ -63,8 +64,8 @@ async function expectSamePosition(page, before) {
 test('multiple references preserve message nodes, focus, expansion and reading position', async ({ page }) => {
   await openScrollingRoom(page);
   await readMiddle(page);
-  const entryId = await page.evaluate(() => scrollProbeEntry.dataset.roomEntryId);
-  const entry = page.locator(`[data-room-entry-id="${entryId}"]`);
+  const entryId = await (await conversationView(page)).evaluate(() => scrollProbeEntry.dataset.roomEntryId);
+  const entry = (await conversationView(page)).locator(`[data-room-entry-id="${entryId}"]`);
   await entry.locator('.room-entry-bubble').click();
   await expect(entry).toHaveClass(/expanded/);
   const before = await readingPosition(page);
@@ -72,56 +73,56 @@ test('multiple references preserve message nodes, focus, expansion and reading p
   await page.waitForTimeout(650);
   await entry.dispatchEvent('pointerup', { pointerType: 'touch', clientX: 20, clientY: 20 });
   await expectSamePosition(page, before);
-  await expect(page.locator('.room-context-chip.quote')).toHaveCount(1);
-  expect(await page.evaluate(() => scrollProbeEntry.isConnected && scrollProbeEntry.querySelector('.room-entry-bubble').isConnected)).toBe(true);
+  await expect((await conversationView(page)).locator('.room-context-chip.quote')).toHaveCount(1);
+  expect(await (await conversationView(page)).evaluate(() => scrollProbeEntry.isConnected && scrollProbeEntry.querySelector('.room-entry-bubble').isConnected)).toBe(true);
   await expect(entry).toHaveClass(/expanded/);
 
   // Use the next visible message without asking Playwright to scroll it into view.
-  await page.evaluate(() => scrollProbeEntry.nextElementSibling.querySelector('.room-selection-circle').click());
+  await (await conversationView(page)).evaluate(() => scrollProbeEntry.nextElementSibling.querySelector('.room-selection-circle').click());
   await expectSamePosition(page, before);
-  await expect(page.locator('.room-context-chip.quote')).toHaveCount(2);
-  await page.locator('.room-context-chip.quote').first().click();
+  await expect((await conversationView(page)).locator('.room-context-chip.quote')).toHaveCount(2);
+  await (await conversationView(page)).locator('.room-context-chip.quote').first().click();
   await expectSamePosition(page, before);
-  await expect(page.locator('.room-context-chip.quote')).toHaveCount(1);
+  await expect((await conversationView(page)).locator('.room-context-chip.quote')).toHaveCount(1);
 });
 
 test('selection captures author clicks, keeps zero selections, and cancel preserves the draft', async ({ page }) => {
   const stream = await openScrollingRoom(page);
   await readMiddle(page);
-  const entryId = await page.evaluate(() => scrollProbeEntry.dataset.roomEntryId);
-  const entry = page.locator(`[data-room-entry-id="${entryId}"]`);
-  await page.locator('#room-input').fill('Keep this draft');
+  const entryId = await (await conversationView(page)).evaluate(() => scrollProbeEntry.dataset.roomEntryId);
+  const entry = (await conversationView(page)).locator(`[data-room-entry-id="${entryId}"]`);
+  await (await conversationView(page)).locator('#room-input').fill('Keep this draft');
   await entry.dispatchEvent('pointerdown', { pointerType: 'touch', clientX: 20, clientY: 20 });
   await page.waitForTimeout(650);
   await entry.dispatchEvent('pointerup', { pointerType: 'touch', clientX: 20, clientY: 20 });
   await expect(entry).toHaveClass(/selected/);
   await entry.locator('.room-entry-author').click();
   await expect(entry).not.toHaveClass(/selected/);
-  await expect(page.locator('#room-selection-count')).toHaveText('0 selected');
-  await expect(page.locator('#room-selection-preview')).toBeDisabled();
-  await expect(page.locator('#room-selection-cancel')).toBeVisible();
+  await expect((await conversationView(page)).locator('#room-selection-count')).toHaveText('0 selected');
+  await expect((await conversationView(page)).locator('#room-selection-preview')).toBeDisabled();
+  await expect((await conversationView(page)).locator('#room-selection-cancel')).toBeVisible();
   await entry.locator('.room-entry-author').click();
   await expect(entry).toHaveClass(/selected/);
   await stream.update(room => { room.entries.push({ id: 'new-live-message', type: 'user', status: 'completed', text: 'A new message', createdAt: Date.now() }); });
-  await expect(page.locator('[data-room-entry-id="new-live-message"] .room-selection-circle')).toBeVisible();
-  await page.locator('#room-selection-cancel').click();
-  await expect(page.locator('#room-view')).not.toHaveClass(/room-selecting/);
-  await expect(page.locator('#room-input')).toHaveValue('Keep this draft');
-  await expect(page.locator('.room-context-chip.quote')).toHaveCount(0);
+  await expect((await conversationView(page)).locator('[data-room-entry-id="new-live-message"] .room-selection-circle')).toBeVisible();
+  await (await conversationView(page)).locator('#room-selection-cancel').click();
+  await expect((await conversationView(page)).locator('#room-view')).not.toHaveClass(/room-selecting/);
+  await expect((await conversationView(page)).locator('#room-input')).toHaveValue('Keep this draft');
+  await expect((await conversationView(page)).locator('.room-context-chip.quote')).toHaveCount(0);
 });
 
 test('streamed snapshots keep history still and preserve anchors when earlier content changes', async ({ page }) => {
   const stream = await openScrollingRoom(page);
   await readMiddle(page);
-  const entryId = await page.evaluate(() => scrollProbeEntry.dataset.roomEntryId);
-  await page.locator(`[data-room-entry-id="${entryId}"] .room-entry-bubble`).click();
-  await page.evaluate(() => { window.scrollProbeBubble = scrollProbeEntry.querySelector('.room-entry-bubble'); });
+  const entryId = await (await conversationView(page)).evaluate(() => scrollProbeEntry.dataset.roomEntryId);
+  await (await conversationView(page)).locator(`[data-room-entry-id="${entryId}"] .room-entry-bubble`).click();
+  await (await conversationView(page)).evaluate(() => { window.scrollProbeBubble = scrollProbeEntry.querySelector('.room-entry-bubble'); });
   const before = await readingPosition(page);
   for (let i = 0; i < 6; i++) {
     await stream.update(room => { room.entries.at(-1).text += `\n\nStreaming paragraph ${i}`; });
     await expectSamePosition(page, before);
-    expect(await page.evaluate(() => scrollProbeEntry.isConnected)).toBe(true);
-    expect(await page.evaluate(() => scrollProbeBubble.isConnected)).toBe(true);
+    expect(await (await conversationView(page)).evaluate(() => scrollProbeEntry.isConnected)).toBe(true);
+    expect(await (await conversationView(page)).evaluate(() => scrollProbeBubble.isConnected)).toBe(true);
   }
   await stream.update(room => { room.entries[0].text = 'Shortened earlier message'; });
   const after = await readingPosition(page);
@@ -136,8 +137,8 @@ test('streamed snapshots keep history still and preserve anchors when earlier co
 
 test('reference jump highlights survive a streamed message update', async ({ page }) => {
   const stream = await openScrollingRoom(page);
-  await page.evaluate(() => jumpToRoomEntry('entry-1'));
-  const target = page.locator('[data-room-entry-id="entry-1"]');
+  await (await conversationView(page)).evaluate(() => jumpToRoomEntry('entry-1'));
+  const target = (await conversationView(page)).locator('[data-room-entry-id="entry-1"]');
   await expect(target).toHaveClass(/room-entry-jump/);
   await stream.update(room => { room.entries[1].text += '\n\nUpdated quoted response'; });
   await expect(target).toHaveClass(/room-entry-jump/);
@@ -145,11 +146,11 @@ test('reference jump highlights survive a streamed message update', async ({ pag
 
 test('following the bottom works and manual scrolling immediately stops following', async ({ page }) => {
   const stream = await openScrollingRoom(page);
-  await page.locator('[data-room-entry-id="entry-47"] .room-entry-bubble').click();
-  await page.locator('#room-message-list').evaluate(list => list.scrollTo({ top: list.scrollHeight, behavior: 'instant' }));
+  await (await conversationView(page)).locator('[data-room-entry-id="entry-47"] .room-entry-bubble').click();
+  await (await conversationView(page)).locator('#room-message-list').evaluate(list => list.scrollTo({ top: list.scrollHeight, behavior: 'instant' }));
   for (let i = 0; i < 6; i++) {
     await stream.update(room => { room.entries.at(-1).text += '\n\nAnother paragraph in the expanded live response. '.repeat(5); });
-    await expect.poll(() => page.locator('#room-message-list').evaluate(list => list.scrollHeight - list.clientHeight - list.scrollTop)).toBeLessThan(2);
+    await expect.poll(async () => (await conversationView(page)).locator('#room-message-list').evaluate(list => list.scrollHeight - list.clientHeight - list.scrollTop)).toBeLessThan(2);
   }
   const before = await readMiddle(page);
   await stream.update(room => { room.entries.at(-1).text += '\n\nAn update after scrolling away'; });
@@ -161,37 +162,37 @@ test('revision-only events retain rendered diagrams and message nodes', async ({
   const original = await readMiddle(page);
   await stream.update(room => { room.entries[1].text = '```mermaid\ngraph TD\n A[Start] --> B[Finish]\n```'; });
   await expectSamePosition(page, original);
-  const entry = page.locator('[data-room-entry-id="entry-1"]');
+  const entry = (await conversationView(page)).locator('[data-room-entry-id="entry-1"]');
   await expect(entry.locator('.markdown-diagram-output svg')).toHaveCount(0);
   await entry.locator('.room-entry-bubble').click();
   await expect(entry.locator('.markdown-diagram-output svg')).toBeVisible();
   const before = await readMiddle(page);
-  await page.evaluate(() => { window.scrollProbeDiagram = document.querySelector('[data-room-entry-id="entry-1"] svg'); });
+  await (await conversationView(page)).evaluate(() => { window.scrollProbeDiagram = document.querySelector('[data-room-entry-id="entry-1"] svg'); });
   await stream.update(() => {});
   await expectSamePosition(page, before);
-  expect(await page.evaluate(() => scrollProbeEntry.isConnected && scrollProbeDiagram.isConnected)).toBe(true);
+  expect(await (await conversationView(page)).evaluate(() => scrollProbeEntry.isConnected && scrollProbeDiagram.isConnected)).toBe(true);
 });
 
 test('keyboard viewport changes preserve history and bottom following', async ({ page }) => {
   await mockVisualViewport(page, { iosStandalone: true });
   await openScrollingRoom(page);
   const before = await readMiddle(page);
-  await page.evaluate(() => setTestVisualViewport({ height: 600, offsetTop: 40, scale: 1 }));
+  await (await conversationView(page)).evaluate(() => setTestVisualViewport({ height: 600, offsetTop: 40, scale: 1 }));
   await expectSamePosition(page, before);
-  await page.evaluate(() => {
+  await (await conversationView(page)).evaluate(() => {
     const list = document.getElementById('room-message-list');
     list.scrollTo({ top: list.scrollHeight, behavior: 'instant' });
     setTestVisualViewport({ height: 500, offsetTop: 60, scale: 1 });
   });
-  await expect.poll(() => page.locator('#room-message-list').evaluate(list => list.scrollHeight - list.clientHeight - list.scrollTop)).toBeLessThan(2);
+  await expect.poll(async () => (await conversationView(page)).locator('#room-message-list').evaluate(list => list.scrollHeight - list.clientHeight - list.scrollTop)).toBeLessThan(2);
 });
 
 
 test('touch holds suppress text selection, cancel cleanly, and consume only one click', async ({ page }) => {
   await openScrollingRoom(page);
   await readMiddle(page);
-  const entryId = await page.evaluate(() => scrollProbeEntry.dataset.roomEntryId);
-  const entry = page.locator(`[data-room-entry-id="${entryId}"]`);
+  const entryId = await (await conversationView(page)).evaluate(() => scrollProbeEntry.dataset.roomEntryId);
+  const entry = (await conversationView(page)).locator(`[data-room-entry-id="${entryId}"]`);
   await entry.dispatchEvent('pointerdown', {pointerType:'touch', clientX:20, clientY:20});
   expect(await entry.locator('.room-entry-text').evaluate(el => {
     const style = getComputedStyle(el);
@@ -200,25 +201,25 @@ test('touch holds suppress text selection, cancel cleanly, and consume only one 
   await entry.dispatchEvent('pointermove', {pointerType:'touch', clientX:20, clientY:40});
   await expect(entry).not.toHaveClass(/room-entry-holding/);
   await page.waitForTimeout(600);
-  await expect(page.locator('#room-view')).not.toHaveClass(/room-selecting/);
+  await expect((await conversationView(page)).locator('#room-view')).not.toHaveClass(/room-selecting/);
   await entry.evaluate(el => { const range = document.createRange(); range.selectNodeContents(el.querySelector('.room-entry-text')); const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range); });
   await entry.dispatchEvent('pointerdown', {pointerType:'pen', clientX:20, clientY:20});
   await page.waitForTimeout(600);
-  expect(await page.evaluate(() => getSelection().toString())).toBe('');
+  expect(await (await conversationView(page)).evaluate(() => getSelection().toString())).toBe('');
   await entry.dispatchEvent('pointerup', {pointerType:'pen'});
   await entry.dispatchEvent('click');
-  await expect(page.locator('.room-context-chip.quote')).toHaveCount(1);
+  await expect((await conversationView(page)).locator('.room-context-chip.quote')).toHaveCount(1);
   await entry.dispatchEvent('click');
-  await expect(page.locator('.room-context-chip.quote')).toHaveCount(0);
+  await expect((await conversationView(page)).locator('.room-context-chip.quote')).toHaveCount(0);
 });
 
 test('desktop hover provides selection without moving text; mouse drag remains text selection', async ({ page }, testInfo) => {
   test.skip(testInfo.project.use.hasTouch, 'Mouse-specific entry point');
   await openScrollingRoom(page);
   await readMiddle(page);
-  const entryId = await page.evaluate(() => scrollProbeEntry.dataset.roomEntryId);
-  const entry = page.locator(`[data-room-entry-id="${entryId}"]`);
-  await page.locator('#room-title').hover();
+  const entryId = await (await conversationView(page)).evaluate(() => scrollProbeEntry.dataset.roomEntryId);
+  const entry = (await conversationView(page)).locator(`[data-room-entry-id="${entryId}"]`);
+  await (await conversationView(page)).locator('#room-title').hover();
   const before = await entry.locator('.room-entry-column').boundingBox();
   await entry.hover();
   await expect(entry.locator('.room-selection-circle')).toBeVisible();
@@ -226,17 +227,17 @@ test('desktop hover provides selection without moving text; mouse drag remains t
   await entry.dispatchEvent('pointerdown', {pointerType:'mouse', clientX:20, clientY:20});
   await page.waitForTimeout(600);
   await expect(entry).not.toHaveClass(/room-entry-holding/);
-  await expect(page.locator('#room-view')).not.toHaveClass(/room-selecting/);
+  await expect((await conversationView(page)).locator('#room-view')).not.toHaveClass(/room-selecting/);
   await entry.dispatchEvent('pointerup', {pointerType:'mouse'});
   const text = await entry.locator('.room-entry-text p').first().boundingBox();
   await page.mouse.move(text.x + 2, text.y + text.height / 2);
   await page.mouse.down();
   await page.mouse.move(text.x + 70, text.y + text.height / 2, { steps:10 });
   await page.mouse.up();
-  expect(await page.evaluate(() => getSelection().toString().length)).toBeGreaterThan(0);
+  expect(await (await conversationView(page)).evaluate(() => getSelection().toString().length)).toBeGreaterThan(0);
   await entry.locator('.room-selection-circle').click();
   await expect(entry).toHaveClass(/selected/);
   expect(await entry.locator('.room-entry-column').boundingBox()).toEqual(before);
   await page.keyboard.press('Escape');
-  await expect(page.locator('#room-view')).not.toHaveClass(/room-selecting/);
+  await expect((await conversationView(page)).locator('#room-view')).not.toHaveClass(/room-selecting/);
 });

@@ -1,3 +1,4 @@
+const { conversationView } = require('./helpers/conversation');
 const { test, expect } = require('@playwright/test');
 
 async function checkedJSON(response) {
@@ -48,12 +49,12 @@ for (const [toolKey, defaultName] of [['codex', 'codex'], ['claude-code', 'claud
       await page.goto('/', { waitUntil: 'networkidle' });
       await expect(page.locator(`.session-card[data-session-id="${session.id}"] .session-name`)).toHaveText(defaultName);
       await page.evaluate(session => joinSession(session.id, session.name, session.toolKey), metadata);
-      await expect(page.locator('#session-title')).toHaveText(defaultName);
+      await expect((await conversationView(page)).locator('#session-title')).toHaveText(defaultName);
       await checkedJSON(await page.request.patch(`/api/sessions/${session.id}`, { data: { name: 'Explicit name' } }));
-      await expect(page.locator('#session-title')).toHaveText('Explicit name');
+      await expect((await conversationView(page)).locator('#session-title')).toHaveText('Explicit name');
       const cleared = await checkedJSON(await page.request.patch(`/api/sessions/${session.id}`, { data: { name: '' } }));
       expect(cleared.name).toBe(defaultName);
-      await expect(page.locator('#session-title')).toHaveText(defaultName);
+      await expect((await conversationView(page)).locator('#session-title')).toHaveText(defaultName);
       expect((await getGroup(page, group.id)).members[0].displayName).toBe(defaultName);
     } finally {
       await deleteFixtures(page, [group], [session]);
@@ -95,8 +96,8 @@ test('Claude group member queries real MCP summaries, details and C to B to A re
     expect(result.references.nodes.some(node => node.quotedEntryIds?.includes(a.id))).toBe(true);
     await page.goto('/', { waitUntil: 'networkidle' });
     await page.evaluate(id => openRoom(id), group.id);
-    await expect(page.locator('#room-view')).toBeVisible();
-    await expect(page.locator('#room-message-list')).toContainText(prefix);
+    await expect((await conversationView(page)).locator('#room-view')).toBeVisible();
+    await expect((await conversationView(page)).locator('#room-message-list')).toContainText(prefix);
   } finally {
     await deleteFixtures(page, [group], sessions);
   }
@@ -122,11 +123,11 @@ test('Claude rename, individual resume, group resume and fork share session-owne
     }));
     await page.goto('/', { waitUntil: 'networkidle' });
     await page.evaluate(session => joinSession(session.id, 'Stale window title', 'claude-code'), original);
-    await expect(page.locator('#session-title')).toHaveText('Canonical renamed');
+    await expect((await conversationView(page)).locator('#session-title')).toHaveText('Canonical renamed');
     await checkedJSON(await page.request.patch(`/api/sessions/${original.id}`, {
       data: { name: 'Renamed while connected' }
     }));
-    await expect(page.locator('#session-title')).toHaveText('Renamed while connected');
+    await expect((await conversationView(page)).locator('#session-title')).toHaveText('Renamed while connected');
 
     // Force reconstruction rather than reusing a live session.
     await page.request.delete(`/api/sessions/${original.id}`);

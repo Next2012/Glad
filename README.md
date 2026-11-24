@@ -9,6 +9,13 @@ It runs the official **Codex**, **Claude Code**, and **Antigravity** CLIs on you
 
 ![Glad AI mobile interface](./assets/demo.jpg)
 
+<details>
+<summary>Desktop conversation tabs</summary>
+
+![Glad desktop conversation tabs](./assets/desktop-tabs.png)
+
+</details>
+
 ### Demo Video
 
 Watch how Glad brings terminal AI tools to your mobile device seamlessly:
@@ -36,18 +43,18 @@ Our design philosophy is **Easy to use, Stable, and Restrained**. Glad focuses s
 
 - **Session management:** Run multiple sessions from a single dashboard with per-session working directories.
 - **Long conversations:** Load group history automatically in pages of 48 messages near the top, preserving the current reading position. Each session's latest question and answer load in full; older messages show three-line previews and fetch full text when expanded. Closing a group cleans up idle sessions that are not shared with another open group while preserving active work and saved histories.
-- **Multi-session group chat:** Start an empty group, add live Codex, Claude, and Antigravity sessions, explicitly @mention targets, and quote selected messages. Resume saved group history into the current group or Fork an independent copy. Groups support live updates, Stop/recovery cancellation, scheduled messages, completion indicators, and desktop tiles without drag reordering; provider histories and attachments remain owned by the member sessions.
+- **Multi-session group chat:** Start an empty group, add live Codex, Claude, and Antigravity sessions, explicitly @mention targets, and quote selected messages. Resume saved group history into the current group or Fork an independent copy. Groups support live updates, Stop/recovery cancellation, scheduled messages, completion indicators, and desktop conversation tabs; provider histories and attachments remain owned by the member sessions.
 - **Group supervision:** Use the group Supervisor panel to schedule a session to inspect and direct selected members through Glad MCP tools. Choose read/stop/send permissions per target, and set the delay after the **supervisor's own check completes**. Query selected turn summaries and complete details, inspect original transcripts, answer Codex questions during work, and wake checks early for new questions. Pause recurring monitoring, run a single check, or stop the current run independently. Read live output, stop, and send commands manually from Members → Controls. [Supervisor guide](docs/supervisors.md).
 - **Message references:** Hold a group message to enter selection mode, tap messages to toggle references, and use Cancel or Preview at the top. Group MCP tools can read shared history, filter by session name, and follow nested references. Other group members may keep running while you send to idle targets.
-- **Session ordering:** Hold a lobby card for three seconds to drag it, with automatic edge scrolling for long lists. Drag a tiled session's header to reorder its current page. Both views share the order, saved as a browser-local layout preference.
-- **Responsive workspace:** Use a resizable session sidebar or a live tiled multi-session dashboard on wide screens, and focused lobby/chat pages on mobile, with light and dark themes.
+- **Session ordering:** Hold a lobby card for three seconds to drag it, with automatic edge scrolling for long lists. The order is saved as a browser-local layout preference.
+- **Responsive workspace:** Use a resizable, independently collapsible sidebar on wide screens. Connect opens single conversations and groups in persistent tabs that retain reading position, drafts, attachments, and expanded content. Closing a tab leaves accepted tasks running. Mobile keeps focused lobby/chat pages, with light and dark themes.
 - **Diagrams and formulas:** Render Mermaid code blocks and inline/display LaTeX in Codex, Claude, and Antigravity conversations, including restored messages and tiled previews. Mermaid, KaTeX, and fonts are bundled locally; diagrams follow the theme and keep their source available.
 - **Markdown formatting:** Nested lists, task checkboxes, strikethrough, aligned tables, reference links, automatic URL/email links, and full heading levels. Relative file and image links resolve inside the conversation's working directory.
-- **File attachments:** Upload images or arbitrary local files from the composer; Glad stores them privately for the active session and cleans them up automatically.
+- **File attachments:** Upload images and local files without a Glad attachment-count limit in conversations, groups, and Codex question replies. Each file can be up to 50 MB; downstream service capabilities still apply. Attachments are stored privately for their session and cleaned up automatically.
 - **Local usage dashboard:** For Codex and Claude, select a week or month, compare per-model and daily token totals, and inspect model-stacked token and cost charts through the bundled read-only `ccusage` engine. Costs use `ccusage` model-price estimates, with unknown prices and partial totals identified. Reports are cached in memory and refreshed in the background; public price downloads are enabled by default and can be disabled with Only offline. [Usage and pricing configuration](docs/usage.md).
 - **Structured provider sessions:** Native streaming, approvals, resume, fork, model, effort, sandbox, and context controls for Codex and Claude. Codex model, effort, and permission choices persist as Glad defaults for new sessions, with a separate explicit action to update Codex's global defaults. Supported Codex models offer a Fast switch that applies to the next turn; new Glad sessions start with Fast off.
 - **Grouped session list:** Sessions belonging to live groups appear in a collapsed section at the bottom of the Sessions list. Expand a group to connect to its sessions. Shared sessions appear under each group, and sessions return to the main list when they leave their last live group.
-- **Codex question replies:** Answer pending questions in cards or a bottom reply panel on phones. Async replies can include up to five images and remain available after the turn completes until a new turn starts.
+- **Codex question replies:** Answer pending questions in cards or a bottom reply panel on phones. Async replies can include images without a Glad count limit and remain available after the turn completes until a new turn starts.
 - **Codex capacity recovery:** When the main task fails because the model is overloaded, Glad sends `继续` in the same conversation after 30 seconds, with up to five automatic retries. Stop cancels a pending retry. Intermediate failures do not trigger completion notifications; success or final failure does.
 - **Claude structured workflows:** Answer Claude questions in dedicated cards, follow Todo/Task progress and subagents, inspect combined usage and context status, compact context, and launch prompts, skills, or commands from the shared action rail.
 - **Claude history browsing:** Sort and paginate current-directory Claude sessions, preview recent messages, then explicitly resume or fork the selected conversation.

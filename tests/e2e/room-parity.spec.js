@@ -1,3 +1,4 @@
+const { conversationView, closeConversation } = require('./helpers/conversation');
 const { test, expect } = require('@playwright/test');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -27,13 +28,13 @@ async function connectGroup(page, id) {
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.locator('#lobby-tab-rooms').click();
   await page.locator(`.room-list-card[data-room-id="${id}"] .btn-join`).click();
-  await expect(page.locator('#room-send-button')).toBeEnabled();
+  await expect((await conversationView(page)).locator('#room-send-button')).toBeEnabled();
 }
 
 async function mentionMembers(page, count) {
-  await page.locator('#room-mention-button').click();
-  for (let i = 0; i < count; i++) await page.locator('.room-mention-option').nth(i).click();
-  await page.locator('.room-mention-picker-title button').click();
+  await (await conversationView(page)).locator('#room-mention-button').click();
+  for (let i = 0; i < count; i++) await (await conversationView(page)).locator('.room-mention-option').nth(i).click();
+  await (await conversationView(page)).locator('.room-mention-picker-title button').click();
 }
 
 test('group retries an uncertain send with the same ID and preserves the draft until accepted', async ({ page }) => {
@@ -50,17 +51,17 @@ test('group retries an uncertain send with the same ID and preserves the draft u
       } else await route.continue();
     });
     page.on('dialog', dialog => dialog.accept());
-    await page.locator('#room-input').fill('A line');
-    await page.locator('#room-input').press('Enter');
-    await expect(page.locator('#room-input')).toHaveValue('A line\n');
+    await (await conversationView(page)).locator('#room-input').fill('A line');
+    await (await conversationView(page)).locator('#room-input').press('Enter');
+    await expect((await conversationView(page)).locator('#room-input')).toHaveValue('A line\n');
     expect(bodies).toHaveLength(0);
-    await page.locator('#room-input').fill('Keep exactly one message');
-    await page.locator('#room-send-button').click();
-    await expect(page.locator('#room-send-button')).toBeEnabled();
-    await expect(page.locator('#room-input')).toHaveValue('Keep exactly one message');
-    await page.locator('#room-send-button').click();
-    await expect(page.locator('#room-input')).toHaveValue('');
-    await expect(page.locator('.room-entry.user')).toHaveCount(1);
+    await (await conversationView(page)).locator('#room-input').fill('Keep exactly one message');
+    await (await conversationView(page)).locator('#room-send-button').click();
+    await expect((await conversationView(page)).locator('#room-send-button')).toBeEnabled();
+    await expect((await conversationView(page)).locator('#room-input')).toHaveValue('Keep exactly one message');
+    await (await conversationView(page)).locator('#room-send-button').click();
+    await expect((await conversationView(page)).locator('#room-input')).toHaveValue('');
+    await expect((await conversationView(page)).locator('.room-entry.user')).toHaveCount(1);
     expect(bodies).toHaveLength(2);
     expect(bodies[1].clientMessageId).toBe(bodies[0].clientMessageId);
   } finally { await group.cleanup(); }
@@ -76,15 +77,15 @@ test('group preserves rejected input and gives a corrected send a fresh ID', asy
       if (new URL(request.url()).pathname === `/api/rooms/${group.room.id}/messages` && request.method() === 'POST') ids.push(request.postDataJSON().clientMessageId);
     });
     page.on('dialog', dialog => dialog.accept());
-    await page.locator('#room-input').fill('__GLAD_E2E_FAIL_SEND__ keep this draft');
-    await page.locator('#room-send-button').click();
-    await expect(page.locator('#room-send-button')).toBeEnabled();
-    await expect(page.locator('#room-input')).toHaveValue('__GLAD_E2E_FAIL_SEND__ keep this draft');
-    await expect(page.locator('.room-entry.session')).toContainText('forced send failure');
-    await page.locator('#room-input').fill('__GLAD_E2E_SUBAGENT_LIFECYCLE__ corrected send');
-    await page.locator('#room-send-button').click();
-    await expect(page.locator('#room-input')).toHaveValue('');
-    await expect(page.locator('.room-entry.session').last()).toContainText('root completed after child', { timeout: 10000 });
+    await (await conversationView(page)).locator('#room-input').fill('__GLAD_E2E_FAIL_SEND__ keep this draft');
+    await (await conversationView(page)).locator('#room-send-button').click();
+    await expect((await conversationView(page)).locator('#room-send-button')).toBeEnabled();
+    await expect((await conversationView(page)).locator('#room-input')).toHaveValue('__GLAD_E2E_FAIL_SEND__ keep this draft');
+    await expect((await conversationView(page)).locator('.room-entry.session')).toContainText('forced send failure');
+    await (await conversationView(page)).locator('#room-input').fill('__GLAD_E2E_SUBAGENT_LIFECYCLE__ corrected send');
+    await (await conversationView(page)).locator('#room-send-button').click();
+    await expect((await conversationView(page)).locator('#room-input')).toHaveValue('');
+    await expect((await conversationView(page)).locator('.room-entry.session').last()).toContainText('root completed after child', { timeout: 10000 });
     expect(ids).toHaveLength(2);
     expect(ids[0]).not.toBe(ids[1]);
   } finally { await group.cleanup(); }
@@ -98,26 +99,26 @@ test('group timers can be edited and deleted and execute the selected members th
     await connectGroup(page, group.room.id);
     await mentionMembers(page, 1);
     for (const theme of ['light', 'dark']) {
-      await page.evaluate(value => setGladTheme(value), theme);
-      await page.locator('#room-input').fill(`Scheduled ${theme} message`);
-      await page.locator('#room-schedule-send-btn').click();
-      await expect(page.getByRole('group', { name: 'Group scheduled send' })).toBeVisible();
-      await page.getByLabel('Group timer hours').selectOption('1');
-      await page.getByLabel('Group timer minutes').selectOption('5');
-      await page.locator('#room-timed-save-btn').click();
-      const tag = page.locator('#room-timed-tag-rail .timed-tag');
+      await (await conversationView(page)).evaluate(value => setGladTheme(value), theme);
+      await (await conversationView(page)).locator('#room-input').fill(`Scheduled ${theme} message`);
+      await (await conversationView(page)).locator('#room-schedule-send-btn').click();
+      await expect((await conversationView(page)).getByRole('group', { name: 'Group scheduled send' })).toBeVisible();
+      await (await conversationView(page)).getByLabel('Group timer hours').selectOption('1');
+      await (await conversationView(page)).getByLabel('Group timer minutes').selectOption('5');
+      await (await conversationView(page)).locator('#room-timed-save-btn').click();
+      const tag = (await conversationView(page)).locator('#room-timed-tag-rail .timed-tag');
       await expect(tag).toHaveCount(1);
       await expect(tag).toContainText(/1h \d{2}m/);
       await tag.click();
-      await expect(page.locator('#room-input')).toHaveValue(`Scheduled ${theme} message`);
-      await expect(page.locator('#room-context-chips')).toContainText('@Member 1');
-      await page.getByLabel('Group timer minutes').selectOption('6');
-      await page.locator('#room-timed-save-btn').click();
-      await expect(page.locator('#room-timed-editor-actions')).toBeHidden();
+      await expect((await conversationView(page)).locator('#room-input')).toHaveValue(`Scheduled ${theme} message`);
+      await expect((await conversationView(page)).locator('#room-context-chips')).toContainText('@Member 1');
+      await (await conversationView(page)).getByLabel('Group timer minutes').selectOption('6');
+      await (await conversationView(page)).locator('#room-timed-save-btn').click();
+      await expect((await conversationView(page)).locator('#room-timed-editor-actions')).toBeHidden();
       await tag.click();
-      await page.locator('#room-timed-delete-btn').click();
+      await (await conversationView(page)).locator('#room-timed-delete-btn').click();
       await expect(tag).toHaveCount(0);
-      await page.locator('#room-schedule-send-btn').click();
+      await (await conversationView(page)).locator('#room-schedule-send-btn').click();
     }
     const view = await (await page.request.get(`/api/rooms/${group.room.id}`)).json();
     const response = await page.request.post(`/api/rooms/${group.room.id}/timed-inputs`, { data: {
@@ -125,10 +126,10 @@ test('group timers can be edited and deleted and execute the selected members th
       mentionedMemberIds: [view.members[0].id]
     } });
     expect(response.ok()).toBe(true);
-    await expect(page.locator('#room-timed-tag-rail .timed-tag')).toHaveCount(1);
-    await expect(page.locator('.room-entry.user')).toContainText('scheduled group message');
-    await expect(page.locator('.room-entry.session')).toContainText('root completed after child', { timeout: 10000 });
-    await expect(page.locator('#room-timed-tag-rail .timed-tag')).toHaveCount(0);
+    await expect((await conversationView(page)).locator('#room-timed-tag-rail .timed-tag')).toHaveCount(1);
+    await expect((await conversationView(page)).locator('.room-entry.user')).toContainText('scheduled group message');
+    await expect((await conversationView(page)).locator('.room-entry.session')).toContainText('root completed after child', { timeout: 10000 });
+    await expect((await conversationView(page)).locator('#room-timed-tag-rail .timed-tag')).toHaveCount(0);
     expect(errors).toEqual([]);
   } finally { await group.cleanup(); }
 });
@@ -138,15 +139,15 @@ test('group stops all running members and acknowledges completion only while vis
   try {
     await connectGroup(page, group.room.id);
     await mentionMembers(page, 2);
-    await page.locator('#room-input').fill('__GLAD_E2E_PLAN_HOLD__ stop both members');
-    await page.locator('#room-send-button').click();
-    await expect(page.getByRole('button', { name: 'Stop group', exact: true })).toBeEnabled();
-    await page.locator('#room-input').fill('Save a note while members are running');
-    await page.locator('#room-input').press('Shift+Enter');
-    await expect(page.locator('#room-input')).toHaveValue('');
-    await expect(page.locator('.room-entry.user')).toHaveCount(2);
-    await page.getByRole('button', { name: 'Stop group', exact: true }).click();
-    await expect(page.locator('#room-send-button')).toBeEnabled();
+    await (await conversationView(page)).locator('#room-input').fill('__GLAD_E2E_PLAN_HOLD__ stop both members');
+    await (await conversationView(page)).locator('#room-send-button').click();
+    await expect((await conversationView(page)).getByRole('button', { name: 'Stop group', exact: true })).toBeEnabled();
+    await (await conversationView(page)).locator('#room-input').fill('Save a note while members are running');
+    await (await conversationView(page)).locator('#room-input').press('Shift+Enter');
+    await expect((await conversationView(page)).locator('#room-input')).toHaveValue('');
+    await expect((await conversationView(page)).locator('.room-entry.user')).toHaveCount(2);
+    await (await conversationView(page)).getByRole('button', { name: 'Stop group', exact: true }).click();
+    await expect((await conversationView(page)).locator('#room-send-button')).toBeEnabled();
     // Sending is enabled as soon as any member is idle; stopping the whole
     // group must wait for every provider to acknowledge its interruption.
     await expect.poll(async () => {
@@ -155,9 +156,9 @@ test('group stops all running members and acknowledges completion only while vis
     }).toBe(true);
 
     await mentionMembers(page, 2);
-    await page.locator('#room-input').fill('__GLAD_E2E_PLAN_HOLD__ finish while hidden');
-    await page.locator('#room-send-button').click();
-    await page.locator('.room-back-button').click();
+    await (await conversationView(page)).locator('#room-input').fill('__GLAD_E2E_PLAN_HOLD__ finish while hidden');
+    await (await conversationView(page)).locator('#room-send-button').click();
+    await closeConversation(page, '.room-back-button');
     const response = await page.request.post(`/api/rooms/${group.room.id}/abort`);
     expect(response.ok()).toBe(true);
     const card = page.locator(`.room-list-card[data-room-id="${group.room.id}"]`);
@@ -178,15 +179,15 @@ test('group history is sortable and loads bounded pages', async ({ page }, testI
       await page.request.delete(`/api/rooms/${saved.id}`);
     }
     await connectGroup(page, group.room.id);
-    await page.locator('#room-history-resume').click();
-    await expect(page.locator('.room-history-item')).toHaveCount(20);
-    await page.locator('#room-history-panel').getByRole('button', { name: 'Load more', exact: true }).click();
-    await expect(page.locator('.room-history-item')).toHaveCount(40);
+    await (await conversationView(page)).locator('#room-history-resume').click();
+    await expect((await conversationView(page)).locator('.room-history-item')).toHaveCount(20);
+    await (await conversationView(page)).locator('#room-history-panel').getByRole('button', { name: 'Load more', exact: true }).click();
+    await expect((await conversationView(page)).locator('.room-history-item')).toHaveCount(40);
     const request = page.waitForRequest(request => new URL(request.url()).pathname === '/api/room-history' && new URL(request.url()).searchParams.get('sort') === 'created_at');
-    await page.getByLabel('Group history sort').selectOption('created_at');
+    await (await conversationView(page)).getByLabel('Group history sort').selectOption('created_at');
     await request;
-    await expect(page.locator('.room-history-item')).toHaveCount(20);
-    const idsOnPage = await page.locator('.room-history-item').evaluateAll(items => items.map(item => item.dataset.roomHistoryId));
+    await expect((await conversationView(page)).locator('.room-history-item')).toHaveCount(20);
+    const idsOnPage = await (await conversationView(page)).locator('.room-history-item').evaluateAll(items => items.map(item => item.dataset.roomHistoryId));
     expect(new Set(idsOnPage).size).toBe(20);
   } finally {
     await group.cleanup();
@@ -201,7 +202,7 @@ test('group tiles receive live messages and open the group without enabling reor
   page.on('pageerror', error => errors.push(error.message));
   try {
     await page.goto('/', { waitUntil: 'networkidle' });
-    await page.locator('#lobby-collapse-button').click();
+    await page.evaluate(() => toggleTiledMode());
     const tile = page.locator(`.tile-group-window[data-room-id="${group.room.id}"]`);
     await expect(tile).toBeVisible();
     await expect(tile.locator('.tile-chat-surface')).toContainText('This group is empty');
@@ -212,11 +213,11 @@ test('group tiles receive live messages and open the group without enabling reor
     await expect(tile.locator('.tile-chat-surface')).toContainText('root completed after child', { timeout: 10000 });
     await expect(tile.locator('.tile-session-header')).toHaveAttribute('title', 'Group chat');
     await tile.locator('.btn-join').click();
-    await expect(page.locator('#room-title')).toHaveText('Group parity (1)');
-    await expect(page.locator('#room-input')).toBeVisible();
+    await expect((await conversationView(page)).locator('#room-title')).toHaveText('Group parity (1)');
+    await expect((await conversationView(page)).locator('#room-input')).toBeVisible();
     await page.locator('#tile-return-button').click();
     await expect(tile).toBeVisible();
-    await expect(page.locator('#room-view')).toBeHidden();
+    await expect((await conversationView(page)).locator('#room-view')).toBeHidden();
     expect(errors).toEqual([]);
   } finally { await group.cleanup(); }
 });
@@ -234,13 +235,13 @@ for (const operation of ['resume', 'fork']) {
       await page.request.delete(`/api/sessions/${source.sessions[0]}`);
       await page.request.delete(`/api/rooms/${source.room.id}`);
       await connectGroup(page, current.room.id);
-      await page.locator(`#room-history-${operation}`).click();
-      const item = page.locator(`.room-history-item[data-room-history-id="${source.room.id}"]`);
+      await (await conversationView(page)).locator(`#room-history-${operation}`).click();
+      const item = (await conversationView(page)).locator(`.room-history-item[data-room-history-id="${source.room.id}"]`);
       await item.getByRole('button', { name: operation === 'resume' ? 'Resume' : 'Fork', exact: true }).click();
-      await expect(page.locator('#room-run-status')).toContainText(operation === 'resume' ? 'Restoring' : 'Forking');
+      await expect((await conversationView(page)).locator('#room-run-status')).toContainText(operation === 'resume' ? 'Restoring' : 'Forking');
       page.on('dialog', dialog => dialog.accept());
-      await page.getByRole('button', { name: 'Cancel group recovery', exact: true }).click();
-      await expect(page.locator('#room-send-button')).toBeEnabled({ timeout: 10000 });
+      await (await conversationView(page)).getByRole('button', { name: 'Cancel group recovery', exact: true }).click();
+      await expect((await conversationView(page)).locator('#room-send-button')).toBeEnabled({ timeout: 10000 });
       const unchanged = await (await page.request.get(`/api/rooms/${current.room.id}`)).json();
       expect(unchanged.historyId).toBe(current.room.id);
       expect(unchanged.members).toEqual([]);

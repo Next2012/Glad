@@ -1,3 +1,4 @@
+const { conversationView } = require('./helpers/conversation');
 const { test, expect } = require('@playwright/test');
 
 async function saveEvidence(page, testInfo, name) {
@@ -12,15 +13,15 @@ async function createAntigravitySession(page) {
   const { id } = await created.json();
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.locator(`.session-card[data-session-id="${id}"]`).getByRole('button', { name: 'Connect' }).click();
-  await page.waitForFunction(() => activeSessionHydrated && antigravityState.status === 'idle');
+  await (await conversationView(page)).waitForFunction(() => activeSessionHydrated && antigravityState.status === 'idle');
   return id;
 }
 
 async function completeMetricsTurn(page) {
-  await page.locator('#cmd-input').fill('agy-metrics');
-  await page.locator('#send-btn').click();
-  await expect(page.locator('#antigravity-chat-container')).toContainText('AGY metrics fixture completed');
-  await page.waitForFunction(() => antigravityState.status === 'idle');
+  await (await conversationView(page)).locator('#cmd-input').fill('agy-metrics');
+  await (await conversationView(page)).locator('#send-btn').click();
+  await expect((await conversationView(page)).locator('#antigravity-chat-container')).toContainText('AGY metrics fixture completed');
+  await (await conversationView(page)).waitForFunction(() => antigravityState.status === 'idle');
 }
 
 test('Antigravity native output updates the speed badge, statistics and reconnect metadata', async ({ page }, testInfo) => {
@@ -34,28 +35,28 @@ test('Antigravity native output updates the speed badge, statistics and reconnec
     expect(report.last.rate).toBeGreaterThan(0);
     expect(Number.isFinite(report.last.rate)).toBe(true);
     expect(report.last.observedMs).toBeGreaterThan(0);
-    const badge = page.locator('#session-speed-button');
+    const badge = (await conversationView(page)).locator('#session-speed-button');
     await expect(badge).toBeVisible();
     await expect(badge).toHaveAttribute('title', /≈[\d,.]+ tok\/s/);
     expect(await badge.evaluate(button => button.nextElementSibling.title)).toBe('History');
     await saveEvidence(page, testInfo, 'antigravity-speed-badge');
     await badge.click();
-    const dialog = page.getByRole('dialog', { name: 'Effective output speed', exact: true });
+    const dialog = (await conversationView(page)).getByRole('dialog', { name: 'Effective output speed', exact: true });
     await expect(dialog).toBeVisible();
-    const sample = page.locator(`.speed-turn[data-speed-sample="${report.last.id}"]`);
+    const sample = (await conversationView(page)).locator(`.speed-turn[data-speed-sample="${report.last.id}"]`);
     await expect(sample).toContainText('gemini-3.1-pro');
     await sample.locator(':scope > summary').click();
     await expect(sample.locator('dd').first()).toHaveText('80');
     await expect(sample).toContainText('Thinking tokens (included in output)');
     await expect(sample.locator('dt').filter({ hasText: /^Cached input tokens$/ })).toBeVisible();
-    await expect(page.locator('.speed-latest-speed')).toContainText('tok/s');
-    await page.getByRole('tab', { name: 'Hourly', exact: true }).click();
-    await expect(page.locator('.speed-hours tbody tr')).toHaveCount(24);
-    const modelScope = page.getByRole('button', { name: 'Same model', exact: true });
+    await expect((await conversationView(page)).locator('.speed-latest-speed')).toContainText('tok/s');
+    await (await conversationView(page)).getByRole('tab', { name: 'Hourly', exact: true }).click();
+    await expect((await conversationView(page)).locator('.speed-hours tbody tr')).toHaveCount(24);
+    const modelScope = (await conversationView(page)).getByRole('button', { name: 'Same model', exact: true });
     await expect(modelScope).toBeEnabled();
     await modelScope.click();
-    await expect(page.locator('.speed-scope-caption')).toContainText('gemini-3.1-pro');
-    const bounds = await page.locator('.session-speed-panel').evaluate(panel => {
+    await expect((await conversationView(page)).locator('.speed-scope-caption')).toContainText('gemini-3.1-pro');
+    const bounds = await (await conversationView(page)).locator('.session-speed-panel').evaluate(panel => {
       const box = panel.getBoundingClientRect();
       return { left: box.left, right: box.right, viewport: innerWidth, content: panel.scrollWidth, width: panel.clientWidth };
     });
@@ -63,19 +64,19 @@ test('Antigravity native output updates the speed badge, statistics and reconnec
     expect(bounds.right).toBeLessThanOrEqual(bounds.viewport + 1);
     expect(bounds.content).toBeLessThanOrEqual(bounds.width + 1);
     await saveEvidence(page, testInfo, 'antigravity-speed-statistics');
-    await page.getByRole('button', { name: 'Close speed statistics', exact: true }).click();
+    await (await conversationView(page)).getByRole('button', { name: 'Close speed statistics', exact: true }).click();
 
     const metadata = await (await page.request.get(`/api/sessions/${id}/metadata`)).json();
     expect(metadata.speed.id).toBe(report.last.id);
-    await page.evaluate(() => { window.__metricsPreviousSocket = currentSocket; currentSocket.close(); });
-    await page.waitForFunction(() => currentSocket !== window.__metricsPreviousSocket && currentSocket?.readyState === WebSocket.OPEN);
-    await expect.poll(() => page.evaluate(() => antigravityState.lastSpeed?.id)).toBe(report.last.id);
+    await (await conversationView(page)).evaluate(() => { window.__metricsPreviousSocket = currentSocket; currentSocket.close(); });
+    await (await conversationView(page)).waitForFunction(() => currentSocket !== window.__metricsPreviousSocket && currentSocket?.readyState === WebSocket.OPEN);
+    await expect.poll(async () => (await conversationView(page)).evaluate(() => antigravityState.lastSpeed?.id)).toBe(report.last.id);
     await expect(badge).toHaveAttribute('title', /≈[\d,.]+ tok\/s/);
     await page.reload({ waitUntil: 'networkidle' });
     await page.evaluate(id => joinSession(id, 'Antigravity metrics', 'antigravity'), id);
-    await page.waitForFunction(() => activeSessionHydrated && antigravityState.status === 'idle');
+    await (await conversationView(page)).waitForFunction(() => activeSessionHydrated && antigravityState.status === 'idle');
     await expect(badge).toHaveAttribute('title', /≈[\d,.]+ tok\/s/);
-    await expect.poll(() => page.evaluate(() => antigravityState.lastSpeed?.id)).toBe(report.last.id);
+    await expect.poll(async () => (await conversationView(page)).evaluate(() => antigravityState.lastSpeed?.id)).toBe(report.last.id);
   } finally {
     await page.request.delete(`/api/sessions/${id}`);
   }
@@ -84,9 +85,9 @@ test('Antigravity native output updates the speed badge, statistics and reconnec
 test('Antigravity native model and thinking choices synchronize with compact status and quota', async ({ page }, testInfo) => {
   const id = await createAntigravitySession(page);
   try {
-    const modelTrigger = page.locator('#antigravity-model-btn');
+    const modelTrigger = (await conversationView(page)).locator('#antigravity-model-btn');
     await modelTrigger.click();
-    const panel = page.locator('#antigravity-model-panel');
+    const panel = (await conversationView(page)).locator('#antigravity-model-panel');
     await expect(panel).toBeVisible();
     await expect(modelTrigger).toHaveAttribute('aria-expanded', 'true');
     const model = panel.locator('[data-agy-config-choice="model"][data-agy-value="claude-sonnet-4.6"]');
@@ -107,8 +108,8 @@ test('Antigravity native model and thinking choices synchronize with compact sta
     await expect(panel).not.toBeVisible();
     await expect(modelTrigger).toHaveAttribute('aria-expanded', 'false');
 
-    await page.locator('#antigravity-status-btn').click();
-    const status = page.locator('#antigravity-chat-container .antigravity-status').last();
+    await (await conversationView(page)).locator('#antigravity-status-btn').click();
+    const status = (await conversationView(page)).locator('#antigravity-chat-container .antigravity-status').last();
     await expect(status).toHaveClass(/codex-status-card/);
     await expect(status.locator(':scope > .antigravity-status-summary')).toBeVisible();
     if (!await status.evaluate(card => card.open)) await status.locator(':scope > summary').click();
@@ -118,7 +119,7 @@ test('Antigravity native model and thinking choices synchronize with compact sta
     await saveEvidence(page, testInfo, 'antigravity-native-status-quota');
     await status.locator(':scope > summary').click();
     await expect(status.locator('.antigravity-status-body')).not.toBeVisible();
-    await expect(page.locator('#send-btn')).toBeVisible();
+    await expect((await conversationView(page)).locator('#send-btn')).toBeVisible();
   } finally {
     await page.request.delete(`/api/sessions/${id}`);
   }
@@ -150,7 +151,7 @@ test('Antigravity observed tokens appear as their own usage provider and retain 
     expect(nativeModel.estimatedCostUSD).toBeNull();
     expect(report.summary.totals.estimatedCostUSD).toBeNull();
 
-    const pricingPreference = await page.evaluate(() => usageState.offlineOnly);
+    const pricingPreference = await (await conversationView(page)).evaluate(() => usageState.offlineOnly);
     await page.evaluate(() => showLobby());
     await page.getByTitle('Usage dashboard').click();
     const provider = page.locator('#usage-sources-list .usage-source-item').filter({ hasText: 'Antigravity' });
@@ -170,7 +171,7 @@ test('Antigravity observed tokens appear as their own usage provider and retain 
     await expect(page.locator('#usage-engine-note')).toContainText('native history is not backfilled');
     await expect(page.locator('#usage-engine-note')).not.toContainText('ccusage');
     await expect(page.locator('#usage-offline-only').locator('..')).toBeHidden();
-    expect(await page.evaluate(() => usageState.offlineOnly)).toBe(pricingPreference);
+    expect(await (await conversationView(page)).evaluate(() => usageState.offlineOnly)).toBe(pricingPreference);
     await saveEvidence(page, testInfo, 'antigravity-usage-dashboard-weekly');
     const monthly = page.waitForResponse(response => {
       const url = new URL(response.url());
@@ -187,7 +188,7 @@ test('Antigravity observed tokens appear as their own usage provider and retain 
       ...report, hasData: true, usageAvailable: false, availablePeriods: [], selectedPeriod: null,
       summary: { models: [], totals: { totalTokens: null, estimatedCostUSD: null } }, days: [], excludedSamples: 2
     } }));
-    await page.getByRole('button', { name: 'Refresh usage', exact: true }).click();
+    await (await conversationView(page)).getByRole('button', { name: 'Refresh usage', exact: true }).click();
     await expect(page.locator('#usage-loading')).toBeHidden();
     await expect(page.locator('#usage-model-summary')).toContainText('No usage in this period.');
     await expect(page.locator('#usage-engine-note')).toContainText('2 records with incomplete token counts');
@@ -200,7 +201,7 @@ test('an old Antigravity settings response cannot finish a newer request after A
   const requests = [];
   await page.route('**/api/sessions/epoch-a/antigravity-settings', route => { requests.push(route); });
   await page.goto('/', { waitUntil: 'networkidle' });
-  const initialEpoch = await page.evaluate(() => {
+  const initialEpoch = await (await conversationView(page)).evaluate(() => {
     activeToolKey = 'antigravity';
     document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
     document.getElementById('terminal-view').classList.add('active');
@@ -223,41 +224,41 @@ test('an old Antigravity settings response cannot finish a newer request after A
     window.__visitEpochSession('epoch-a');
     return antigravitySessionEpoch;
   });
-  await page.locator('#antigravity-model-btn').click();
-  await page.evaluate(() => { window.__oldEpochSettings = updateAntigravitySetting('model', 'obsolete'); });
+  await (await conversationView(page)).locator('#antigravity-model-btn').click();
+  await (await conversationView(page)).evaluate(() => { window.__oldEpochSettings = updateAntigravitySetting('model', 'obsolete'); });
   await expect.poll(() => requests.length).toBe(1);
-  await expect.poll(() => page.evaluate(() => antigravitySettingsPending)).toBe(true);
-  await page.evaluate(() => {
+  await expect.poll(async () => (await conversationView(page)).evaluate(() => antigravitySettingsPending)).toBe(true);
+  await (await conversationView(page)).evaluate(() => {
     window.__visitEpochSession('epoch-b');
     window.__visitEpochSession('epoch-a');
     window.__latestEpochSettings = updateAntigravitySetting('model', 'latest');
   });
   await expect.poll(() => requests.length).toBe(2);
-  expect(await page.evaluate(() => antigravitySessionEpoch)).toBe(initialEpoch + 2);
-  await page.locator('#antigravity-model-btn').click();
-  const latestChoice = page.locator('#antigravity-model-panel [data-agy-config-choice="model"][data-agy-value="latest"]');
+  expect(await (await conversationView(page)).evaluate(() => antigravitySessionEpoch)).toBe(initialEpoch + 2);
+  await (await conversationView(page)).locator('#antigravity-model-btn').click();
+  const latestChoice = (await conversationView(page)).locator('#antigravity-model-panel [data-agy-config-choice="model"][data-agy-value="latest"]');
   await expect(latestChoice).toBeDisabled();
-  await page.locator('#cmd-input').focus();
+  await (await conversationView(page)).locator('#cmd-input').focus();
   expect(requests[0].request().postDataJSON()).toEqual({ model: 'obsolete' });
   expect(requests[1].request().postDataJSON()).toEqual({ model: 'latest' });
-  const options = await page.evaluate(() => window.__epochOptions);
+  const options = await (await conversationView(page)).evaluate(() => window.__epochOptions);
   await requests[0].fulfill({ json: { success: true, state: {
     status: 'idle', epochLabel: 'obsolete-response', configOptions: options.map(option => ({ ...option, currentValue: 'obsolete' }))
   } } });
-  await page.evaluate(() => window.__oldEpochSettings);
-  expect(await page.evaluate(() => ({ pending: antigravitySettingsPending, label: antigravityState.epochLabel, model: antigravityState.configOptions[0].currentValue })))
+  await (await conversationView(page)).evaluate(() => window.__oldEpochSettings);
+  expect(await (await conversationView(page)).evaluate(() => ({ pending: antigravitySettingsPending, label: antigravityState.epochLabel, model: antigravityState.configOptions[0].currentValue })))
     .toEqual({ pending: true, label: 'current-visit', model: 'initial' });
   await expect(latestChoice).toBeDisabled();
-  await expect(page.locator('#send-btn')).toBeDisabled();
-  await expect(page.locator('#cmd-input')).toBeFocused();
+  await expect((await conversationView(page)).locator('#send-btn')).toBeDisabled();
+  await expect((await conversationView(page)).locator('#cmd-input')).toBeFocused();
   await requests[1].fulfill({ json: { success: true, state: {
     status: 'idle', epochLabel: 'latest-response', configOptions: options.map(option => ({ ...option, currentValue: 'latest' }))
   } } });
-  await page.evaluate(() => window.__latestEpochSettings);
-  expect(await page.evaluate(() => ({ pending: antigravitySettingsPending, label: antigravityState.epochLabel, model: antigravityState.configOptions[0].currentValue })))
+  await (await conversationView(page)).evaluate(() => window.__latestEpochSettings);
+  expect(await (await conversationView(page)).evaluate(() => ({ pending: antigravitySettingsPending, label: antigravityState.epochLabel, model: antigravityState.configOptions[0].currentValue })))
     .toEqual({ pending: false, label: 'latest-response', model: 'latest' });
   await expect(latestChoice).toBeEnabled();
   await expect(latestChoice).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('#antigravity-model-panel [data-agy-config="model"]')).toHaveValue('latest');
-  await expect(page.locator('#send-btn')).toBeEnabled();
+  await expect((await conversationView(page)).locator('#antigravity-model-panel [data-agy-config="model"]')).toHaveValue('latest');
+  await expect((await conversationView(page)).locator('#send-btn')).toBeEnabled();
 });

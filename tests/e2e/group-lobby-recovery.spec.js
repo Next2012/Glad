@@ -1,3 +1,4 @@
+const { conversationView } = require('./helpers/conversation');
 const { test, expect } = require('@playwright/test');
 
 for (const loader of ['loadRooms', 'loadSessions']) {
@@ -34,10 +35,10 @@ for (const loader of ['loadRooms', 'loadSessions']) {
       await started;
       await page.request.delete(`/api/rooms/${b.id}`);
       await expect.poll(() => page.evaluate(id => sessionListRooms.some(room => room.id === id), b.id)).toBe(false);
-      await page.locator('#room-history-resume').click();
-      await page.locator(`.room-history-item[data-room-history-id="${a.id}"]`)
+      await (await conversationView(page)).locator('#room-history-resume').click();
+      await (await conversationView(page)).locator(`.room-history-item[data-room-history-id="${a.id}"]`)
         .getByRole('button', { name: 'Resume', exact: true }).click();
-      await expect(page.locator('#room-title')).toHaveText('Saved A (0)');
+      await expect((await conversationView(page)).locator('#room-title')).toHaveText('Saved A (0)');
       await expect.poll(() => page.evaluate(id => sessionListRooms.find(room => room.id === id)?.name, destination.id)).toBe('Saved A');
       release();
       await page.evaluate(() => window.pendingLobbyRefresh);

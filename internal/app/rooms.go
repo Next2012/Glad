@@ -1120,6 +1120,11 @@ func (manager *RoomManager) roomMemberSourceMessages(member RoomMemberRecord) ([
 		session.mu.RLock()
 		conversationID := firstNonEmpty(sessionNativeConversationID(session), member.NativeConversationID)
 		messages := roomSourceMessages(session.Messages, conversationID)
+		// Projection and detail readers continue after releasing session.mu.
+		// Keep their message maps independent of live provider patches.
+		for index := range messages {
+			messages[index].Message = cloneMap(messages[index].Message)
+		}
 		session.mu.RUnlock()
 		return messages, conversationID, true
 	}

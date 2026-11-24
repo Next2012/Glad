@@ -1,3 +1,4 @@
+const { conversationView, closeConversation } = require('./helpers/conversation');
 const { test, expect } = require('@playwright/test');
 
 test('session groups collapse, share cards, update live, and clean idle orphan sessions on close', async ({ page }, testInfo) => {
@@ -73,15 +74,15 @@ test('session groups collapse, share cards, update live, and clean idle orphan s
 
     await toggle.click();
     await groupSection(first.id).getByRole('button', { name: 'Connect', exact: true }).first().click();
-    await expect(page.locator('#room-view')).toBeVisible();
-    expect(await page.locator('.room-action-rail > button').evaluateAll(buttons => buttons.map(button => button.id))).toEqual([
+    await expect((await conversationView(page)).locator('#room-view')).toBeVisible();
+    expect(await (await conversationView(page)).locator('.room-action-rail > button').evaluateAll(buttons => buttons.map(button => button.id))).toEqual([
       'room-mention-button', 'room-attachment-button', 'room-schedule-send-btn',
       'room-abort-button', 'room-history-resume', 'room-history-fork'
     ]);
-    await expect(page.locator('.room-header-actions #room-supervisor-open')).toBeVisible();
-    await expect(page.locator('.room-header-actions #room-members-open')).toBeVisible();
+    await expect((await conversationView(page)).locator('.room-header-actions #room-supervisor-open')).toBeVisible();
+    await expect((await conversationView(page)).locator('.room-header-actions #room-members-open')).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath('group-toolbar.png') });
-    await page.locator('.room-back-button').click();
+    await closeConversation(page, '.room-back-button');
     expect((await page.request.delete(`/api/rooms/${first.id}`)).ok()).toBe(true);
     // API deletion is observed by the lobby's ten-second polling cycle.
     await expect(mainCard(member.id)).toHaveCount(0, { timeout: 15000 });
