@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.16.1] - 2026-11-25
+
 ### Changed
 
 - Preserve mobile conversation and group drafts, including attachment ownership, mentions, quotes, skills, and question answers, when navigating between conversations.
