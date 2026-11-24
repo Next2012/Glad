@@ -1643,6 +1643,15 @@ func (provider *CodexProvider) hydrateThread(ctx context.Context, result map[str
 			return err
 		}
 	}
+	recorded, recordedErr := supplementCodexRecordedHistory(ctx, stringValue(thread["path"]), threadID, turns)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if recordedErr != nil {
+		logDebug("[codex-recorded-history] %v", recordedErr)
+	} else {
+		turns = recorded
+	}
 	messages, err := buildCodexHistoryMessages(ctx, threadID, turns)
 	if err != nil {
 		return err

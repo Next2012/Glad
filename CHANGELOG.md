@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Guard late group, History, and Git responses against navigation, and refresh the current Git view without losing staged-file sources or file modes.
 - Acknowledge Claude question replies, preserve rejected answers, support HTTP contexts without UUID generation, and recover from socket-send failures.
 - Refresh uploads after a draft transfers from mobile to a desktop tab, and retain the view until the complete upload batch settles.
+- Restore Codex commentary and command audit items omitted from turn summaries using bounded, read-only native records; preserve API ordering and avoid duplicates when parallel tools complete out of order.
 
 ## [2.16.0] - 2026-11-24
 

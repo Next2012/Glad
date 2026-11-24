@@ -139,6 +139,26 @@ function largeHistoryTurns() {
   return turns.reverse();
 }
 
+function recordedHistoryThread(threadId) {
+  const user = { id: 'recorded-user', type: 'userMessage', content: [{ type: 'text', text: 'Inspect the workspace' }] };
+  const answer = { id: 'recorded-answer', type: 'agentMessage', text: 'Workspace inspection complete.' };
+  const turnId = 'recorded-turn';
+  const nativeItems = [
+    { ...user, type: 'UserMessage' },
+    { id: 'recorded-commentary', type: 'AgentMessage', content: [{ type: 'text', text: 'Checking the original command history.' }], phase: 'commentary' },
+    { id: 'recorded-command', type: 'CommandExecution', command: ['pwd'], cwd: '/recorded/workspace', status: 'completed', aggregated_output: '/recorded/workspace', exit_code: 0 },
+    { id: answer.id, type: 'AgentMessage', content: [{ type: 'text', text: answer.text }], phase: 'final_answer' }
+  ];
+  const rollout = path.join(process.env.CODEX_HOME, `${threadId}.jsonl`);
+  const records = [{ type: 'session_meta', payload: { id: threadId } }, ...nativeItems.map(item => ({
+    type: 'event_msg', payload: { type: 'item_completed', thread_id: threadId, turn_id: turnId, item }
+  }))];
+  fs.writeFileSync(rollout, records.map(record => JSON.stringify(record)).join('\n') + '\n');
+  return { thread: { id: threadId, path: rollout, turns: [] }, initialTurnsPage: { data: [{
+    id: turnId, status: 'completed', createdAt: 1700000000, completedAt: 1700000001, itemsView: 'summary', items: [user, answer]
+  }], nextCursor: null } };
+}
+
 function historicalPlanThread(threadId) {
   const fs = require('node:fs');
   const path = require('node:path');
@@ -265,7 +285,9 @@ input.on('line', line => {
     if (threadId === 'untitled-history-e2e' && !threadNames.has(threadId)) threadNames.set(threadId, '');
     if (threadId === 'stuck-resume-e2e') return;
     if (threadId === 'disconnected-resume-e2e') { outputLost = true; return; }
-    if (threadId === 'plan-history-e2e') {
+    if (threadId === 'recorded-history-e2e') {
+      result = recordedHistoryThread(threadId);
+    } else if (threadId === 'plan-history-e2e') {
       result = historicalPlanThread(threadId);
     } else if (threadId === 'large-history-e2e') {
       if (request.params?.excludeTurns !== true || request.params?.initialTurnsPage?.itemsView !== 'summary') {

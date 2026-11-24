@@ -438,3 +438,24 @@ test('a same-epoch reconnect with a gap adopts the new tail cursor and rejects t
     await expect(olderButton(container)).toBeEnabled();
   } finally { if (gate) await gate.dispose(); await page.request.delete(`/api/sessions/${id}`); }
 });
+
+test('Codex restores recorded commentary and commands omitted from native turn summaries', async ({ page }) => {
+  const response = await page.request.post('/api/sessions', { data: { toolKey: 'codex', name: 'Recorded history' } });
+  const { id } = await response.json();
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      expect((await page.request.post(`/api/sessions/${id}/codex-resume`, { data: { threadId: 'recorded-history-e2e' } })).ok()).toBe(true);
+      const snapshot = await (await page.request.get(`/api/sessions/${id}`)).json();
+      expect(snapshot.messages.map(item => item.kind)).toEqual(['turn-start', 'user', 'assistant', 'tool', 'assistant', 'turn-end']);
+      expect(snapshot.messages.find(item => item.kind === 'tool')).toMatchObject({ name: 'CodexBash', command: 'pwd', hasDetail: true });
+    }
+    await page.goto('/'); await page.evaluate(id => joinSession(id, 'Recorded history', 'codex'), id);
+    const view = await conversationView(page);
+    await expect(view.locator('#codex-chat-container')).toContainText('Checking the original command history.');
+    await expect(view.locator('#codex-chat-container')).toContainText('Workspace inspection complete.');
+    await expect(view.locator('.codex-tool-command')).toContainText('pwd');
+    await view.locator('.codex-work-group > summary').click();
+    await view.locator('details.codex-tool > summary').click();
+    await expect(view.locator('details.codex-tool')).toContainText('/recorded/workspace');
+  } finally { await page.request.delete(`/api/sessions/${id}`); }
+});
