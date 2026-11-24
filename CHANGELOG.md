@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keep reopened tabs in their visible keyboard-navigation order and avoid duplicating the installed iOS app's top inset inside embedded desktop conversations.
 - Snapshot live session messages before projecting group history so provider stream completion cannot race with an unlocked group reader.
 
+### Security
+
+- Update the bundled markdown-it parser to 15.0.3 to fix quadratic parsing of malformed multiline link references ([GHSA-gfr2-rv44-r23c](https://github.com/markdown-it/markdown-it/security/advisories/GHSA-gfr2-rv44-r23c)).
+
 ## [2.15.2] - 2026-11-23
 
 ### Fixed

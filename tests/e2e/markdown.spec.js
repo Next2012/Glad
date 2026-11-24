@@ -543,3 +543,15 @@ test('keeps raw HTML inert and rejects executable links with the new parser', as
   await expect(content.getByRole('checkbox')).toBeChecked();
   expect(await (await conversationView(page)).evaluate(() => window.markdownInjected)).toBeUndefined();
 });
+
+test('malformed multiline link references render without quadratic parser stalls', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'networkidle' });
+  const result = await page.evaluate(() => {
+    const markdown = '[x]: /url "unfinished\n' + 'x\n'.repeat(100000);
+    const start = performance.now();
+    const html = renderMarkdown(markdown);
+    return { elapsed: performance.now() - start, keptText: html.includes('unfinished') };
+  });
+  expect(result.keptText).toBe(true);
+  expect(result.elapsed).toBeLessThan(2000);
+});
