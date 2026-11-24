@@ -687,9 +687,17 @@ func (server *Server) handleWebsocketMessage(
 			_ = provider.Approve(ctx, stringValue(payload["id"]), decision, payload)
 		}
 	case "claude-user-input", "antigravity-user-input":
+		var err error
 		if provider, ok := session.Provider.(UserInputProvider); ok {
-			_ = provider.RespondUserInput(ctx, stringValue(payload["id"]), payload)
+			err = provider.RespondUserInput(ctx, stringValue(payload["id"]), payload)
+		} else {
+			err = errors.New("provider does not support question replies")
 		}
+		result := map[string]any{"type": "user-input-result", "id": payload["id"], "clientMessageId": payload["clientMessageId"], "success": err == nil}
+		if err != nil {
+			result["error"] = err.Error()
+		}
+		send(result)
 	case "codex-permission", "antigravity-permission":
 		decision := stringValue(payload["decision"])
 		if decision == "" && boolValue(payload["approved"]) {
@@ -706,7 +714,7 @@ func (server *Server) handleWebsocketMessage(
 		}
 	case "claude-abort", "codex-abort", "antigravity-abort":
 		if _, ok := session.Provider.(InterruptProvider); ok {
-			_ = stopSessionControlledLocked(ctx, session, "")
+			_ = stopSessionControlledLocked(ctx, session, stringValue(payload["expectedTurnId"]))
 		}
 	case "claude-resume":
 		err := server.resumeClaudeConversation(ctx, session, stringValue(payload["resumeSessionId"]))

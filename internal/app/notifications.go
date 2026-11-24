@@ -61,30 +61,41 @@ func (service *NotificationService) Start(parent context.Context) {
 	service.startOnce.Do(func() {
 		ctx, cancel := context.WithCancel(parent)
 		service.cancel = cancel
-		service.subscription = service.sessions.Events().Subscribe("", 2048)
+		cursor := newSessionRecoveryCursor()
+		service.subscription = service.sessions.Events().SubscribeFiltered("", 2048, notificationControlEvent)
 		service.wg.Add(2)
-		go service.consumeEvents(ctx)
+		go service.consumeEvents(ctx, cursor)
 		go service.deliver(ctx)
 	})
 }
 
-func (service *NotificationService) consumeEvents(ctx context.Context) {
+func (service *NotificationService) consumeEvents(ctx context.Context, cursor sessionRecoveryCursor) {
 	defer service.wg.Done()
+	subscription := service.subscription
+	defer func() { subscription.Close() }()
+	handle := func(event sessioncore.Event) {
+		cursor.observe(event)
+		if stringValue(event.Payload["type"]) == "session-closed" {
+			service.mu.Lock()
+			delete(service.seen, event.SessionID)
+			service.mu.Unlock()
+			delete(cursor, event.SessionID)
+			return
+		}
+		if current := service.sessions.Get(event.SessionID); current != nil {
+			service.HandleEvent(current, event.Payload)
+			service.HandleRoomEvent(current, event.Payload)
+		}
+	}
 	for {
 		select {
-		case event := <-service.subscription.Events():
-			if stringValue(event.Payload["type"]) == "session-closed" {
-				service.mu.Lock()
-				delete(service.seen, event.SessionID)
-				service.mu.Unlock()
-				continue
+		case event := <-subscription.Events():
+			handle(event)
+		case <-subscription.Done():
+			if ctx.Err() != nil {
+				return
 			}
-			if current := service.sessions.Get(event.SessionID); current != nil {
-				service.HandleEvent(current, event.Payload)
-				service.HandleRoomEvent(current, event.Payload)
-			}
-		case <-service.subscription.Done():
-			return
+			subscription = recoverSessionSubscription(service.sessions.Events(), subscription, 2048, notificationControlEvent, handle, func() { cursor.reconcile(service.sessions, handle) })
 		case <-ctx.Done():
 			return
 		}
@@ -109,9 +120,6 @@ func (service *NotificationService) Close() {
 	service.closeOnce.Do(func() {
 		if service.cancel != nil {
 			service.cancel()
-		}
-		if service.subscription != nil {
-			service.subscription.Close()
 		}
 		service.wg.Wait()
 		service.mu.Lock()

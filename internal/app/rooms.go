@@ -25,16 +25,18 @@ const (
 )
 
 type RoomManager struct {
-	mu          sync.Mutex
-	store       RoomStore
-	sessions    *SessionManager
-	attachments *AttachmentStore
-	resolver    RoomTurnResolver
-	activeIDs   map[string]string
-	operations  map[string]*sync.Mutex
-	runtimes    map[string]*roomRuntime
-	events      *sessioncore.EventHub
-	projections map[string]roomProjectionCache
+	mu                  sync.Mutex
+	store               RoomStore
+	sessions            *SessionManager
+	attachments         *AttachmentStore
+	resolver            RoomTurnResolver
+	activeIDs           map[string]string
+	operations          map[string]*sync.Mutex
+	runtimes            map[string]*roomRuntime
+	events              *sessioncore.EventHub
+	projections         map[string]roomProjectionCache
+	memberIndex         map[string]map[string]bool
+	memberIndexRevision uint64
 }
 
 // RoomTurnResolver keeps persistence independent from provider history. A
@@ -114,43 +116,59 @@ func NewRoomManager(store RoomStore, sessions *SessionManager, attachments *Atta
 }
 
 func (manager *RoomManager) Start(ctx context.Context) {
+	cursor := newSessionRecoveryCursor()
 	subscription := manager.sessions.Events().Subscribe("", 1024)
 	go func() {
-		defer subscription.Close()
+		defer func() { subscription.Close() }()
+		conversationIDs := map[string]string{}
+		handle := func(event sessioncore.Event) {
+			cursor.observe(event)
+			if stringValue(event.Payload["type"]) == "session-closed" {
+				delete(conversationIDs, event.SessionID)
+			}
+			manager.sessionEvent(event)
+			if stringValue(event.Payload["type"]) == "session-renamed" {
+				manager.syncSessionName(event.SessionID, stringValue(event.Payload["name"]))
+				return
+			}
+			if stringValue(event.Payload["type"]) == "state" {
+				state := mapValue(event.Payload["state"])
+				conversationID := firstNonEmpty(
+					stringValue(state["nativeConversationId"]), stringValue(state["antigravitySessionId"]),
+					stringValue(state["threadId"]), stringValue(state["claudeSessionId"]), stringValue(state["resumeSessionId"]),
+				)
+				if conversationID != "" && conversationIDs[event.SessionID] != conversationID {
+					manager.syncSessionConversation(event.SessionID, conversationID)
+					conversationIDs[event.SessionID] = conversationID
+				}
+			}
+			message := mapValue(event.Payload["message"])
+			// Messages authored in a member session are projected from the
+			// provider conversation when a room is read. They are not copied
+			// into room persistence.
+			if stringValue(event.Payload["type"]) == "message" && stringValue(message["kind"]) == "user" {
+				return
+			}
+			if stringValue(event.Payload["type"]) != "message" || stringValue(message["kind"]) != "turn-end" {
+				return
+			}
+			// Codex publishes child-agent turn completions through the same
+			// session hub. An unbound direct mini-session entry must wait for
+			// the root turn rather than attaching itself to the first child.
+			if root, declared := message["isRootTurn"]; declared && !boolValue(root) {
+				return
+			}
+			manager.finishSessionTurn(event.SessionID, stringValue(message["turnId"]), message)
+		}
 		for {
 			select {
 			case event := <-subscription.Events():
-				manager.sessionEvent(event)
-				if stringValue(event.Payload["type"]) == "session-renamed" {
-					manager.syncSessionName(event.SessionID, stringValue(event.Payload["name"]))
-					continue
-				}
-				if stringValue(event.Payload["type"]) == "state" {
-					state := mapValue(event.Payload["state"])
-					manager.syncSessionConversation(event.SessionID, firstNonEmpty(
-						stringValue(state["nativeConversationId"]), stringValue(state["antigravitySessionId"]),
-						stringValue(state["threadId"]), stringValue(state["claudeSessionId"]), stringValue(state["resumeSessionId"]),
-					))
-				}
-				message := mapValue(event.Payload["message"])
-				// Messages authored in a member session are projected from the
-				// provider conversation when a room is read. They are not copied
-				// into room persistence.
-				if stringValue(event.Payload["type"]) == "message" && stringValue(message["kind"]) == "user" {
-					continue
-				}
-				if stringValue(event.Payload["type"]) != "message" || stringValue(message["kind"]) != "turn-end" {
-					continue
-				}
-				// Codex publishes child-agent turn completions through the same
-				// session hub. An unbound direct mini-session entry must wait for
-				// the root turn rather than attaching itself to the first child.
-				if root, declared := message["isRootTurn"]; declared && !boolValue(root) {
-					continue
-				}
-				manager.finishSessionTurn(event.SessionID, stringValue(message["turnId"]), message)
+				handle(event)
 			case <-subscription.Done():
-				return
+				if ctx.Err() != nil {
+					return
+				}
+				subscription = recoverSessionSubscription(manager.sessions.Events(), subscription, 1024, nil, handle, func() { cursor.reconcile(manager.sessions, handle) })
 			case <-ctx.Done():
 				return
 			}

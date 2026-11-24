@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 const currentRoomSchemaVersion = 3
@@ -85,6 +86,7 @@ type RoomStore interface {
 // must not share config.json: rooms are user data, can grow independently, and
 // need per-room atomic updates and future migrations.
 type FileRoomStore struct {
+	revision  atomic.Uint64
 	mu        sync.Mutex
 	directory string
 }
@@ -110,6 +112,8 @@ func (store *FileRoomStore) roomPath(id string) (string, error) {
 	}
 	return filepath.Join(store.directory, id+".json"), nil
 }
+
+func (store *FileRoomStore) Revision() uint64 { return store.revision.Load() }
 
 func (store *FileRoomStore) List() ([]RoomRecord, error) {
 	store.mu.Lock()
@@ -185,6 +189,7 @@ func (store *FileRoomStore) writeLocked(path string, room RoomRecord) error {
 		_ = os.Remove(temporary)
 		return err
 	}
+	store.revision.Add(1)
 	return nil
 }
 
@@ -198,6 +203,9 @@ func (store *FileRoomStore) Delete(id string) error {
 	if err := os.Remove(path); errors.Is(err, os.ErrNotExist) {
 		return errRoomNotFound
 	} else {
+		if err == nil {
+			store.revision.Add(1)
+		}
 		return err
 	}
 }

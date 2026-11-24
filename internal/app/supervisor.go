@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	sessioncore "glad-web/internal/session"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -124,12 +125,19 @@ type SupervisorManager struct {
 func (manager *SupervisorManager) Start(parent context.Context) {
 	manager.ctx, manager.cancel = context.WithCancel(parent)
 	manager.wg.Add(1)
-	subscription := manager.sessions.Events().Subscribe("", 1024)
+	cursor := newSessionRecoveryCursor()
+	subscription := manager.sessions.Events().SubscribeFiltered("", 1024, supervisorControlEvent)
 	go func() {
 		defer manager.wg.Done()
-		defer subscription.Close()
+		defer func() { subscription.Close() }()
 		ticker := time.NewTicker(250 * time.Millisecond)
 		defer ticker.Stop()
+		handle := func(event sessioncore.Event) {
+			message := mapValue(event.Payload["message"])
+			if supervisorControlEvent(event) {
+				manager.questionArrived(event.SessionID, stringValue(message["id"]))
+			}
+		}
 		for {
 			select {
 			case <-manager.ctx.Done():
@@ -137,12 +145,12 @@ func (manager *SupervisorManager) Start(parent context.Context) {
 			case <-ticker.C:
 				manager.tick()
 			case event := <-subscription.Events():
-				message := mapValue(event.Payload["message"])
-				if stringValue(message["kind"]) == "question" && stringValue(message["questionStatus"]) == "pending" {
-					manager.questionArrived(event.SessionID, stringValue(message["id"]))
-				}
+				handle(event)
 			case <-subscription.Done():
-				return
+				if manager.ctx.Err() != nil {
+					return
+				}
+				subscription = recoverSessionSubscription(manager.sessions.Events(), subscription, 1024, supervisorControlEvent, handle, func() { cursor.reconcile(manager.sessions, handle) })
 			}
 		}
 	}()

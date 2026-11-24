@@ -61,28 +61,52 @@ func (manager *RoomManager) sessionEvent(event sessioncore.Event) {
 	if value, present := message["isRootTurn"]; present && !boolValue(value) {
 		root = false
 	}
+	memberships := manager.sessionRoomMembershipLocked(event.SessionID)
 	for id, historyID := range manager.activeIDs {
-		room, err := manager.store.Get(historyID)
-		if err != nil {
+		if !memberships[historyID] {
 			continue
 		}
-		for _, member := range room.Members {
-			if member.LeftAt != 0 || member.RuntimeSessionID != event.SessionID {
-				continue
+		runtime := manager.runtimeLocked(id)
+		if root && !quietSupervisorCompletion(event.Payload) {
+			key := event.SessionID + "/" + stringValue(message["turnId"])
+			if !runtime.completedTurns[key] {
+				runtime.completedTurns[key] = true
+				runtime.completion++
+				runtime.unread = true
 			}
-			runtime := manager.runtimeLocked(id)
-			if root && !quietSupervisorCompletion(event.Payload) {
-				key := event.SessionID + "/" + stringValue(message["turnId"])
-				if !runtime.completedTurns[key] {
-					runtime.completedTurns[key] = true
-					runtime.completion++
-					runtime.unread = true
-				}
-			}
-			manager.publishLocked(id)
-			break
 		}
+		manager.publishLocked(id)
 	}
+}
+
+// File-backed room membership changes only on a successful store write. Keep
+// token traffic off disk while honoring joins, leaves, resumes and deletions.
+func (manager *RoomManager) sessionRoomMembershipLocked(sessionID string) map[string]bool {
+	versioned, cacheable := manager.store.(interface{ Revision() uint64 })
+	revision := uint64(0)
+	if cacheable {
+		revision = versioned.Revision()
+	}
+	if !cacheable || manager.memberIndex == nil || revision != manager.memberIndexRevision {
+		rooms, err := manager.store.List()
+		if err != nil {
+			return nil
+		}
+		index := map[string]map[string]bool{}
+		for _, room := range rooms {
+			for _, member := range room.Members {
+				if member.LeftAt != 0 || member.RuntimeSessionID == "" {
+					continue
+				}
+				if index[member.RuntimeSessionID] == nil {
+					index[member.RuntimeSessionID] = map[string]bool{}
+				}
+				index[member.RuntimeSessionID][room.ID] = true
+			}
+		}
+		manager.memberIndex, manager.memberIndexRevision = index, revision
+	}
+	return manager.memberIndex[sessionID]
 }
 
 func (manager *RoomManager) runtimeFieldsLocked(id string, room RoomRecord) map[string]any {

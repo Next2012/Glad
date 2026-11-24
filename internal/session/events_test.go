@@ -57,3 +57,26 @@ func TestEventHubFiltersAndClosesSessionSubscriptions(t *testing.T) {
 		t.Fatal("session subscription was not closed")
 	}
 }
+
+func TestFilteredConsumerKeepsControlEventsDuringTokenFlood(t *testing.T) {
+	hub := NewEventHub()
+	subscription := hub.SubscribeFiltered("", 1, func(event Event) bool { return event.Payload["type"] == "permission-request" })
+	defer subscription.Close()
+	for index := 0; index < 10000; index++ {
+		hub.Publish(Event{SessionID: "session", Payload: map[string]any{"type": "message-delta"}})
+	}
+	hub.Publish(Event{SessionID: "session", Payload: map[string]any{"type": "permission-request", "id": "approval"}})
+	select {
+	case <-subscription.Done():
+		t.Fatal("irrelevant traffic disconnected the control consumer")
+	default:
+	}
+	select {
+	case event := <-subscription.Events():
+		if event.Payload["id"] != "approval" {
+			t.Fatal(event)
+		}
+	default:
+		t.Fatal("approval was lost")
+	}
+}

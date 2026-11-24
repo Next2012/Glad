@@ -17,6 +17,7 @@ type subscriber struct {
 	sessionID string
 	events    chan Event
 	done      chan struct{}
+	filter    func(Event) bool
 }
 
 // Subscription owns a bounded event stream. When a consumer falls behind,
@@ -54,6 +55,12 @@ func NewEventHub() *EventHub {
 }
 
 func (hub *EventHub) Subscribe(sessionID string, capacity int) *Subscription {
+	return hub.SubscribeFiltered(sessionID, capacity, nil)
+}
+
+// SubscribeFiltered excludes irrelevant traffic before it consumes queue space.
+// The predicate must be pure and fast: it runs under the publisher's lock.
+func (hub *EventHub) SubscribeFiltered(sessionID string, capacity int, filter func(Event) bool) *Subscription {
 	if capacity < 1 {
 		capacity = 1
 	}
@@ -61,7 +68,7 @@ func (hub *EventHub) Subscribe(sessionID string, capacity int) *Subscription {
 	hub.nextID++
 	subscriber := &subscriber{
 		id: hub.nextID, sessionID: sessionID,
-		events: make(chan Event, capacity), done: make(chan struct{}),
+		events: make(chan Event, capacity), done: make(chan struct{}), filter: filter,
 	}
 	hub.subscribers[subscriber.id] = subscriber
 	hub.mu.Unlock()
@@ -75,6 +82,9 @@ func (hub *EventHub) Publish(event Event) {
 	hub.mu.Lock()
 	for id, subscriber := range hub.subscribers {
 		if subscriber.sessionID != "" && subscriber.sessionID != event.SessionID {
+			continue
+		}
+		if subscriber.filter != nil && !subscriber.filter(event) {
 			continue
 		}
 		select {
