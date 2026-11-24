@@ -10,6 +10,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.16.0] - 2026-11-24
+
+### Added
+
+- Open desktop conversations and groups in persistent workspace tabs. Reconnecting to an open conversation activates its existing tab; switching preserves the loaded history, reading position, drafts, attachments, and expanded content.
+- Distinguish single and group conversations with matching SVG icons, provide running, attention, and unread indicators, and support keyboard navigation and horizontal tab scrolling in light and dark themes.
+
+### Changed
+
+- Make the desktop sidebar collapse independently of the conversation view. Mobile keeps its focused lobby/chat navigation.
+- Remove Glad's image and file count limits from conversation composers, group messages, and Codex question replies. Per-file size limits and provider capabilities still apply.
+
+### Fixed
+
+- Keep accepted provider tasks running when their tabs close. Retain in-flight upload and send transports until they settle, then release the closed view and its unused attachments.
+- Preserve unread completion in background tabs and open a group's pending approval in the member's existing session tab.
+- Reveal the complete selected tab, including its close button, during keyboard navigation through an overflowing tab bar.
+- Keep reopened tabs in their visible keyboard-navigation order and avoid duplicating the installed iOS app's top inset inside embedded desktop conversations.
+- Snapshot live session messages before projecting group history so provider stream completion cannot race with an unlocked group reader.
+
 ## [2.15.2] - 2026-11-23
 
 ### Fixed
