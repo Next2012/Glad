@@ -66,6 +66,7 @@ func NewServer(baseDir string, port int, assets fs.FS) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	cleanupAbandonedAgyProfiles(home)
 	server.sessions.names = &SessionNameStore{directory: filepath.Join(home, ".glad", "session-names")}
 	server.sessions.speeds, err = openSpeedStore(filepath.Join(home, ".glad", "speed"))
 	if err != nil {

@@ -104,6 +104,12 @@ func (p *AntigravityProvider) updateLocked(params map[string]any) {
 		tool["input"] = tool["rawInput"]
 		tool["output"] = tool["rawOutput"]
 		tool["text"] = antigravityToolText(tool)
+		if stringValue(tool["toolKind"]) == "execute" || stringValue(tool["toolName"]) == "run_command" {
+			text := strings.ToLower(stringValue(tool["text"]))
+			if strings.Contains(text, "connecting to sandbox server:") || strings.Contains(text, "failed to start sandbox") || strings.Contains(text, "sandbox is not available") {
+				p.sandboxWarning = "The terminal sandbox reported an execution error. Review the tool output before retrying."
+			}
+		}
 		status := stringValue(tool["status"])
 		tool["streaming"] = status == "pending" || status == "in_progress"
 		if !boolValue(tool["streaming"]) {

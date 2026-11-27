@@ -9,6 +9,9 @@ import (
 )
 
 func (server *Server) registerAntigravityRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/sessions/{id}/antigravity-permissions", server.antigravityPermissions)
+	mux.HandleFunc("PATCH /api/sessions/{id}/antigravity-permissions", server.antigravityApplyPermissions)
+	mux.HandleFunc("POST /api/sessions/{id}/antigravity-permission-defaults", server.antigravityPermissionDefaults)
 	mux.HandleFunc("GET /api/sessions/{id}/antigravity-subagents", server.antigravitySubagents)
 	mux.HandleFunc("GET /api/sessions/{id}/antigravity-subagents/{childId}", server.antigravitySubagentHistory)
 	mux.HandleFunc("PATCH /api/sessions/{id}/antigravity-settings", server.antigravitySettings)
@@ -20,6 +23,67 @@ func (server *Server) registerAntigravityRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions/{id}/antigravity-commands", server.antigravityCommands)
 	mux.HandleFunc("POST /api/sessions/{id}/antigravity-status", server.antigravityStatus)
 	mux.HandleFunc("POST /api/sessions/{id}/antigravity-compact", server.antigravityCompact)
+}
+
+func (server *Server) antigravityPermissions(w http.ResponseWriter, r *http.Request) {
+	p, ok := server.antigravityProvider(w, r)
+	if !ok {
+		return
+	}
+	data, err := p.PermissionSettings(r.Context())
+	if err != nil {
+		respondError(w, 400, err)
+		return
+	}
+	respondJSON(w, 200, data)
+}
+func (server *Server) antigravityApplyPermissions(w http.ResponseWriter, r *http.Request) {
+	p, ok := server.antigravityProvider(w, r)
+	if !ok {
+		return
+	}
+	var change agyPermissionChange
+	if err := decodeJSON(r, &change); err != nil {
+		respondError(w, 400, err)
+		return
+	}
+	p.session.commandMu.Lock()
+	defer p.session.commandMu.Unlock()
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	if err := p.ApplyPermissions(ctx, change); err != nil {
+		respondError(w, 400, err)
+		return
+	}
+	data, err := p.PermissionSettings(ctx)
+	if err != nil {
+		respondError(w, 400, err)
+		return
+	}
+	p.session.mu.RLock()
+	data["state"] = cloneMap(p.session.State)
+	p.session.mu.RUnlock()
+	respondJSON(w, 200, data)
+}
+func (server *Server) antigravityPermissionDefaults(w http.ResponseWriter, r *http.Request) {
+	p, ok := server.antigravityProvider(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		Policy   map[string]any `json:"policy"`
+		Revision string         `json:"revision"`
+		Mode     string         `json:"mode"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		respondError(w, 400, err)
+		return
+	}
+	if err := p.SavePermissionDefaults(input.Policy, input.Revision, input.Mode); err != nil {
+		respondError(w, 400, err)
+		return
+	}
+	respondJSON(w, 200, map[string]any{"success": true})
 }
 func (server *Server) antigravityProvider(writer http.ResponseWriter, request *http.Request) (*AntigravityProvider, bool) {
 	session := server.sessions.Get(request.PathValue("id"))

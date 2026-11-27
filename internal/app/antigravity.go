@@ -94,6 +94,15 @@ type AntigravityProvider struct {
 	quota               map[string]any
 	quotaTime           time.Time
 	quotaPending        bool
+
+	permissionDir          string
+	permissionSettings     map[string]any
+	permissionOverrides    map[string]any
+	permissionApplying     bool
+	permissionSessionRules agyRuleDocument
+	sandboxWarning         string
+	modeInherited          bool
+	processDone            chan struct{}
 }
 
 func NewAntigravityProvider(session *Session, options map[string]any) *AntigravityProvider {
@@ -118,10 +127,18 @@ func (p *AntigravityProvider) start(ctx context.Context) error {
 		p.mu.Unlock()
 		return nil
 	}
+	if err := p.preparePermissionProfileLocked(); err != nil {
+		p.mu.Unlock()
+		return err
+	}
 	restore := firstNonEmpty(p.nativeID, stringValue(p.options["resume"]))
 	p.generation++
 	generation := p.generation
-	command := exec.Command(p.session.Tool.Command, "acp", "--disable-telemetry")
+	args := []string{"acp", "--disable-telemetry"}
+	if p.permissionDir != "" {
+		args = append(args, "--cli_dir_name", p.permissionDir)
+	}
+	command := exec.Command(p.session.Tool.Command, args...)
 	configureProcess(command)
 	command.Dir = p.session.WorkingDirectory
 	command.Env = append(os.Environ(), p.session.environment...)
@@ -147,12 +164,14 @@ func (p *AntigravityProvider) start(ctx context.Context) error {
 		p.mu.Unlock()
 		return err
 	}
-	p.cmd, p.stdin = command, stdin
+	done := make(chan struct{})
+	p.cmd, p.stdin, p.processDone = command, stdin, done
 	p.mu.Unlock()
 	go p.read(stdout, command, generation)
 	go func() { _, _ = io.Copy(io.Discard, stderr) }()
 	go func() {
 		err := command.Wait()
+		close(done)
 		if err == nil {
 			err = errors.New("Antigravity ACP exited")
 		}
@@ -225,7 +244,10 @@ func (p *AntigravityProvider) start(ctx context.Context) error {
 	}
 	settings := map[string]any{}
 	for _, key := range []string{"model", "effort", "mode"} {
-		if value := stringValue(p.options[key]); value != "" && value != "default" {
+		if value := stringValue(p.options[key]); value != "" && (value != "default" || key == "mode") {
+			if key == "mode" && p.modeInherited && !p.supportsModeLocked(value) {
+				continue
+			}
 			settings[key] = value
 		}
 	}
@@ -394,6 +416,7 @@ func (p *AntigravityProvider) recycle(generation uint64) {
 		return
 	}
 	command := p.cmd
+	done := p.processDone
 	p.cmd = nil
 	p.stdin = nil
 	p.ready = false
@@ -405,6 +428,12 @@ func (p *AntigravityProvider) recycle(generation uint64) {
 	p.mu.Unlock()
 	if command != nil {
 		killProcessTree(command)
+		if done != nil {
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+			}
+		}
 	}
 }
 
@@ -694,7 +723,7 @@ func (p *AntigravityProvider) finishTurnLocked(status string, err error) {
 func (p *AntigravityProvider) CanAccept() (bool, string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if !p.closed && !p.switching && !p.stopping && p.turnID == "" && len(p.permissions) == 0 && len(p.questions) == 0 {
+	if !p.closed && !p.switching && !p.stopping && !p.permissionApplying && p.turnID == "" && len(p.permissions) == 0 && len(p.questions) == 0 {
 		return true, ""
 	}
 	return false, "Antigravity session is busy or stopping"
@@ -791,6 +820,8 @@ func (p *AntigravityProvider) publishStateLocked() {
 		status = "waiting_input"
 	} else if p.switching {
 		status = "resuming"
+	} else if p.permissionApplying {
+		status = "connecting"
 	}
 	state := map[string]any{"status": status, "antigravitySessionId": nilIfEmpty(p.nativeID), "nativeConversationId": nilIfEmpty(p.nativeID), "threadId": nilIfEmpty(p.nativeID), "turnId": nilIfEmpty(p.turnID), "canAbort": (p.turnID != "" || p.switching) && !p.stopping, "canSteer": p.canSteerLocked(), "canCompact": p.hasCommandLocked("compact") && p.turnID == "" && !p.switching && !p.stopping, "compacting": p.compacting, "configOptions": p.configOptions, "modes": p.modes, "commands": p.commands, "pendingPermissionCount": len(p.permissions), "pendingQuestionCount": len(p.questions), "usage": p.usage, "context": antigravityContext(p.usage), "capabilities": map[string]any{"images": boolValue(mapValue(p.capabilities["promptCapabilities"])["image"]), "resume": boolValue(p.capabilities["loadSession"]), "list": mapValue(p.capabilities["sessionCapabilities"])["list"] != nil, "fork": false, "steer": true, "systemInstructions": boolValue(mapValue(mapValue(p.metadata["antigravity"])["systemPrompt"])["append"])}}
 	for _, option := range p.configOptions {
@@ -810,5 +841,6 @@ func (p *AntigravityProvider) publishStateLocked() {
 	if p.quota != nil {
 		state["quota"] = p.quota
 	}
+	state["permissionPolicy"] = p.permissionStateLocked()
 	p.session.setState(state)
 }

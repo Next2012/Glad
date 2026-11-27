@@ -720,6 +720,9 @@ func (manager *SessionManager) Create(ctx context.Context, request CreateSession
 	}
 	if err := session.Provider.Start(ctx); err != nil {
 		_ = session.Provider.Close(context.Background())
+		if provider, ok := session.Provider.(*AntigravityProvider); ok {
+			provider.cleanupPermissionProfile()
+		}
 		session.cancel()
 		return nil, err
 	}
@@ -793,6 +796,9 @@ func (manager *SessionManager) Delete(ctx context.Context, id string) bool {
 		session.mu.Unlock()
 		session.cancel()
 		_ = session.Provider.Close(ctx)
+		if provider, ok := session.Provider.(*AntigravityProvider); ok {
+			provider.cleanupPermissionProfile()
+		}
 		session.mu.Lock()
 		dispose := session.dispose
 		session.dispose = nil

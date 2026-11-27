@@ -24,7 +24,7 @@ func antigravityFixture(t *testing.T) *AntigravityProvider {
 		t.Fatal(err)
 	}
 	session := newSession(newUUID(), "AGY fixture", "antigravity-structured", ToolInfo{Key: "antigravity", Command: fixture}, t.TempDir())
-	session.environment = []string{"ANTIGRAVITY_HOME=" + t.TempDir()}
+	session.environment = []string{"ANTIGRAVITY_HOME=" + t.TempDir(), "HOME=" + t.TempDir()}
 	provider := NewAntigravityProvider(session, nil)
 	session.Provider = provider
 	t.Cleanup(func() { session.cancel(); _ = provider.Close(context.Background()) })

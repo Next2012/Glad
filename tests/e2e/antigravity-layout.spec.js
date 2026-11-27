@@ -92,7 +92,8 @@ async function expectComposerGeometry(page) {
     'antigravity-commands-btn', 'antigravity-compact-btn'
   ]));
   for (const action of actions) {
-    expect(action.width, `${action.id} width`).toBeCloseTo(40, 0);
+    if (action.id === 'antigravity-mode-control') expect(action.width).toBeGreaterThanOrEqual(66);
+    else expect(action.width, `${action.id} width`).toBeCloseTo(40, 0);
     expect(action.height, `${action.id} height`).toBeCloseTo(40, 0);
     expect(action.top, `${action.id} action row`).toBeCloseTo(actions[0].top, 0);
   }
@@ -190,8 +191,8 @@ for (const screen of [
     await expect(panel).not.toBeVisible();
     await expect(page.locator('#send-btn > .action-label')).not.toBeVisible();
     await expect(model).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.locator('#antigravity-control-rail [data-agy-config]')).toHaveCount(1);
-    await expect(page.locator('#antigravity-mode-control [data-agy-config="mode"]')).toHaveCount(1);
+    await expect(page.locator('#antigravity-control-rail [data-agy-config]')).toHaveCount(0);
+    await expect(page.locator('#antigravity-mode-control')).toHaveAttribute('aria-haspopup', 'dialog');
     await expectComposerGeometry(page);
     await saveScreenshot(page, testInfo, `${screen.name}-idle`);
     await expectScrollableRail(page);

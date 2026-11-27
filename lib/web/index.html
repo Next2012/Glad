@@ -376,7 +376,7 @@
                 <div id="antigravity-control-panel">
                     <div id="antigravity-control-rail" class="codex-control-rail">
                         <button id="antigravity-model-btn" class="claude-ctrl-btn" type="button" onclick="toggleAntigravityModelPanel()" title="Model and thinking" aria-label="Model and thinking" aria-expanded="false" aria-controls="antigravity-model-panel"><svg class="action-icon" aria-hidden="true"><use href="#icon-model"></use></svg><span class="action-label">Model</span></button>
-                        <label id="antigravity-mode-control" class="codex-select-control" title="Mode" hidden><span class="codex-select-label" aria-hidden="true"><svg class="action-icon"><use href="#icon-shield"></use></svg><span class="action-label">Mode</span></span></label>
+                        <button id="antigravity-mode-control" class="claude-ctrl-btn agy-permission-button" type="button" onclick="toggleAntigravityPermissions()" title="Permissions and sandbox" aria-label="Permissions and sandbox" aria-expanded="false" aria-controls="antigravity-permissions-panel" aria-haspopup="dialog"><svg class="action-icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span class="action-label">Permissions</span><span class="agy-policy-dot" aria-hidden="true"></span></button>
                         <button id="antigravity-status-btn" class="claude-ctrl-btn" onclick="requestAntigravityStatus()" title="Show Antigravity status" aria-label="Show Antigravity status"><svg class="action-icon" aria-hidden="true"><use href="#icon-status"></use></svg><span class="action-label">Status</span></button>
                         <button id="antigravity-abort-btn" class="claude-ctrl-btn danger" onclick="abortAntigravitySession()" title="Abort current Antigravity turn" aria-label="Abort current Antigravity turn"><svg class="action-icon" aria-hidden="true"><use href="#icon-stop"></use></svg><span class="action-label">Abort</span></button>
                         <button id="antigravity-resume-btn" class="claude-ctrl-btn primary" onclick="toggleAntigravityResumePanel()" title="Resume an Antigravity conversation" aria-label="Resume an Antigravity conversation" aria-expanded="false" aria-controls="antigravity-resume-panel"><svg class="action-icon" aria-hidden="true"><use href="#icon-resume"></use></svg><span class="action-label">Resume</span></button>
@@ -385,6 +385,7 @@
                     </div>
                     <div id="antigravity-state-bar" role="status"></div>
                     <div id="antigravity-model-panel" class="antigravity-aux-panel" role="group" aria-label="Antigravity model settings" hidden><div class="antigravity-picker-heading"><svg class="action-icon" aria-hidden="true"><use href="#icon-model"></use></svg><span>Model &amp; thinking</span></div><div id="antigravity-config-controls"></div></div>
+                    <div id="antigravity-permissions-panel" class="antigravity-aux-panel" role="region" aria-label="Permissions and sandbox" hidden></div>
                     <div id="antigravity-resume-panel" class="antigravity-aux-panel" hidden></div>
                     <div id="antigravity-command-panel" class="antigravity-aux-panel" hidden></div>
                 </div>
@@ -806,6 +807,7 @@
     <script defer src="codex-plans.js"></script>
     <script defer src="codex.js"></script>
     <script defer src="antigravity.js"></script>
+    <script defer src="antigravity-permissions.js"></script>
     <script defer src="antigravity-subagents.js"></script>
     <script defer src="session-speed.js"></script>
     <script defer src="session.js"></script>

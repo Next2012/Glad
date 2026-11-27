@@ -117,6 +117,9 @@ func (p *AntigravityProvider) updateSettings(ctx context.Context, settings map[s
 			key = "effort"
 		}
 		p.options[key] = change.value
+		if key == "mode" {
+			p.modeInherited = false
+		}
 		p.publishStateLocked()
 		p.mu.Unlock()
 	}
@@ -287,4 +290,19 @@ func (p *AntigravityProvider) Compact(ctx context.Context) error {
 		return errors.New("Antigravity conversation can only be compacted while idle")
 	}
 	return p.Send(ctx, ProviderInput{Text: "/compact", AgentText: "/compact", Internal: true})
+}
+
+// supportsModeLocked checks both ACP representations before changing a mode.
+func (p *AntigravityProvider) supportsModeLocked(mode string) bool {
+	for _, option := range p.configOptions {
+		if option["id"] == "mode" && antigravityOptionValue(option["options"], mode) {
+			return true
+		}
+	}
+	for _, option := range mapsFromAny(p.modes["availableModes"]) {
+		if option["id"] == mode {
+			return true
+		}
+	}
+	return false
 }
