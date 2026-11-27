@@ -472,53 +472,19 @@ input.on('line', line => {
         steeringTurn = { turnId, timer };
         return;
       }
-      if (text.includes('__GLAD_E2E_SUPERVISOR__') || text.includes('__GLAD_E2E_SUPERVISOR_END__') || text.includes('__GLAD_E2E_SUPERVISOR_ANSWER__')) {
-        const answering = text.includes('__GLAD_E2E_SUPERVISOR_ANSWER__');
-        const turnsQuery = text.includes('__GLAD_E2E_TURN_QUERY__');
-        const ending = text.includes('__GLAD_E2E_SUPERVISOR_END__');
-        const { spawn } = require('node:child_process');
+      if (text.includes('__GLAD_GROUP_CALL__')) {
         const config = process.argv.slice(3).filter(value => value.startsWith('mcp_servers.glad.'));
         const command = JSON.parse(config.find(value => value.startsWith('mcp_servers.glad.command=')).split('=').slice(1).join('='));
         const envText = config.find(value => value.startsWith('mcp_servers.glad.env='));
-        const environment = { ...process.env };
-        for (const match of envText.matchAll(/(GLAD_SUPERVISOR_\w+) = ("(?:[^"\\]|\\.)*")/g)) environment[match[1]] = JSON.parse(match[2]);
-        const child = spawn(command, ['mcp'], { env: environment, stdio: ['pipe', 'pipe', 'pipe'] });
-        const lines = readline.createInterface({ input: child.stdout });
-        const invocationId = text.match(/Current invocationId: ([a-z0-9-]+)/i)[1];
-        let target;
-        const call = (id, name, arguments_) => child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: { invocationId, ...arguments_ } } }) + '\n');
-        const timeout = setTimeout(() => { child.kill(); }, 15000);
-        const complete = response => {
-          clearTimeout(timeout); child.stdin.end();
-          const answer = ending ? `End scope: ${JSON.parse(response.result.content[0].text).scope}` : response.result.isError ? 'Worker command was denied' : 'Worker output checked and next command dispatched';
-          write({ method: 'item/completed', params: { threadId: 'thread-e2e', turnId, item: { id: `supervisor-answer-${turnId}`, type: 'agentMessage', text: answer } } });
-          write({ method: 'turn/completed', params: { threadId: 'thread-e2e', turn: { id: turnId, status: 'completed' } } });
-        };
-        lines.on('line', line => {
-          const response = JSON.parse(line);
-          if (response.id === 1) call(2, ending ? 'end_supervision' : 'list_targets', {});
-          if (response.id === 2) {
-            if (ending) { complete(response); return; }
-            target = JSON.parse(response.result.content[0].text).targets[0];
-            call(3, 'read_session', { memberId: target.memberId });
-          }
-          if (response.id === 3) {
-            if (turnsQuery) { call(7,'session_turns',{memberId:target.memberId,turnNumbers:[1,3],limit:20});return; }
-            const question = JSON.parse(response.result.content[0].text).pendingQuestions?.[0];
-            if (answering && question) call(4, 'answer_question', { memberId:target.memberId, questionId:question.id, answers:Object.fromEntries(question.questions.map(item => [item.id, 'Supervisor answer'])) });
-            else if (answering) complete(response);
-            else call(4, 'send_to_session', { memberId: target.memberId, text: 'Supervisor requested worker implementation' });
-          }
-          if (response.id === 4) {
-            if (answering && !response.result.isError) call(5, 'session_history', { memberId:target.memberId, limit:10 });
-            else complete(response);
-          }
-          if (response.id === 5) call(6, 'read_session_record', { memberId:target.memberId, offset:0, limit:8192 });
-          if (response.id === 6) complete(response);
-          if (response.id === 7) {const turns=JSON.parse(response.result.content[0].text).turns;call(8,'session_turn_details',{memberId:target.memberId,turnIds:turns.map(turn=>turn.turnId),limit:8192});}
-          if (response.id === 8) complete(response);
+        const environment = {};
+        for (const match of envText.matchAll(/(GLAD_MCP_\w+) = ("(?:[^"\\]|\\.)*")/g)) environment[match[1]] = JSON.parse(match[2]);
+        require('../group-mcp')({command,args:['mcp'],env:environment},text).then(answer => {
+          write({method:'item/completed',params:{threadId:'thread-e2e',turnId,item:{id:'group-result-'+turnId,type:'agentMessage',text:answer}}});
+          write({method:'turn/completed',params:{threadId:'thread-e2e',turn:{id:turnId,status:'completed'}}});
+        }).catch(error => {
+          write({method:'item/completed',params:{threadId:'thread-e2e',turnId,item:{id:'group-result-'+turnId,type:'agentMessage',text:'GROUP_CONTROL_ERROR '+error.message}}});
+          write({method:'turn/completed',params:{threadId:'thread-e2e',turn:{id:turnId,status:'completed'}}});
         });
-        child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } } }) + '\n');
         return;
       }
       if (capacityFailuresRemaining > 0) {

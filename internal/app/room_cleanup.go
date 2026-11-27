@@ -39,7 +39,7 @@ func (manager *RoomManager) closeOrphanSessions(room RoomRecord) {
 		}
 		ready, _ := sessionCanAccept(session)
 		session.mu.Lock()
-		shouldClose := !shared && ready && !session.closed && session.StatusValue == "idle" && len(session.Permissions) == 0 && numberInt64(session.State["pendingQuestionCount"]) == 0 && session.supervisorLease == ""
+		shouldClose := !shared && ready && !session.closed && session.StatusValue == "idle" && len(session.Permissions) == 0 && numberInt64(session.State["pendingQuestionCount"]) == 0
 		if shouldClose {
 			session.closed = true
 		}

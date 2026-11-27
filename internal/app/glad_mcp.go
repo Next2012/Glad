@@ -17,26 +17,26 @@ import (
 	"time"
 )
 
-func supervisorMCPConfig(session *Session) map[string]any {
-	return map[string]any{"command": session.mcpExecutable, "args": []string{"mcp"}, "env": map[string]string{"GLAD_SUPERVISOR_URL": session.mcpURL, "GLAD_SUPERVISOR_TOKEN": session.mcpToken, "GLAD_SUPERVISOR_SESSION": session.ID}}
+func gladMCPConfig(session *Session) map[string]any {
+	return map[string]any{"command": session.mcpExecutable, "args": []string{"mcp"}, "env": map[string]string{"GLAD_MCP_URL": session.mcpURL, "GLAD_MCP_TOKEN": session.mcpToken, "GLAD_MCP_SESSION": session.ID}}
 }
-func codexSupervisorArgs(session *Session) []string {
+func codexGladArgs(session *Session) []string {
 	if session.mcpURL == "" || session.mcpExecutable == "" {
 		return nil
 	}
 	args := []string{}
 	for _, key := range []string{"command", "args", "env"} {
-		value, _ := json.Marshal(supervisorMCPConfig(session)[key])
+		value, _ := json.Marshal(gladMCPConfig(session)[key])
 		if key == "env" {
 			entries := []string{}
-			for _, name := range []string{"GLAD_SUPERVISOR_URL", "GLAD_SUPERVISOR_TOKEN", "GLAD_SUPERVISOR_SESSION"} {
-				entries = append(entries, name+" = "+strconv.Quote(supervisorMCPConfig(session)["env"].(map[string]string)[name]))
+			for _, name := range []string{"GLAD_MCP_URL", "GLAD_MCP_TOKEN", "GLAD_MCP_SESSION"} {
+				entries = append(entries, name+" = "+strconv.Quote(gladMCPConfig(session)["env"].(map[string]string)[name]))
 			}
 			value = []byte("{" + strings.Join(entries, ", ") + "}")
 		}
 		args = append(args, "-c", "mcp_servers.glad."+key+"="+string(value))
 	}
-	// These local tools enforce the current invocation and target permissions in
+	// These local tools enforce the current group membership and Supervisor role in
 	// the daemon. Permit them without an interactive prompt, including when the
 	// user's shell approval policy is never; other servers and tools keep theirs.
 	for _, tool := range allGladTools() {
@@ -44,71 +44,12 @@ func codexSupervisorArgs(session *Session) []string {
 	}
 	return args
 }
-func claudeSupervisorArgs(session *Session) []string {
+func claudeGladArgs(session *Session) []string {
 	if session.mcpURL == "" || session.mcpExecutable == "" {
 		return nil
 	}
-	config, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"glad": supervisorMCPConfig(session)}})
+	config, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"glad": gladMCPConfig(session)}})
 	return []string{"--mcp-config", string(config), "--allowedTools", "mcp__glad"}
-}
-func supervisorTools() []map[string]any {
-	tools := []map[string]any{}
-	for _, item := range []struct{ name, description string }{
-		{"list_targets", "List monitored sessions and authorized operations for this supervisor invocation."},
-		{"read_session", "Read live output or paginated history, including a session that is still running."},
-		{"session_turns", "Read selected monitor turn summaries. Select arbitrary turnIds or turnNumbers, ranges fromTurn/toTurn, and paginate with offset/limit. Summaries are extracted previews."},
-		{"session_turn_details", "Read complete selected monitor turns, including input, output, tools and available reasoning. Supply turnIds, turnNumbers or a range. Details are paginated JSONL; follow nextOffset while hasMore. offset/limit count bytes."},
-		{"session_history", "Get the original transcript path and a paginated Markdown index. offset counts index rows, limit defaults to 50. No transcript copy is created."},
-		{"read_session_record", "Read original transcript bytes without message truncation. offset and limit are byte positions; follow nextOffset while hasMore. The server resolves the authorized target path."},
-		{"answer_question", "Answer a pending question on a supporting provider by questionId and answers keyed by question field IDs. Requires Read and Send. Async answers steer the running turn without stopping it; blocking answers resume the waiting request."},
-		{"stop_session", "Interrupt the expected target turn. Read again before sending; stop acceptance does not mean the session is ready."},
-		{"send_to_session", "Send a prompt to an idle target session. The command appears in the group."},
-		{"end_supervision", "End supervision. For periodic and configured run-once checks, disable future monitoring (scope: task). For a one-time custom check, revoke only this invocation's tool access and leave recurring monitoring unchanged (scope: invocation). The executor turn must still finish before another check can start."},
-	} {
-		properties := map[string]any{"invocationId": map[string]any{"type": "string", "description": "Invocation ID supplied in the current supervisor prompt. Required; old invocation IDs are rejected."}}
-		required := []string{"invocationId"}
-		if item.name != "list_targets" && item.name != "end_supervision" {
-			properties["memberId"] = map[string]any{"type": "string"}
-			required = append(required, "memberId")
-		}
-		switch item.name {
-		case "read_session", "session_history":
-			if item.name == "read_session" {
-				properties["after"] = map[string]any{"type": "integer", "minimum": 0}
-			}
-			properties["limit"] = map[string]any{"type": "integer", "minimum": 1, "maximum": 200}
-			properties["offset"] = map[string]any{"type": "integer", "minimum": 0}
-			if item.name == "read_session" {
-				properties["history"] = map[string]any{"type": "boolean"}
-			}
-		case "session_turns", "session_turn_details":
-			for k, v := range turnQueryProperties() {
-				properties[k] = v
-			}
-		case "read_session_record":
-			properties["offset"] = map[string]any{"type": "integer", "minimum": 0}
-			properties["limit"] = map[string]any{"type": "integer", "minimum": 1, "maximum": 131072}
-		case "answer_question":
-			properties["questionId"] = map[string]any{"type": "string"}
-			properties["answers"] = map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}
-			required = append(required, "questionId", "answers")
-		case "stop_session":
-			properties["expectedTurnId"] = map[string]any{"type": "string"}
-			required = append(required, "expectedTurnId")
-		case "send_to_session":
-			properties["text"] = map[string]any{"type": "string", "description": "Command to send; preferred field. Supply text or message. Must be non-empty and at most 16 KiB in UTF-8 bytes."}
-			properties["message"] = map[string]any{"type": "string", "description": "Alias for text. Must be non-empty and at most 16 KiB in UTF-8 bytes. If both are supplied, they must match."}
-		}
-		schema := map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}
-		tools = append(tools, map[string]any{"name": item.name, "description": item.description, "inputSchema": schema})
-	}
-	return tools
-}
-
-// Reuse the tool definitions as the argument contract. MCP clients may not
-// enforce additionalProperties or types before forwarding calls to the daemon.
-func validateSupervisorArguments(name string, args map[string]any) error {
-	return validateGladArguments(name, args, supervisorTools())
 }
 func validateGladArguments(name string, args map[string]any, definitions []map[string]any) error {
 	for _, tool := range definitions {
@@ -175,7 +116,7 @@ func validateGladArguments(name string, args map[string]any, definitions []map[s
 		}
 		return nil
 	}
-	return errors.New("Unknown supervisor tool")
+	return errors.New("Unknown Glad tool")
 }
 
 func validateGladArray(key string, value any, definition map[string]any) error {
@@ -213,8 +154,8 @@ func validateGladArray(key string, value any, definition map[string]any) error {
 }
 
 // MCP uses newline-delimited stdio. Diagnostics never go to protocol stdout.
-func runSupervisorMCP() error { return serveSupervisorMCP(os.Stdin, os.Stdout) }
-func serveSupervisorMCP(input io.Reader, output io.Writer) error {
+func runGladMCP() error { return serveGladMCP(os.Stdin, os.Stdout) }
+func serveGladMCP(input io.Reader, output io.Writer) error {
 	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, 4096), 1<<20)
 	encoder := json.NewEncoder(output)
@@ -240,8 +181,8 @@ func serveSupervisorMCP(input io.Reader, output io.Writer) error {
 		case "tools/list":
 			response["result"] = map[string]any{"tools": allGladTools()}
 		case "tools/call":
-			body := map[string]any{"sessionId": os.Getenv("GLAD_SUPERVISOR_SESSION"), "tool": request.Params["name"], "arguments": request.Params["arguments"], "callId": connectionID + ":" + string(request.ID)}
-			result, err := callSupervisorDaemon(body)
+			body := map[string]any{"sessionId": os.Getenv("GLAD_MCP_SESSION"), "tool": request.Params["name"], "arguments": request.Params["arguments"], "callId": connectionID + ":" + string(request.ID)}
+			result, err := callGladDaemon(body)
 			content := []map[string]any{{"type": "text", "text": string(result)}}
 			if err != nil {
 				content[0]["text"] = err.Error()
@@ -256,15 +197,15 @@ func serveSupervisorMCP(input io.Reader, output io.Writer) error {
 	}
 	return scanner.Err()
 }
-func callSupervisorDaemon(body any) ([]byte, error) {
-	endpoint, token := os.Getenv("GLAD_SUPERVISOR_URL"), os.Getenv("GLAD_SUPERVISOR_TOKEN")
+func callGladDaemon(body any) ([]byte, error) {
+	endpoint, token := os.Getenv("GLAD_MCP_URL"), os.Getenv("GLAD_MCP_TOKEN")
 	if endpoint == "" || token == "" {
-		return nil, errors.New("Glad supervisor connection is not configured")
+		return nil, errors.New("Glad MCP connection is not configured")
 	}
 	data, _ := json.Marshal(body)
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"/api/supervisor/call", bytes.NewReader(data))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"/api/mcp/call", bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}

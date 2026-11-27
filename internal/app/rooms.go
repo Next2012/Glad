@@ -26,6 +26,7 @@ const (
 
 type RoomManager struct {
 	mu                  sync.Mutex
+	roleLocks           map[string]*sync.RWMutex
 	store               RoomStore
 	sessions            *SessionManager
 	attachments         *AttachmentStore
@@ -92,7 +93,7 @@ func (resolver sessionRoomTurnResolver) Resolve(member RoomMemberRecord, entry R
 }
 
 type RoomMessageInput struct {
-	Source             *SupervisorSource                `json:"-"`
+	Source             *RoomActionSource                `json:"-"`
 	SenderMemberID     string                           `json:"-"`
 	ClientMessageID    string                           `json:"clientMessageId,omitempty"`
 	Text               string                           `json:"text"`
@@ -431,6 +432,8 @@ func (manager *RoomManager) Busy(id string) bool {
 // SwitchHistory binds an existing runtime group to a saved conversation.
 // Runtime identities live only in memory, just like ordinary sessions.
 func (manager *RoomManager) SwitchHistory(runtimeID, historyID string) error {
+	unlockRole := manager.lockRole(runtimeID)
+	defer unlockRole()
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.activeIDs[runtimeID] == "" {
@@ -459,6 +462,8 @@ func (manager *RoomManager) roomIDLocked(id string) string {
 
 // Close removes the runtime group while preserving its saved history and members.
 func (manager *RoomManager) Close(id string) error {
+	unlockRole := manager.lockRole(id)
+	defer unlockRole()
 	manager.mu.Lock()
 	if manager.activeIDs[id] == "" {
 		manager.mu.Unlock()
@@ -516,16 +521,24 @@ func (manager *RoomManager) CopyHistory(id string) (RoomRecord, error) {
 }
 
 func (manager *RoomManager) Delete(id string) error {
+	gate := manager.roleGate(id)
+	gate.Lock()
+	defer gate.Unlock()
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if err := manager.store.Delete(id); err != nil {
 		return err
 	}
-	delete(manager.activeIDs, id)
+	if manager.activeIDs[id] == id {
+		delete(manager.activeIDs, id)
+	}
 	return nil
 }
 
 func (manager *RoomManager) DeleteDraft(id string) error {
+	gate := manager.roleGate(id)
+	gate.Lock()
+	defer gate.Unlock()
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	room, err := manager.store.Get(id)
@@ -543,7 +556,9 @@ func (manager *RoomManager) DeleteDraft(id string) error {
 	if err := manager.store.Delete(id); err != nil {
 		return err
 	}
-	delete(manager.activeIDs, id)
+	if manager.activeIDs[id] == id {
+		delete(manager.activeIDs, id)
+	}
 	return nil
 }
 
@@ -671,6 +686,9 @@ func (manager *RoomManager) GetRecord(id string) (RoomRecord, error) {
 }
 
 func (manager *RoomManager) BindRuntimeSession(roomID, memberID, sessionID, conversationID string) error {
+	gate := manager.roleGate(roomID)
+	gate.Lock()
+	defer gate.Unlock()
 	return manager.mutateHistory(roomID, func(room *RoomRecord) error {
 		for index := range room.Members {
 			if room.Members[index].ID == memberID && room.Members[index].LeftAt == 0 {
@@ -736,7 +754,7 @@ func (manager *RoomManager) roomView(id string, history bool, page *roomPageQuer
 			session.mu.RUnlock()
 		}
 		members = append(members, map[string]any{
-			"id": member.ID, "sessionId": member.RuntimeSessionID,
+			"id": member.ID, "sessionId": member.RuntimeSessionID, "isSupervisor": member.ID == room.SupervisorMemberID,
 			"displayName": member.DisplayName, "avatarSeed": member.AvatarSeed, "avatarColor": member.AvatarColor,
 			"toolKey": member.ToolKey, "toolName": firstNonEmpty(member.ToolName, member.ToolKey), "workingDirectory": member.WorkingDirectory,
 			"nativeConversationId": member.NativeConversationID,
@@ -792,6 +810,7 @@ func (manager *RoomManager) roomView(id string, history bool, page *roomPageQuer
 		"createdAt": room.CreatedAt, "updatedAt": room.UpdatedAt, "draft": room.Draft,
 		"serverChanNotificationEnabled": room.ServerChanNotificationEnabled,
 		"members":                       members, "entries": entries,
+		"supervisorMemberId": room.SupervisorMemberID,
 	}
 	for key, value := range fields {
 		result[key] = value
@@ -804,7 +823,6 @@ func (manager *RoomManager) roomView(id string, history bool, page *roomPageQuer
 
 type roomProjectedTurn struct {
 	turnID, conversationID, originRoomID, clientID, userText, assistantText, status string
-	hidden                                                                          bool
 	userAt, assistantAt                                                             int64
 	trigger                                                                         string
 	references                                                                      []string
@@ -894,16 +912,6 @@ func (manager *RoomManager) projectRoomEntriesLocked(room RoomRecord) []RoomEntr
 				meta := roomTransportMetadata(firstNonEmpty(stringValue(message["agentText"]), text))
 				turn.trigger = stringValue(meta["entryId"])
 				turn.references = stringList(meta["quotedEntryIds"])
-				source := sourceValue(message["supervisorSource"])
-				if source == nil {
-					source, _ = supervisorEnvelope(stringValue(message["agentText"]))
-				}
-				if historicalSource, visible := supervisorEnvelope(text); historicalSource != nil {
-					source, text = historicalSource, visible
-				}
-				if source != nil && source.Kind == "trigger" {
-					turn.hidden = true
-				}
 				if origin, roomClient := roomClientOrigin(clientID); roomClient && origin != "" {
 					turn.originRoomID = origin
 				}
@@ -938,7 +946,7 @@ func (manager *RoomManager) projectRoomEntriesLocked(room RoomRecord) []RoomEntr
 		}
 		for _, turnID := range order {
 			turn := turns[turnID]
-			if turn.hidden || turn.userText == "" || seenTurns[member.ID+"\x00"+turnID] ||
+			if turn.userText == "" || seenTurns[member.ID+"\x00"+turnID] ||
 				(turn.clientID != "" && seenClients[member.ID+"\x00"+turn.clientID]) {
 				continue
 			}
@@ -1268,10 +1276,15 @@ func (manager *RoomManager) AddSession(roomID, sessionID string) (RoomMemberReco
 }
 
 func (manager *RoomManager) RemoveMember(roomID, memberID string) error {
+	unlockRole := manager.lockRole(roomID)
+	defer unlockRole()
 	return manager.mutate(roomID, func(room *RoomRecord) error {
 		for index := range room.Members {
 			if room.Members[index].ID == memberID && room.Members[index].LeftAt == 0 {
 				room.Members[index].LeftAt = millis()
+				if room.SupervisorMemberID == memberID {
+					room.SupervisorMemberID = ""
+				}
 				return nil
 			}
 		}
@@ -1414,7 +1427,7 @@ func (manager *RoomManager) dispatch(
 	member RoomMemberRecord,
 	displayText, agentText string,
 	attachmentIDs RoomTargetAttachments,
-	source *SupervisorSource,
+	source *RoomActionSource,
 ) {
 	session := manager.sessions.Get(member.RuntimeSessionID)
 	if session == nil {
@@ -1448,10 +1461,43 @@ func (manager *RoomManager) dispatch(
 		return
 	}
 	session.commandMu.Lock()
+	gate := manager.roleGate(roomID)
+	gate.RLock()
+	manager.mu.Lock()
+	current, checkErr := manager.store.Get(roomID)
+	active := false
+	for _, history := range manager.activeIDs {
+		if history == roomID {
+			active = true
+		}
+	}
+	bound, boundOK := roomMember(current, member.ID)
+	manager.mu.Unlock()
+	if !active || !boundOK || bound.RuntimeSessionID != session.ID || bound.NativeConversationID != member.NativeConversationID || !sessionMatchesRoomMember(session, bound) {
+		checkErr = errors.New("Group member binding changed before dispatch")
+	}
+	if checkErr == nil && source != nil {
+		_, _, target, authErr := manager.supervisorTargetForDispatch(source, session.ID)
+		if authErr != nil {
+			checkErr = authErr
+		} else if target.ID != member.ID {
+			checkErr = errors.New("Target changed")
+		}
+	}
+	if checkErr != nil {
+		gate.RUnlock()
+		session.commandMu.Unlock()
+		manager.failEntry(roomID, entryID, checkErr.Error())
+		return
+	}
+	if current.SupervisorMemberID == member.ID {
+		providerText += "\n\nYou are this group's current Supervisor. Use room_read_member, room_start_member, room_stop_member, room_approve_member and room_answer_member to coordinate other active members. You may not control yourself. Starts require idle targets; approvals never persist permissions. Your authority is checked on every call and may be revoked."
+	}
 	err = sendSessionControlledLocked(ctx, session, ProviderInput{
-		ClientMessageID: clientID, Text: displayText, AgentText: supervisorAgentText(source, providerText), Source: source,
+		ClientMessageID: clientID, Text: displayText, AgentText: providerText, Source: source,
 		Images: images, Files: files,
 	})
+	gate.RUnlock()
 	session.commandMu.Unlock()
 	if err != nil {
 		for _, id := range uniqueStrings(attachmentIDs.ImageIDs) {

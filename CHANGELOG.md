@@ -10,6 +10,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.17.0] - 2026-11-28
+
+### Added
+
+- Choose one Supervisor per group from message authors or Members, with synchronized role switches and shared `room_*` MCP tools for reading members, idle task dispatch, stopping turns, temporary approvals, and question answers.
+- Read Antigravity native conversation history while members are offline, including paginated original JSONL details.
+- Configure Antigravity permissions through seven flat presets, sandbox/access/review switches, and scoped rules. Apply policy changes with an isolated ACP profile, conversation restoration and rollback; save defaults separately.
+
+### Changed
+
+- Replace periodic Supervisor tasks, invocation leases and per-target permission matrices with a group role checked again at each effect boundary. Context remains available through single-message reference selection and previews.
+- Move group storage to schema 4 and remove older Glad group records and obsolete Supervisor state. Native Codex, Claude and Antigravity conversations are preserved.
+- Keep the latest 200 Supervisor action records in group storage without transferring unused audit history in live snapshots.
+
+### Fixed
+
+- Isolate role locks by group history so a slow provider RPC and a waiting role change cannot stall unrelated groups, including groups reached through runtime aliases.
+- Respect Strict and explicit Ask/Deny rules when Antigravity ACP forwards known Glad MCP tools as external-tool approvals; retain daemon authentication and role checks.
+- Support Supervisor answers through Claude's existing question protocol without upgrading tool permissions, and label control events with readable actions.
+- Separate Antigravity assistant summary segments, stop appending after truncation, and complete native turns whose final planner response has no text.
+
 ## [2.16.1] - 2026-11-25
 
 ### Changed

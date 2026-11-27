@@ -33,7 +33,6 @@ type conversationTurn struct {
 	Trigger      string           `json:"triggerEntryId,omitempty"`
 	References   []string         `json:"quotedEntryIds,omitempty"`
 	Origin       string           `json:"originRoomId,omitempty"`
-	Hidden       bool             `json:"-"`
 	Start, End   int64            `json:"-"`
 	InputHash    string           `json:"-"`
 	Live         []map[string]any `json:"-"`
@@ -65,9 +64,6 @@ func (turn conversationTurn) summary() map[string]any {
 func turnInput(text string) (string, string) {
 	visible := text
 	if v, _, ok := roomTransportEnvelope(text); ok {
-		visible = v
-	}
-	if _, v := supervisorEnvelope(visible); v != "" {
 		visible = v
 	}
 	hash := sha256.Sum256([]byte(text))
@@ -103,7 +99,18 @@ func indexConversation(ctx context.Context, file *os.File, tool string) ([]conve
 		payload := mapValue(record["payload"])
 		id, user, assistant := "", "", ""
 		toolCall := false
-		if tool == "claude-code" {
+		if tool == "antigravity" {
+			if kind == "USER_INPUT" {
+				user = antigravityTranscriptUserText(stringValue(record["content"]))
+				id = fmt.Sprintf("agy-step-%d", numberInt64(record["step_index"]))
+				if current >= 0 {
+					turns[current].Status = "completed"
+				}
+			} else if kind == "PLANNER_RESPONSE" {
+				assistant = stringValue(record["content"])
+				toolCall = len(sliceValue(record["tool_calls"])) > 0
+			}
+		} else if tool == "claude-code" {
 			if boolValue(record["isSidechain"]) {
 				continue
 			}
@@ -151,7 +158,7 @@ func indexConversation(ctx context.Context, file *os.File, tool string) ([]conve
 				current = len(turns)
 				byID[id] = current
 				var createdAt int64
-				if timestamp := stringValue(record["timestamp"]); timestamp != "" {
+				if timestamp := firstNonEmpty(stringValue(record["timestamp"]), stringValue(record["created_at"])); timestamp != "" {
 					createdAt = parseTimeMillis(timestamp)
 				}
 				turns = append(turns, conversationTurn{ID: id, CreatedAt: createdAt, Status: "running", Start: start})
@@ -166,16 +173,25 @@ func indexConversation(ctx context.Context, file *os.File, tool string) ([]conve
 			visible, hash := turnInput(user)
 			turn.User = codexPreviewText(visible, 800)
 			turn.InputHash = hash
-			if source, _ := supervisorEnvelope(user); source != nil && source.Kind == "trigger" {
-				turn.Hidden = true
-			}
 			meta := roomTransportMetadata(user)
 			turn.Trigger = stringValue(meta["entryId"])
 			turn.References = stringList(meta["quotedEntryIds"])
 			_, turn.Origin, _ = roomTransportEnvelope(user)
 		}
+		if tool == "antigravity" && kind == "PLANNER_RESPONSE" && !toolCall && stringValue(record["status"]) == "DONE" {
+			turn.Status = "completed"
+		}
 		if assistant != "" {
-			turn.Assistant = codexPreviewText(assistant, 1200)
+			if tool == "antigravity" {
+				if len(turn.Assistant) < 1200 {
+					if turn.Assistant != "" {
+						assistant = turn.Assistant + "\n" + assistant
+					}
+					turn.Assistant = codexPreviewText(assistant, 1200)
+				}
+			} else {
+				turn.Assistant = codexPreviewText(assistant, 1200)
+			}
 			if tool == "claude-code" {
 				if id := stringValue(mapValue(record["message"])["id"]); id != "" {
 					turn.AssistantIDs = append(turn.AssistantIDs, id)
@@ -184,7 +200,11 @@ func indexConversation(ctx context.Context, file *os.File, tool string) ([]conve
 			}
 		}
 		if toolCall {
-			turn.Tools++
+			if tool == "antigravity" {
+				turn.Tools += len(sliceValue(record["tool_calls"]))
+			} else {
+				turn.Tools++
+			}
 		}
 		if kind == "event_msg" && (payload["type"] == "task_complete" || payload["type"] == "turn_aborted") {
 			turn.Status = "completed"
@@ -298,9 +318,6 @@ func conversationTurns(ctx context.Context, session *Session) ([]conversationTur
 		}
 		if input != "" {
 			turn.User = codexPreviewText(visible, 800)
-			if source, _ := supervisorEnvelope(input); source != nil && source.Kind == "trigger" {
-				turn.Hidden = true
-			}
 			meta := roomTransportMetadata(input)
 			if meta != nil {
 				turn.Trigger = stringValue(meta["entryId"])

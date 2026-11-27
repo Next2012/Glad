@@ -161,7 +161,7 @@ func (provider *ClaudeProvider) startLocked(ctx context.Context, fork bool) erro
 			args = append(args, "--fork-session")
 		}
 	}
-	args = append(args, claudeSupervisorArgs(provider.session)...)
+	args = append(args, claudeGladArgs(provider.session)...)
 	command := exec.Command(provider.session.Tool.Command, args...)
 	configureProcess(command)
 	command.Dir = provider.session.WorkingDirectory

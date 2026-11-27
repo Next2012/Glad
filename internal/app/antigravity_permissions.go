@@ -348,7 +348,7 @@ func (p *AntigravityProvider) preparePermissionProfileLocked() error {
 	}
 	scoped := agyMergeRules(docs...)
 	raw := mapValue(p.options["permissionPolicy"])
-	if len(scoped.Allow)+len(scoped.Ask)+len(scoped.Deny) == 0 && len(raw) == 0 {
+	if len(scoped.Allow)+len(scoped.Ask)+len(scoped.Deny) == 0 && len(raw) == 0 && p.session.mcpURL == "" {
 		if p.permissionSettings == nil {
 			p.permissionSettings = cloneMap(settings)
 		}

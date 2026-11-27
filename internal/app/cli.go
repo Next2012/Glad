@@ -28,7 +28,7 @@ func Run(args []string, version string, assets fs.FS) error {
 		case "config":
 			return runConfig(args[1:])
 		case "mcp":
-			return runSupervisorMCP()
+			return runGladMCP()
 		case "sessions":
 			return runSessions(args[1:])
 		case "connect":

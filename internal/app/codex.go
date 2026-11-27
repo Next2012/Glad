@@ -163,7 +163,7 @@ func (provider *CodexProvider) startLocked(ctx context.Context) error {
 	if provider.cmd != nil {
 		return nil
 	}
-	args := append([]string{"app-server", "--stdio"}, codexSupervisorArgs(provider.session)...)
+	args := append([]string{"app-server", "--stdio"}, codexGladArgs(provider.session)...)
 	command := exec.Command(provider.session.Tool.Command, args...)
 	configureProcess(command)
 	command.Dir = provider.session.WorkingDirectory

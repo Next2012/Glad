@@ -67,7 +67,7 @@ func (cursor sessionRecoveryCursor) reconcile(manager *SessionManager, handle fu
 		for _, message := range current.Messages {
 			kind := stringValue(message["kind"])
 			if kind == "turn-end" && numberInt64(message["createdAt"]) >= after || kind == "question" && stringValue(message["questionStatus"]) == "pending" {
-				events = append(events, sessioncore.Event{SessionID: current.ID, Payload: map[string]any{"type": "message", "message": cloneMap(message), "supervisorSource": message["supervisorSource"]}})
+				events = append(events, sessioncore.Event{SessionID: current.ID, Payload: map[string]any{"type": "message", "message": cloneMap(message), "roomActionSource": message["roomActionSource"]}})
 				if kind == "question" {
 					events = append(events, sessioncore.Event{SessionID: current.ID, Payload: map[string]any{"type": "question-request", "id": message["id"], "message": cloneMap(message)}})
 				}
@@ -94,8 +94,4 @@ func notificationControlEvent(event sessioncore.Event) bool {
 		return kind == "turn-end" || kind == "question"
 	}
 	return false
-}
-func supervisorControlEvent(event sessioncore.Event) bool {
-	message := mapValue(event.Payload["message"])
-	return stringValue(message["kind"]) == "question" && stringValue(message["questionStatus"]) == "pending"
 }

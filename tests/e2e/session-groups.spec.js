@@ -79,7 +79,7 @@ test('session groups collapse, share cards, update live, and clean idle orphan s
       'room-mention-button', 'room-attachment-button', 'room-schedule-send-btn',
       'room-abort-button', 'room-history-resume', 'room-history-fork'
     ]);
-    await expect((await conversationView(page)).locator('.room-header-actions #room-supervisor-open')).toBeVisible();
+    await expect((await conversationView(page)).locator('.room-header-actions #room-supervisor-open')).toHaveCount(0);
     await expect((await conversationView(page)).locator('.room-header-actions #room-members-open')).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath('group-toolbar.png') });
     await closeConversation(page, '.room-back-button');

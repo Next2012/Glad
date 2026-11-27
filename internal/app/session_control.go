@@ -22,55 +22,30 @@ type SteeringProvider interface {
 }
 type SteeringReadinessProvider interface{ CanSteer() (bool, string) }
 
-type SupervisorSource struct {
-	Version      int    `json:"version"`
-	TaskID       string `json:"taskId"`
-	InvocationID string `json:"invocationId"`
-	Kind         string `json:"kind"`
+type RoomActionSource struct {
+	RoomID   string `json:"roomId"`
+	MemberID string `json:"memberId"`
+	Name     string `json:"name"`
+	ActionID string `json:"actionId"`
+	Kind     string `json:"kind"`
 }
 
-func (source *SupervisorSource) valid() bool {
-	return source != nil && source.Version == 1 && safeUploadIDPattern.MatchString(source.TaskID) && safeUploadIDPattern.MatchString(source.InvocationID) && (source.Kind == "trigger" || source.Kind == "command")
+func (source *RoomActionSource) valid() bool {
+	return source != nil && source.RoomID != "" && source.MemberID != "" && source.ActionID != ""
 }
-func (source *SupervisorSource) values() map[string]any {
+func (source *RoomActionSource) values() map[string]any {
 	if source == nil {
 		return nil
 	}
-	return map[string]any{"version": source.Version, "taskId": source.TaskID, "invocationId": source.InvocationID, "kind": source.Kind}
+	return map[string]any{"roomId": source.RoomID, "memberId": source.MemberID, "name": source.Name, "actionId": source.ActionID, "kind": source.Kind}
 }
-func sourceValue(value any) *SupervisorSource {
+func sourceValue(value any) *RoomActionSource {
 	data, _ := json.Marshal(value)
-	var source SupervisorSource
+	var source RoomActionSource
 	if json.Unmarshal(data, &source) == nil && source.valid() {
 		return &source
 	}
 	return nil
-}
-
-const supervisorEnvelopePrefix = "Glad supervisor invocation v1\n<glad_supervisor_invocation>"
-
-func supervisorAgentText(source *SupervisorSource, text string) string {
-	if !source.valid() {
-		return text
-	}
-	data, _ := json.Marshal(source)
-	return supervisorEnvelopePrefix + string(data) + "</glad_supervisor_invocation>\n<glad_supervisor_message>\n" + text + "\n</glad_supervisor_message>"
-}
-func supervisorEnvelope(text string) (*SupervisorSource, string) {
-	if !strings.HasPrefix(text, supervisorEnvelopePrefix) {
-		return nil, text
-	}
-	value := strings.TrimPrefix(text, supervisorEnvelopePrefix)
-	end := strings.Index(value, "</glad_supervisor_invocation>\n<glad_supervisor_message>\n")
-	if end < 0 || !strings.HasSuffix(value, "\n</glad_supervisor_message>") {
-		return nil, text
-	}
-	var source SupervisorSource
-	if json.Unmarshal([]byte(value[:end]), &source) != nil || !source.valid() {
-		return nil, text
-	}
-	body := value[end+len("</glad_supervisor_invocation>\n<glad_supervisor_message>\n"):]
-	return &source, strings.TrimSuffix(body, "\n</glad_supervisor_message>")
 }
 
 func providerReadiness(session *Session) (bool, string) {
@@ -110,13 +85,10 @@ func (session *Session) beginConversationRecovery() func() {
 }
 func sessionCanAccept(session *Session) (bool, string) {
 	session.mu.RLock()
-	lease, closed := session.supervisorLease, session.closed
+	closed := session.closed
 	session.mu.RUnlock()
 	if closed {
 		return false, "Session is closed"
-	}
-	if lease != "" {
-		return false, "Supervisor is settling its current invocation"
 	}
 	return providerReadiness(session)
 }
@@ -157,16 +129,13 @@ func sendSessionControlledLocked(ctx context.Context, session *Session, input Pr
 	hash := hex.EncodeToString(digest[:])
 	session.mu.RLock()
 	savedHash, exists := session.controlHashes[input.ClientMessageID]
-	lease, closed, recovering := session.supervisorLease, session.closed, session.recovering
+	closed, recovering := session.closed, session.recovering
 	session.mu.RUnlock()
 	if input.ClientMessageID != "" && exists {
 		if savedHash != hash {
 			return errors.New("message ID was already used for different content")
 		}
 		return nil
-	}
-	if lease != "" && (input.Source == nil || input.Source.Kind != "trigger" || input.Source.InvocationID != lease) {
-		return errors.New("Session is reserved by an active supervisor invocation")
 	}
 	if closed {
 		return errors.New("Session is closed")
@@ -227,8 +196,8 @@ func (session *Session) tagSourceLocked(event map[string]any) {
 	// A steering message has its own provenance; it must not relabel the
 	// running turn or inherit the original instruction's supervisor source.
 	if stringValue(message["delivery"]) == "steer" {
-		if source := sourceValue(message["supervisorSource"]); source != nil {
-			event["supervisorSource"] = source.values()
+		if source := sourceValue(message["roomActionSource"]); source != nil {
+			event["roomActionSource"] = source.values()
 		}
 		return
 	}
@@ -246,27 +215,22 @@ func (session *Session) tagSourceLocked(event map[string]any) {
 		}
 	}
 	if source != nil {
-		message["supervisorSource"] = source.values()
-		event["supervisorSource"] = source.values()
+		message["roomActionSource"] = source.values()
+		event["roomActionSource"] = source.values()
 		for _, item := range session.Messages {
 			if item["id"] == message["id"] {
-				item["supervisorSource"] = source.values()
+				item["roomActionSource"] = source.values()
 				break
 			}
 		}
 		if turn != "" {
 			if session.sourceTurns == nil {
-				session.sourceTurns = map[string]*SupervisorSource{}
+				session.sourceTurns = map[string]*RoomActionSource{}
 			}
 			session.sourceTurns[turn] = source
 		}
 	}
 }
-func quietSupervisorCompletion(event map[string]any) bool {
-	message := mapValue(event["message"])
-	return sourceValue(event["supervisorSource"]) != nil && stringValue(message["kind"]) == "turn-end" && firstNonEmpty(stringValue(message["status"]), stringValue(message["turnStatus"]), "completed") == "completed"
-}
-
 func stopSessionControlled(ctx context.Context, session *Session, expectedTurn string) error {
 	session.commandMu.Lock()
 	defer session.commandMu.Unlock()
@@ -314,6 +278,10 @@ func sessionOutput(session *Session, after uint64, limit, offset int, history bo
 	reset := !history && (after == 0 || after < resetRevision || after > revision)
 	messages := []map[string]any{}
 	pendingQuestions := []map[string]any{}
+	pendingPermissions := []Permission{}
+	for _, permission := range session.Permissions {
+		pendingPermissions = append(pendingPermissions, permission)
+	}
 	for _, item := range session.Messages {
 		if stringValue(item["kind"]) == "question" && stringValue(item["questionStatus"]) == "pending" {
 			pendingQuestions = append(pendingQuestions, publicMessage(item, session.Kind))
@@ -349,7 +317,7 @@ func sessionOutput(session *Session, after uint64, limit, offset int, history bo
 		next = uint64(numberInt64(messages[len(messages)-1]["revision"]))
 	}
 	ready, reason := sessionCanAccept(session)
-	return map[string]any{"success": true, "sessionId": session.ID, "status": status, "currentTurnId": turnID, "nativeConversationId": conversationID, "canAccept": ready, "readinessReason": reason, "revision": revision, "cursor": next, "reset": reset, "messages": messages, "pendingQuestions": pendingQuestions, "total": total, "hasMore": history && offset+len(messages) < total || !history && !reset && next < revision, "truncated": reset && total > limit}
+	return map[string]any{"success": true, "sessionId": session.ID, "status": status, "currentTurnId": turnID, "nativeConversationId": conversationID, "canAccept": ready, "readinessReason": reason, "revision": revision, "cursor": next, "reset": reset, "messages": messages, "pendingQuestions": pendingQuestions, "pendingPermissions": pendingPermissions, "total": total, "hasMore": history && offset+len(messages) < total || !history && !reset && next < revision, "truncated": reset && total > limit}
 }
 func (server *Server) sessionOutputRoute(writer http.ResponseWriter, request *http.Request) {
 	session := server.sessions.Get(request.PathValue("id"))

@@ -67,7 +67,7 @@ func (manager *RoomManager) sessionEvent(event sessioncore.Event) {
 			continue
 		}
 		runtime := manager.runtimeLocked(id)
-		if root && !quietSupervisorCompletion(event.Payload) {
+		if root {
 			key := event.SessionID + "/" + stringValue(message["turnId"])
 			if !runtime.completedTurns[key] {
 				runtime.completedTurns[key] = true
@@ -157,6 +157,8 @@ func (manager *RoomManager) MarkRead(id string, revision uint64) error {
 }
 
 func (manager *RoomManager) beginLifecycle(parent context.Context, id, kind string) (context.Context, func(), error) {
+	unlockRole := manager.lockRole(id)
+	defer unlockRole()
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	runtime := manager.runtimeLocked(id)

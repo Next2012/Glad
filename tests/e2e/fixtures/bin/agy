@@ -18,6 +18,7 @@ const root = process.env.ANTIGRAVITY_HOME || path.join(process.env.HOME || os.tm
 const historyPath = id => path.join(root, encodeURIComponent(id)+'.json');
 let sessionID='agy-session-e2e', sequence=0, history=[], cwd=process.cwd(), active=new Map(), background=null;
 const interactions=new Map();
+let gladConfig;
 const configOptions=[
  {id:'model',name:'Model',category:'model',type:'select',currentValue:'gemini-3.1-pro',options:[{value:'gemini-3.1-pro',name:'Gemini 3.1 Pro'},{value:'claude-sonnet-4.6',name:'Claude Sonnet 4.6'}]},
  {id:'thought_level',name:'Thinking',category:'thought_level',type:'select',currentValue:'high',options:[{value:'low',name:'Low'},{value:'medium',name:'Medium'},{value:'high',name:'High'}]},
@@ -57,7 +58,7 @@ readline.createInterface({input:process.stdin,crlfDelay:Infinity}).on('line',lin
  }
  switch(method){
  case 'initialize':send({id,result:{protocolVersion:1,agentInfo:{name:'antigravity',version:'1.5.18'},agentCapabilities:{loadSession:true,sessionCapabilities:{list:{},load:{},resume:{},close:{},additionalDirectories:{}},promptCapabilities:{image:true,embeddedContext:true},_meta:{antigravity:{systemPrompt:{append:true}}}}}});break;
- case 'session/new':cwd=params.cwd||cwd;send({id,result:{sessionId:sessionID,configOptions,modes:modes()}});setTimeout(commands,20);break;
+ case 'session/new':gladConfig=params.mcpServers?.find(server=>server.name==='glad');cwd=params.cwd||cwd;send({id,result:{sessionId:sessionID,configOptions,modes:modes()}});setTimeout(commands,20);break;
  case 'session/list':{
   let sessions=[];try{sessions=fs.readdirSync(root).filter(n=>n.endsWith('.json')).map(n=>JSON.parse(fs.readFileSync(path.join(root,n),'utf8'))).filter(s=>!params.cwd||s.cwd===params.cwd).map(s=>({sessionId:s.sessionID,cwd:s.cwd,title:'Fixture '+s.sessionID,updatedAt:new Date().toISOString()}));}catch{}
   if(!sessions.length)sessions=[{sessionId:sessionID,cwd,title:'Antigravity fixture',updatedAt:new Date().toISOString()}];
@@ -82,11 +83,19 @@ readline.createInterface({input:process.stdin,crlfDelay:Infinity}).on('line',lin
   update({sessionUpdate:'user_message_chunk',messageId:`user-${sequence}`,content:{type:'text',text:value}});
   if(steering){if(value.includes('agy-steer-reject')){send({id,error:{code:-32003,message:'Fixture rejected steering'}});return;}for(const [pending,item] of active){if(!item.ignoreCancel)done(pending,'end_turn',null);}active.set(id,{});text('AGY steering accepted: '+value);active.get(id).timer=setTimeout(()=>{if(background){closeBackground();text('AGY background completed after steering');}text('AGY original turn completed after steering');done(id,'end_turn',2);},120);break;}
   active.set(id,{});
+  if(value.includes('__GLAD_GROUP_CALL__')){
+   const config={...gladConfig,env:Object.fromEntries(gladConfig.env.map(item=>[item.name,item.value]))};
+   require('../group-mcp')(config,value).then(result=>reply(id,result)).catch(error=>reply(id,'GROUP_CONTROL_ERROR '+error.message));break;
+  }
   if(value.trim()==='/compact'){update({sessionUpdate:'compaction_update',compactionId:'fixture-compaction',status:'in_progress'});update({sessionUpdate:'compaction_update',compactionId:'fixture-compaction',status:'completed',summary:'Fixture compaction complete'});done(id);break;}
   if(value.includes('agy-metrics')){active.get(id).timer=setTimeout(()=>reply(id,'AGY metrics fixture completed'),150);break;}
   if(value.includes('agy-error')){active.delete(id);send({id,error:{code:-32002,message:'Fixture prompt failed'}});break;}
   if(value.includes('agy-sandbox-error')){update({sessionUpdate:'tool_call',toolCallId:'sandbox-failed',name:'run_command',kind:'execute',status:'completed',rawOutput:{output:'Command failed to run: connecting to sandbox server: connection reset by peer'}});reply(id,'Sandbox failed');break;}
   if(value.includes('agy-policy-probe')){reply(id,'AGY policy: '+JSON.stringify(policy));break;}
+  if(value.includes('agy-glad-permission')){
+   const request=`glad-permission-${sequence}`;interactions.set(request,{type:'approval',prompt:id,tool:'glad-test'});
+   send({id:request,method:'session/request_permission',params:{sessionId:sessionID,toolCall:{toolCallId:'glad-test',name:'mcp_glad_room_members',rawInput:{}},options:[{optionId:'allow-once-exact',kind:'allow_once',name:'Allow'},{optionId:'reject-once-exact',kind:'reject_once',name:'Deny'}]}});break;
+  }
   if(value.includes('agy-approval') && policy.toolPermission==='always-proceed'){reply(id,'AGY approval accepted without prompt');break;}
   if(value.includes('agy-approval')){
    const tool=`approval-tool-${sequence}`;update({sessionUpdate:'tool_call',toolCallId:tool,name:'run_command',title:'Fixture protected command',status:'pending',rawInput:{CommandLine:'echo approved'}});

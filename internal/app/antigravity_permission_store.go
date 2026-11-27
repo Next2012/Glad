@@ -275,6 +275,13 @@ func agySubtractRules(current, base agyRuleDocument) agyRuleDocument {
 
 // newPermissionProfile removes incomplete profiles on any write failure.
 func (p *AntigravityProvider) newPermissionProfile(settings map[string]any) (string, error) {
+	if p.session.mcpURL != "" {
+		rules, err := agyRules(settings)
+		if err != nil {
+			return "", err
+		}
+		agySetRules(settings, agyMergeRules(rules, agyRuleDocument{Allow: []string{"mcp(glad/*)"}}))
+	}
 	dir := "glad-session-" + p.session.ID + "-" + newUUID()
 	profile := filepath.Join(p.permissionRoot(), dir)
 	owner := map[string]any{

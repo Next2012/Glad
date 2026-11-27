@@ -31,7 +31,6 @@ type Server struct {
 	notifications *NotificationService
 	usage         *UsageService
 	skillhub      *SkillHubService
-	supervisors   *SupervisorManager
 	rooms         *RoomManager
 	assets        fs.FS
 	staticAssets  staticAssetCache
@@ -77,8 +76,8 @@ func NewServer(baseDir string, port int, assets fs.FS) (*Server, error) {
 		return nil, err
 	}
 	server.usage.antigravityUsage = server.sessions.antigravityUsage
-	server.supervisors, err = OpenSupervisorManager(filepath.Join(home, ".glad", "supervisors"), server.rooms, sessions)
-	if err != nil {
+	// Old periodic Supervisor state is obsolete; native provider history is untouched.
+	if err := os.RemoveAll(filepath.Join(home, ".glad", "supervisors")); err != nil {
 		return nil, err
 	}
 	server.notifications = NewNotificationService(config, server.sessions, server.rooms)
@@ -107,7 +106,6 @@ func (server *Server) Run(ctx context.Context) error {
 	server.sessions.mcpExecutable, _ = os.Executable()
 	server.sessions.mcpURL = fmt.Sprintf("http://127.0.0.1:%d", listener.Addr().(*net.TCPAddr).Port)
 	server.usage.Start(runCtx)
-	server.supervisors.Start(runCtx)
 	server.notifications.Start(runCtx)
 	server.rooms.Start(runCtx)
 	server.sharing.Start(runCtx)
@@ -119,7 +117,6 @@ func (server *Server) Run(ctx context.Context) error {
 		defer cancel()
 		_ = server.http.Shutdown(shutdownCtx)
 		server.usage.Stop()
-		server.supervisors.Stop()
 		server.schedules.Stop()
 		server.sharing.Stop(shutdownCtx)
 		server.rooms.Stop()
@@ -193,7 +190,7 @@ func (server *Server) registerRoutes(mux *http.ServeMux) {
 	server.registerUsageRoutes(mux)
 	server.registerSkillHubRoutes(mux)
 	server.registerRoomRoutes(mux)
-	server.registerSupervisorRoutes(mux)
+	mux.HandleFunc("POST /api/mcp/call", server.gladMCPCall)
 	mux.HandleFunc("GET /api/sessions/{id}/speed", server.sessionSpeed)
 	server.registerWorkbenchSharingRoutes(mux)
 	server.registerStaticRoutes(mux)

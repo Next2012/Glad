@@ -243,7 +243,8 @@ test('group dynamically projects pre-join history and opens neighboring turns wi
   await page.locator('#lobby-tab-rooms').click();
   await page.locator(`.room-list-card[data-room-id="${room.id}"] .btn-join`).click();
   await expect((await conversationView(page)).locator('.room-entry.user').first()).toContainText('@History source');
-  await (await conversationView(page)).locator('.room-entry.session').first().getByRole('button', { name: 'Context' }).click();
+  await (await conversationView(page)).locator('.room-entry.session').first().evaluate(element => toggleRoomQuote(element.dataset.roomEntryId));
+  await (await conversationView(page)).locator('#room-selection-context').click();
   await expect((await conversationView(page)).locator('#room-context-overlay')).toBeVisible();
   await expect((await conversationView(page)).locator('.room-context-turn')).toHaveCount(2);
   await expect((await conversationView(page)).locator('.room-context-turn.anchor')).toContainText('first before group');

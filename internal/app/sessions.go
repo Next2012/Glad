@@ -31,10 +31,10 @@ type UserInputProvider interface {
 	RespondUserInput(context.Context, string, map[string]any) error
 }
 
-// Supervisor question answers preserve the invocation provenance and the
+// Group question answers preserve the action provenance and the
 // provider's own question lifecycle. Implemented only by supporting providers.
-type SupervisorQuestionProvider interface {
-	AnswerUserInput(context.Context, string, string, map[string]string, []Attachment, ...*SupervisorSource) error
+type QuestionProvider interface {
+	AnswerUserInput(context.Context, string, string, map[string]string, []Attachment, ...*RoomActionSource) error
 }
 
 type SettingsProvider interface {
@@ -80,7 +80,7 @@ type ProviderInput struct {
 	Files           []Attachment
 	Skills          []map[string]any
 	Internal        bool
-	Source          *SupervisorSource
+	Source          *RoomActionSource
 }
 
 type Attachment struct {
@@ -92,6 +92,7 @@ type Attachment struct {
 }
 
 type Permission struct {
+	Actor        string           `json:"actor,omitempty"`
 	ID           string           `json:"id"`
 	Status       string           `json:"status"`
 	Title        string           `json:"title"`
@@ -173,9 +174,8 @@ type Session struct {
 	nativeTranscriptPath            string
 	nativeTranscriptID              string
 	outputResetRevision             uint64
-	currentSource                   *SupervisorSource
-	sourceTurns                     map[string]*SupervisorSource
-	supervisorLease                 string
+	currentSource                   *RoomActionSource
+	sourceTurns                     map[string]*RoomActionSource
 	mcpURL, mcpExecutable, mcpToken string
 	speed                           *SpeedTracker
 	antigravityUsage                *AntigravityUsageStore
@@ -191,7 +191,7 @@ func newSession(id, name, kind string, tool ToolInfo, workingDirectory string) *
 		CompletedPermissions: []Permission{}, TimedInputs: map[string]*TimedInput{},
 		Attachments: map[string]Attachment{}, Uploads: map[string]*ChunkUpload{},
 		events:      sessioncore.NewEventHub(),
-		sendResults: map[string]sendResult{}, controlHashes: map[string]string{}, sourceTurns: map[string]*SupervisorSource{},
+		sendResults: map[string]sendResult{}, controlHashes: map[string]string{}, sourceTurns: map[string]*RoomActionSource{},
 	}
 }
 

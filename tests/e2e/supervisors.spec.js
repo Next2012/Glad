@@ -1,419 +1,104 @@
-const { conversationView } = require('./helpers/conversation');
 const { test, expect } = require('@playwright/test');
-const { mockVisualViewport } = require('./helpers/visual-viewport');
+const { conversationView } = require('./helpers/conversation');
 
-async function setup(page) {
-  const room = await (await page.request.post('/api/rooms', { data: { name: 'Supervisor integration' } })).json();
-  const sessions = [], members = [];
-  for (const name of ['Director', 'Worker']) {
-    const response = await page.request.post('/api/sessions', { data: { toolKey: 'codex', name } });
-    expect(response.ok()).toBe(true);
-    const session = await response.json(); sessions.push(session.id);
-    const member = await (await page.request.post(`/api/rooms/${room.id}/members`, { data: { sessionId: session.id } })).json();
-    members.push(member.member || member);
+async function group(request, providers = ['codex','claude-code']) {
+  const room = await (await request.post('/api/rooms',{data:{name:'Group Supervisor'}})).json();
+  const sessions=[];
+  for(let i=0;i<providers.length;i++) {
+    const response=await request.post('/api/sessions',{data:{toolKey:providers[i],name:i?'Worker':'Director'}});
+    expect(response.ok()).toBe(true);const session=await response.json();sessions.push(session.id);
+    expect((await request.post(`/api/rooms/${room.id}/members`,{data:{sessionId:session.id}})).ok()).toBe(true);
   }
-  const snapshot = await (await page.request.get(`/api/rooms/${room.id}`)).json();
-  await page.goto('/', { waitUntil: 'networkidle' });
-  await page.evaluate(id => openRoom(id), room.id);
-  return { room, sessions, members: snapshot.members, async cleanup() {
-    await page.request.delete(`/api/rooms/${room.id}`);
-    for (const id of sessions) await page.request.delete(`/api/sessions/${id}`);
-  } };
+  const snapshot=await(await request.get(`/api/rooms/${room.id}`)).json();
+  return {room,sessions,members:snapshot.members,async cleanup(){await request.delete(`/api/rooms/${room.id}`);for(const id of sessions)await request.delete(`/api/sessions/${id}`);}};
+}
+async function call(request, sessionId, tool, args) {
+  const key=Math.random().toString(36).slice(2);
+  const response=await request.post(`/api/sessions/${sessionId}/input`,{data:{text:'__GLAD_GROUP_CALL__'+JSON.stringify({key,tool,args})}});
+  expect(response.ok()).toBe(true);
+  let result;
+  await expect.poll(async()=>{
+    const output=await(await request.get(`/api/sessions/${sessionId}/output?history=true&limit=200`)).json();
+    const message=output.messages.find(message=>message.kind==='assistant'&&message.text?.startsWith('GROUP_CONTROL_RESULT ')&&message.text.includes(key));
+    if(message)result=JSON.parse(message.text.slice('GROUP_CONTROL_RESULT '.length));
+    return Boolean(result);
+  },{timeout:20000}).toBe(true);
+  await expect.poll(async()=>(await(await request.get('/api/sessions')).json()).find(session=>session.id===sessionId)?.status).toBe('idle');
+  return result;
+}
+async function select(request,g,memberId,expected='',replace=false) {
+  return request.put(`/api/rooms/${g.room.id}/supervisor`,{data:{memberId,expectedCurrentMemberId:expected,replace}});
 }
 
-test('group management icons stay in the header without overlapping the title on narrow screens', async ({ page }, testInfo) => {
-  const group = await setup(page);
-  try {
-    for (const width of testInfo.project.name === 'MacBook Pro 16' ? [1728, 320, 375] : [320, 375, 440]) {
-      await page.setViewportSize({ width, height: 956 });
-      await page.evaluate(id => openRoom(id), group.room.id);
-      await expect((await conversationView(page)).locator('.room-header-actions #room-supervisor-open')).toBeVisible();
-      await expect((await conversationView(page)).locator('.room-header-actions #room-members-open')).toBeVisible();
-      await expect((await conversationView(page)).locator('#room-supervisor-button')).toHaveCount(0);
-      const layout = await (await conversationView(page)).locator('.room-header').evaluate(header => {
-        const title = header.querySelector('#room-title').getBoundingClientRect();
-        const actions = header.querySelector('.room-header-actions').getBoundingClientRect();
-        const back = header.querySelector('.room-back-button').getBoundingClientRect();
-        return { titleWidth:title.width, left:title.left, right:title.right, actionsLeft:actions.left, actionsRight:actions.right, backRight:back.right, viewport:innerWidth };
-      });
-      expect(layout.titleWidth).toBeGreaterThanOrEqual(80);
-      expect(layout.left).toBeGreaterThanOrEqual(layout.backRight);
-      expect(layout.right).toBeLessThanOrEqual(layout.actionsLeft);
-      expect(layout.actionsRight).toBeLessThanOrEqual(layout.viewport);
-    }
-  } finally { await group.cleanup(); }
+test('Supervisor switches are available before messages, unique, synchronized, and leave Context in selection', async({page},testInfo)=>{
+ const g=await group(page.request);const errors=[];page.on('pageerror',error=>errors.push(error.message));
+ try {
+  await page.goto('/',{waitUntil:'networkidle'});await page.evaluate(id=>openRoom(id),g.room.id);
+  let view=await conversationView(page);await view.locator('#room-members-open').click();
+  const first=view.locator(`[data-room-supervisor="${g.members[0].id}"]`),second=view.locator(`[data-room-supervisor="${g.members[1].id}"]`);
+  await expect(first).toHaveAttribute('aria-pressed','false');await first.click();await expect(first).toHaveAttribute('aria-pressed','true');
+  page.once('dialog',dialog=>dialog.dismiss());await second.click();await expect(first).toHaveAttribute('aria-pressed','true');
+  page.once('dialog',dialog=>dialog.accept());await second.click();await expect(second).toHaveAttribute('aria-pressed','true');await expect(first).toHaveAttribute('aria-pressed','false');
+  expect((await select(page.request,g,g.members[0].id,'',true)).status()).toBe(409);
+  // Another client switches the role; the open Members list must follow WS updates.
+  expect((await select(page.request,g,g.members[0].id,g.members[1].id,true)).ok()).toBe(true);
+  await expect(first).toHaveAttribute('aria-pressed','true');
+  await view.locator('#members-close').click();
+  expect((await page.request.post(`/api/rooms/${g.room.id}/messages`,{data:{text:'Inspect the workspace',mentionedMemberIds:[g.members[0].id]}})).ok()).toBe(true);
+  await expect(view.locator('.room-entry.session')).toHaveCount(1);
+  await expect(view.locator(`.room-entry [data-room-supervisor="${g.members[0].id}"]`)).toHaveAttribute('aria-pressed','true');
+  await expect(view.locator('.room-entry.session.running')).toHaveCount(0);
+  await view.locator('.room-entry.session').evaluate(element=>toggleRoomQuote(element.dataset.roomEntryId));
+  await expect(view.locator('#room-selection-context')).toBeVisible();await view.locator('#room-selection-context').click();await expect(view.locator('#room-context-overlay')).toBeVisible();
+  await view.locator('#room-context-overlay .icon-btn').click();await view.locator('#room-selection-cancel').click();
+  await expect(view.locator('#room-supervisor-open')).toHaveCount(0);await expect(view.locator('#room-supervisor-overlay')).toHaveCount(0);
+  await page.screenshot({path:testInfo.outputPath('supervisor-group.png')});
+  const overflow=await view.evaluate(()=>document.documentElement.scrollWidth>innerWidth);expect(overflow).toBe(false);expect(errors).toEqual([]);
+ } finally {await g.cleanup();}
 });
 
-test('supervisor UI creates, invokes real MCP tools, records history, edits and deletes a task', async ({ page }) => {
-  test.setTimeout(60000);
-  const group = await setup(page);
-  const errors = []; page.on('pageerror', error => errors.push(error.message));
+for(const provider of ['codex','claude-code','antigravity']) {
+ test(`${provider} uses all five group controls through authenticated stdio MCP`,async({page})=>{
+  test.setTimeout(90000);const g=await group(page.request,[provider,'antigravity']);const request=page.request;
+  const args={roomId:g.room.id,memberId:g.members[1].id};
   try {
-    await (await conversationView(page)).getByRole('button', { name: 'Supervisor', exact: true }).click();
-    await expect((await conversationView(page)).getByRole('dialog', { name: 'Supervisors' })).toBeVisible();
-    await expect((await conversationView(page)).locator('#supervisor-editor-view')).toBeHidden();
-    await expect((await conversationView(page)).locator('#supervisor-session-control')).toHaveCount(0);
-    await (await conversationView(page)).getByRole('button', { name: '＋ New', exact: true }).click();
-    await (await conversationView(page)).locator('#supervisor-editor-view').getByRole('button', { name: /Session/ }).click();
-    await (await conversationView(page)).locator(`[data-choose-executor="${group.members[0].id}"]`).click();
-    await expect((await conversationView(page)).locator(`.supervisor-target[data-member-id="${group.members[0].id}"]`)).toBeHidden();
-    const target = (await conversationView(page)).locator(`.supervisor-target[data-member-id="${group.members[1].id}"]`);
-    await target.locator('.supervisor-target-enabled').check();
-    await expect(target.locator('[data-permission="read"]')).toBeChecked();
-    await expect(target.locator('[data-permission="stop"]')).toBeChecked();
-    await expect(target.locator('[data-permission="send"]')).toBeChecked();
-    await expect(target.locator('.supervisor-permissions')).toBeHidden();
-    await (await conversationView(page)).locator('#supervisor-prompt').fill('__GLAD_E2E_SUPERVISOR__ inspect and direct the worker');
-    await (await conversationView(page)).getByRole('button', { name: 'Save & start', exact: true }).click();
-    await expect((await conversationView(page)).locator('.supervisor-task')).toHaveCount(1);
-    await expect((await conversationView(page)).locator('#supervisor-editor-view')).toBeHidden();
-    const taskId = await (await conversationView(page)).locator('.supervisor-task').getAttribute('data-supervisor-id');
-    await (await conversationView(page)).getByRole('checkbox', { name: 'Enable monitoring' }).uncheck();
-    await expect((await conversationView(page)).locator('.supervisor-task')).toContainText('Paused');
-    await (await conversationView(page)).getByLabel('More supervisor actions').click();
-    // Visible actions must be clickable without scrolling a clipped popup.
-    expect(await (await conversationView(page)).getByRole('button', { name: 'Delete', exact: true }).evaluate(button => {
-      const box = button.getBoundingClientRect();
-      return button.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2));
-    })).toBe(true);
-    await (await conversationView(page)).getByRole('button', { name: 'Run once now', exact: true }).click();
-    await expect.poll(async () => {
-      const data = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors`)).json();
-      return data.tasks[0]?.lastRun?.status;
-    }, { timeout: 20000 }).toBe('completed');
-    const data = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors`)).json();
-    expect(data.tasks[0].enabled).toBe(false);
-    expect(data.tasks[0].invocations).toBeUndefined();
-    expect(data.serverNow).toBeGreaterThan(0);
-    const invocation = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors/${taskId}/history/${data.tasks[0].lastRun.id}`)).json();
-    expect(invocation.invocation.calls.map(call => call.tool)).toEqual(['list_targets', 'read_session', 'send_to_session']);
-    expect(invocation.invocation.calls.every(call => call.success)).toBe(true);
-    const snapshot = await (await page.request.get(`/api/rooms/${group.room.id}`)).json();
-    expect(snapshot.entries.some(entry => entry.text?.includes('__GLAD_E2E_SUPERVISOR__'))).toBe(false);
-    expect(snapshot.entries.some(entry => entry.text?.includes('Supervisor requested worker implementation'))).toBe(true);
-    expect(snapshot.entries.find(entry => entry.type === 'user').senderMemberId).toBe(group.members[0].id);
-    expect(snapshot.hasUnreadCompletion).toBe(false);
-    await (await conversationView(page)).locator('.supervisor-card-open').click();
-    await expect((await conversationView(page)).locator('#supervisor-history')).toContainText('Completed');
-    await expect((await conversationView(page)).locator('#supervisor-history .supervisor-run-content')).not.toContainText('read_session');
-    await (await conversationView(page)).locator('.supervisor-history-row > summary').click();
-    await expect((await conversationView(page)).locator('#supervisor-history')).toContainText('read_session');
-    await (await conversationView(page)).getByRole('button', { name: 'Edit configuration', exact: true }).click();
-    await target.locator('.supervisor-permission-open').click();
-    await (await conversationView(page)).locator('#supervisor-permission-send').uncheck();
-    await (await conversationView(page)).getByRole('button', { name: 'Back to editor', exact: true }).click();
-    await (await conversationView(page)).locator('[data-supervisor-interval="60"]').click();
-    await (await conversationView(page)).getByRole('button', { name: 'Save changes', exact: true }).click();
-    const edited = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors/${taskId}`)).json();
-    expect(edited.task.targets[0].send).toBe(false);
-    expect(edited.task.intervalSeconds).toBe(60);
-    expect(edited.task.enabled).toBe(false);
-    await (await conversationView(page)).getByLabel('More supervisor actions').click();
-    await (await conversationView(page)).getByRole('button', { name: 'Delete', exact: true }).click();
-    await expect((await conversationView(page)).locator(`[data-supervisor-id="${taskId}"]`)).toHaveCount(0);
-    expect(errors).toEqual([]);
-  } finally { await group.cleanup(); }
-});
+   expect((await select(request,g,g.members[0].id)).ok()).toBe(true);
+   let result=await call(request,g.sessions[0],'room_read_member',args);expect(result.isError).toBe(false);expect(result.result.available).toBe(true);
+   expect(result.tools).toEqual(expect.arrayContaining(['room_read_member','room_start_member','room_stop_member','room_approve_member','room_answer_member']));expect(result.tools).not.toContain('list_targets');
+   result=await call(request,g.sessions[0],'room_start_member',{...args,text:'agy-approval'});expect(result.isError).toBe(false);
+   result=await call(request,g.sessions[0],'room_read_member',args);const permission=result.result.pendingPermissions[0];expect(permission).toBeTruthy();
+   result=await call(request,g.sessions[0],'room_approve_member',{...args,permissionId:permission.id,decision:'allow',optionId:'allow-always-exact'});expect(result.isError).toBe(true);
+   result=await call(request,g.sessions[0],'room_approve_member',{...args,permissionId:permission.id,decision:'allow'});expect(result.isError).toBe(false);
+   await expect.poll(async()=>(await(await request.get('/api/sessions')).json()).find(session=>session.id===g.sessions[1])?.status).toBe('idle');
+   result=await call(request,g.sessions[0],'room_start_member',{...args,text:'agy-question'});expect(result.isError).toBe(false);
+   result=await call(request,g.sessions[0],'room_read_member',args);const question=result.result.pendingQuestions[0];expect(question).toBeTruthy();
+   result=await call(request,g.sessions[0],'room_answer_member',{...args,questionId:question.id,answers:{destination:'Local',count:'2',enabled:'true'}});expect(result.isError).toBe(false);
+   await expect.poll(async()=>(await(await request.get('/api/sessions')).json()).find(session=>session.id===g.sessions[1])?.status).toBe('idle');
+   result=await call(request,g.sessions[0],'room_start_member',{...args,text:'agy-long'});expect(result.isError).toBe(false);
+   result=await call(request,g.sessions[0],'room_read_member',args);expect(result.result.canAccept).toBe(false);const turnId=result.result.currentTurnId;
+   result=await call(request,g.sessions[0],'room_stop_member',{...args,expectedTurnId:turnId});expect(result.isError).toBe(false);
+   const snapshot=await(await request.get(`/api/rooms/${g.room.id}`)).json();expect(snapshot).not.toHaveProperty('actions');
+   const output=await(await request.get(`/api/sessions/${g.sessions[1]}/output?history=true&limit=200`)).json();expect(output.messages.filter(message=>message.kind==='event').map(message=>message.roomActionSource?.kind)).toEqual(expect.arrayContaining(['approve_member','answer_member','stop_member']));
+   expect(snapshot.entries.some(entry=>entry.senderMemberId===g.members[0].id)).toBe(true);
+   expect((await select(request,g,'',g.members[0].id)).ok()).toBe(true);
+   result=await call(request,g.sessions[0],'room_read_member',args);expect(result.isError).toBe(true);
+  } finally {await g.cleanup();}
+ });
+}
 
-test('live output and individual abort work while another room member remains available', async ({ page }) => {
-  test.setTimeout(60000);
-  const group = await setup(page);
-  try {
-    const start = await page.request.post(`/api/sessions/${group.sessions[1]}/input`, { data: { text: '__GLAD_E2E_STUCK_ABORT__ hold this worker', clientMessageId: 'worker-hold-input' } });
-    expect(start.status()).toBe(202);
-    const output = await (await page.request.get(`/api/sessions/${group.sessions[1]}/output`)).json();
-    expect(output.status).toBe('running');
-    expect(output.canAccept).toBe(false);
-    const busySend = await page.request.post(`/api/sessions/${group.sessions[1]}/input`, { data: { text: 'must not queue' } });
-    expect(busySend.status()).toBe(409);
-    const send = await page.request.post(`/api/rooms/${group.room.id}/messages`, { data: { text: 'Ask the idle director', mentionedMemberIds: [group.members[0].id], quotedEntryIds: [], clientMessageId: 'director-idle-input' } });
-    expect(send.status()).toBe(202);
-    const stopped = await page.request.post(`/api/sessions/${group.sessions[1]}/abort`, { data: {} });
-    expect(stopped.status()).toBe(202);
-    await expect.poll(async () => (await (await page.request.get(`/api/sessions/${group.sessions[1]}/output`)).json()).canAccept, { timeout: 15000 }).toBe(true);
-    const restart = await page.request.post(`/api/sessions/${group.sessions[1]}/input`, { data: { text: 'Continue after stop', clientMessageId: 'worker-restart-input' } });
-    expect(restart.status()).toBe(202);
-  } finally { await group.cleanup(); }
-});
-
-test('custom and configured run once use explicit modes and different end scopes', async ({ page }) => {
-  const group = await setup(page);
-  const errors = []; page.on('pageerror', error => errors.push(error.message));
-  try {
-    const configured = '__GLAD_E2E_SUPERVISOR_END__ finish this check';
-    const created = await (await page.request.post(`/api/rooms/${group.room.id}/supervisors`, { data: {
-      executorMemberId:group.members[0].id, targets:[{memberId:group.members[1].id, read:true}], intervalSeconds:60, prompt:configured
-    } })).json();
-    const taskId = created.task.id;
-    await (await conversationView(page)).getByRole('button', { name:'Supervisor', exact:true }).click();
-    for (const mode of ['custom', 'configured']) {
-      await (await conversationView(page)).getByLabel('More supervisor actions').click();
-      await expect((await conversationView(page)).locator('[data-supervisor-run-prompt]')).toHaveValue('');
-      await (await conversationView(page)).locator('[data-supervisor-run-prompt]').fill(mode === 'custom' ? configured : '');
-      await (await conversationView(page)).getByRole('button', { name:'Run once now', exact:true }).click();
-      await expect.poll(async () => {
-        const data = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors`)).json();
-        return `${data.tasks[0]?.lastRun?.kind}:${data.tasks[0]?.lastRun?.status}`;
-      }, { timeout:20000 }).toBe(`${mode === 'custom' ? 'custom' : 'check'}:completed`);
-      const detail = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors/${taskId}`)).json();
-      expect(detail.task.prompt).toBe(configured);
-      expect(detail.task.enabled).toBe(mode === 'custom');
-      const history = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors/${taskId}/history`)).json();
-      const run = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors/${taskId}/history/${history.items[0].id}`)).json();
-      expect(run.invocation.prompt).toBe(configured);
-      expect(run.invocation.summary).toContain(`End scope: ${mode === 'custom' ? 'invocation' : 'task'}`);
-      expect(run.invocation.calls[0].tool).toBe('end_supervision');
-      await expect((await conversationView(page)).locator('.supervisor-task')).toContainText(mode === 'custom' ? 'Checks in' : 'Paused');
-    }
-    const snapshot = await (await page.request.get(`/api/rooms/${group.room.id}`)).json();
-    expect(snapshot.entries.some(entry => entry.text?.includes('__GLAD_E2E_SUPERVISOR_END__') || entry.text?.includes('End scope:'))).toBe(false);
-    expect(snapshot.hasUnreadCompletion).toBe(false);
-    expect(errors).toEqual([]);
-  } finally { await group.cleanup(); }
-});
-
-test('run once preserves rejected drafts, rejects a queued run and clears it on pause', async ({ page }) => {
-  const group = await setup(page);
-  try {
-    const configured = 'Configured recurring check';
-    const created = await (await page.request.post(`/api/rooms/${group.room.id}/supervisors`, { data: {
-      executorMemberId:group.members[0].id, targets:[{memberId:group.members[1].id, read:true}], intervalSeconds:60, prompt:configured
-    } })).json();
-    const path = `/api/rooms/${group.room.id}/supervisors/${created.task.id}`;
-    await page.request.post(`/api/sessions/${group.sessions[0]}/input`, { data:{text:'__GLAD_E2E_STUCK_ABORT__ hold director'} });
-    await (await conversationView(page)).getByRole('button', { name:'Supervisor', exact:true }).click();
-    await (await conversationView(page)).getByLabel('More supervisor actions').click();
-    await (await conversationView(page)).locator('[data-supervisor-run-prompt]').fill('Keep this rejected draft');
-    const tasksURL = `/api/rooms/${group.room.id}/supervisors`;
-    const before = await (await page.request.get(tasksURL)).json();
-    await page.route(`**${tasksURL}`, route => route.fulfill({ json: before }));
-    // A competing request queues while this form is open.
-    expect((await page.request.post(`${path}/trigger`, { data:{mode:'custom', prompt:'First queued message'} })).ok()).toBe(true);
-    await (await conversationView(page)).getByRole('button', { name:'Run once now', exact:true }).click();
-    await expect((await conversationView(page)).locator('[data-supervisor-run-error]')).toContainText('queued run once');
-    await expect((await conversationView(page)).locator('[data-supervisor-run-prompt]')).toHaveValue('Keep this rejected draft');
-    await page.unroute(`**${tasksURL}`);
-    await (await conversationView(page)).evaluate(() => loadSupervisorTasks());
-    const queued = await (await page.request.get(path)).json();
-    expect(queued.task.runOncePrompt).toBe('First queued message');
-    await expect((await conversationView(page)).getByRole('button', { name:'Run once now', exact:true })).toBeDisabled();
-    await (await conversationView(page)).getByRole('checkbox', { name:'Enable monitoring' }).uncheck();
-    await expect.poll(async () => (await (await page.request.get(path)).json()).task.runOnce).toBe(false);
-    expect((await (await page.request.get(path)).json()).task.runOncePrompt).toBeUndefined();
-    await expect((await conversationView(page)).locator('[data-supervisor-run-prompt]')).toHaveValue('Keep this rejected draft');
-    await (await conversationView(page)).locator('[data-supervisor-run-prompt]').fill('Actually deliver this once');
-    await (await conversationView(page)).getByRole('button', { name:'Run once now', exact:true }).click();
-    await expect((await conversationView(page)).locator('.supervisor-task')).toContainText('waiting for executor');
-    await page.request.post(`/api/sessions/${group.sessions[0]}/abort`, { data:{} });
-    await expect.poll(async () => (await (await page.request.get(path)).json()).summary.lastRun?.status, { timeout:20000 }).toBe('completed');
-    const done = await (await page.request.get(path)).json();
-    expect(done.task.enabled).toBe(false);
-    expect(done.task.prompt).toBe(configured);
-    const run = await (await page.request.get(`${path}/history/${done.summary.lastRun.id}`)).json();
-    expect(run.invocation.prompt).toBe('Actually deliver this once');
-    expect(run.invocation.kind).toBe('custom');
-  } finally { await group.cleanup(); }
-});
-
-test('run once preserves its custom draft when the task starts running while the form is open', async ({ page }) => {
-  const group = await setup(page);
-  try {
-    const created = await (await page.request.post(`/api/rooms/${group.room.id}/supervisors`, { data: {
-      executorMemberId:group.members[0].id, targets:[{memberId:group.members[1].id, read:true}], intervalSeconds:60, prompt:'Periodic prompt'
-    } })).json();
-    const path = `/api/rooms/${group.room.id}/supervisors/${created.task.id}`;
-    await (await conversationView(page)).getByRole('button', { name:'Supervisor', exact:true }).click();
-    await (await conversationView(page)).getByLabel('More supervisor actions').click();
-    await (await conversationView(page)).locator('[data-supervisor-run-prompt]').fill('Retain my draft after the active-run error');
-    const tasksURL = `/api/rooms/${group.room.id}/supervisors`;
-    const before = await (await page.request.get(tasksURL)).json();
-    await page.route(`**${tasksURL}`, route => route.fulfill({ json: before }));
-    expect((await page.request.post(`${path}/trigger`, { data:{mode:'custom', prompt:'__GLAD_E2E_STUCK_ABORT__ competing run'} })).ok()).toBe(true);
-    await expect.poll(async () => (await (await page.request.get(path)).json()).summary.lastRun?.status).toBe('running');
-    await (await conversationView(page)).getByRole('button', { name:'Run once now', exact:true }).click();
-    await expect((await conversationView(page)).locator('[data-supervisor-run-error]')).toContainText('active invocation');
-    await expect((await conversationView(page)).locator('[data-supervisor-run-prompt]')).toHaveValue('Retain my draft after the active-run error');
-    await page.unroute(`**${tasksURL}`);
-    await (await conversationView(page)).evaluate(() => loadSupervisorTasks());
-    await expect((await conversationView(page)).getByRole('button', { name:'Run once now', exact:true })).toBeDisabled();
-    expect((await page.request.post(`${path}/stop`)).ok()).toBe(true);
-    await expect.poll(async () => (await (await page.request.get(path)).json()).summary.lastRun?.status, { timeout:15000 }).toBe('stopped');
-  } finally { await group.cleanup(); }
-});
-
-test('inline cards keep input nodes, caret, drafts and keyboard access across refresh and navigation', async ({ page }) => {
-  await mockVisualViewport(page);
-  const group = await setup(page);
-  try {
-    const config = { executorMemberId:group.members[0].id, targets:[{memberId:group.members[1].id, read:true}], intervalSeconds:120, prompt:'Configured check' };
-    const ids=[];
-    for (let i=0;i<2;i++) ids.push((await (await page.request.post(`/api/rooms/${group.room.id}/supervisors`, { data:config })).json()).task.id);
-    await (await conversationView(page)).getByRole('button', { name:'Supervisor', exact:true }).click();
-    const first=(await conversationView(page)).locator(`[data-supervisor-id="${ids[0]}"]`), second=(await conversationView(page)).locator(`[data-supervisor-id="${ids[1]}"]`);
-    await first.getByLabel('More supervisor actions').click();
-    const input=first.locator('[data-supervisor-run-prompt]');
-    await input.fill('Keep this draft while status changes');
-    await input.evaluate(field => { window.inlineInputProbe=field; field.focus(); field.setSelectionRange(2,5); field.dispatchEvent(new CompositionEvent('compositionstart')); });
-    const inputTop=await input.evaluate(field=>field.getBoundingClientRect().top);
-    await page.request.patch(`/api/rooms/${group.room.id}/supervisors/${ids[0]}`, { data:{...config,prompt:'Updated configured check'} });
-    await (await conversationView(page)).evaluate(() => loadSupervisorTasks());
-    expect(await input.evaluate(field => field===window.inlineInputProbe && document.activeElement===field && field.selectionStart===2 && field.selectionEnd===5)).toBe(true);
-    expect(await input.evaluate(field=>field.getBoundingClientRect().top)).toBe(inputTop);
-    await expect(input).toHaveValue('Keep this draft while status changes');
-    let submissions=0;
-    page.on('request', request => { if (request.url().endsWith('/trigger')) submissions++; });
-    await input.dispatchEvent('keydown',{key:'Enter',ctrlKey:true,isComposing:true});
-    expect(submissions).toBe(0);
-    await input.evaluate(field => field.dispatchEvent(new CompositionEvent('compositionend')));
-    await second.getByLabel('More supervisor actions').click();
-    await expect(first.locator('.supervisor-menu')).not.toHaveAttribute('open','');
-    await expect(second.locator('.supervisor-menu')).toHaveAttribute('open','');
-    await first.getByLabel('More supervisor actions').click();
-    await expect(input).toHaveValue('Keep this draft while status changes');
-    await first.getByRole('checkbox',{name:'Enable monitoring'}).uncheck();
-    await expect(input).toHaveValue('Keep this draft while status changes');
-    await input.fill('Keyboard draft');
-    await input.focus(); await input.press('End'); await input.press('Enter');
-    await expect(input).toHaveValue('Keyboard draft\n');
-    await (await conversationView(page)).evaluate(() => window.setTestVisualViewport({height:520,offsetTop:40,scale:1}));
-    await expect.poll(() => first.locator('[data-supervisor-run-submit]').evaluate(button => button.getBoundingClientRect().bottom)).toBeLessThanOrEqual(560);
-    await input.press('Control+Enter');
-    await expect(input).toHaveValue('');
-    await expect(first.locator('.supervisor-menu')).not.toHaveAttribute('open','');
-    expect(submissions).toBe(1);
-  } finally { await group.cleanup(); }
-});
-
-test('accepted inline submit preserves a newer draft written while the request is pending', async ({ page }) => {
-  const group=await setup(page);
-  try {
-    const created=await (await page.request.post(`/api/rooms/${group.room.id}/supervisors`,{data:{executorMemberId:group.members[0].id,targets:[{memberId:group.members[1].id,read:true}],intervalSeconds:120,prompt:'Configured'}})).json();
-    await (await conversationView(page)).getByRole('button',{name:'Supervisor',exact:true}).click();
-    await (await conversationView(page)).getByLabel('More supervisor actions').click();
-    const input=(await conversationView(page)).locator('[data-supervisor-run-prompt]');
-    await input.fill('Submitted content');
-    let release;
-    const hold=new Promise(resolve => {release=resolve;});
-    let submitted;
-    const arrived=new Promise(resolve => {submitted=resolve;});
-    await page.route(`**/supervisors/${created.task.id}/trigger`,async route => {
-      const response=await route.fetch(); submitted(); await hold; await route.fulfill({response});
-    });
-    await (await conversationView(page)).getByRole('button',{name:'Run once now',exact:true}).click();
-    await arrived;
-    await input.fill('New content for a later check');
-    release();
-    await expect((await conversationView(page)).locator('[data-supervisor-run-reason]')).not.toContainText('Submitting');
-    await expect(input).toHaveValue('New content for a later check');
-    await expect((await conversationView(page)).locator('.supervisor-menu')).toHaveAttribute('open','');
-    await expect.poll(async () => (await (await page.request.get(`/api/rooms/${group.room.id}/supervisors/${created.task.id}/history`)).json()).items.length).toBeGreaterThan(0);
-    const history=await (await page.request.get(`/api/rooms/${group.room.id}/supervisors/${created.task.id}/history`)).json();
-    const run=await (await page.request.get(`/api/rooms/${group.room.id}/supervisors/${created.task.id}/history/${history.items[0].id}`)).json();
-    expect(run.invocation.prompt).toBe('Submitted content');
-  } finally { await group.cleanup(); }
-});
-
-test('Members controls navigate in the same panel and supervisor editor keeps its draft', async ({ page }) => {
-  test.setTimeout(60000);
-  const group = await setup(page);
-  try {
-    await (await conversationView(page)).getByRole('button', { name: 'Supervisor', exact: true }).click();
-    await (await conversationView(page)).getByRole('button', { name: '＋ New', exact: true }).click();
-    await (await conversationView(page)).locator('#supervisor-prompt').fill('An unfinished editor draft');
-    await page.waitForTimeout(2500);
-    await expect((await conversationView(page)).locator('#supervisor-prompt')).toHaveValue('An unfinished editor draft');
-    await expect((await conversationView(page)).locator('#supervisor-list-view')).toBeHidden();
-    await (await conversationView(page)).getByRole('button', { name: 'Back to supervisors', exact: true }).click();
-    await (await conversationView(page)).getByRole('button', { name: 'Close supervisors' }).click();
-    await (await conversationView(page)).getByRole('button', { name: 'Members', exact: true }).click();
-    await expect((await conversationView(page)).locator('#members-back')).toBeHidden();
-    await expect((await conversationView(page)).getByRole('button', { name: 'Close members', exact: true })).toBeVisible();
-    await (await conversationView(page)).getByRole('button', { name: 'Controls', exact: true }).last().click();
-    await expect((await conversationView(page)).locator('#room-members-home')).toBeHidden();
-    await expect((await conversationView(page)).locator('#room-member-controls')).toBeVisible();
-    await expect((await conversationView(page)).locator('#room-members-title')).toHaveText('Worker');
-    await expect((await conversationView(page)).locator('.room-modal-overlay.active')).toHaveCount(1);
-    await expect((await conversationView(page)).locator('#member-start')).toBeEnabled();
-    await (await conversationView(page)).locator('#member-command').fill('Start this worker from Members');
-    await (await conversationView(page)).locator('#member-start').click();
-    await expect((await conversationView(page)).locator('#member-command')).toHaveValue('');
-    await (await conversationView(page)).locator('#room-members-overlay').getByRole('button', { name: 'History', exact: true }).click();
-    await expect((await conversationView(page)).locator('#member-control-output')).toContainText('Start this worker from Members');
-    await (await conversationView(page)).getByRole('button', { name: 'Back to members', exact: true }).click();
-    await expect((await conversationView(page)).locator('#room-members-home')).toBeVisible();
-    await expect((await conversationView(page)).locator('#room-members-title')).toHaveText('Group members');
-    await expect((await conversationView(page)).locator('.room-modal-overlay.active')).toHaveCount(1);
-    await expect((await conversationView(page)).locator('#members-back')).toBeHidden();
-    await (await conversationView(page)).getByRole('button', { name: 'Close members', exact: true }).click();
-    await expect((await conversationView(page)).locator('#room-members-overlay')).not.toHaveClass(/active/);
-  } finally { await group.cleanup(); }
-});
-
-
-test('grouped editor preserves drafts and independent permissions, with Stop requiring Read', async ({ page }) => {
-  const group = await setup(page);
-  try {
-    await (await conversationView(page)).getByRole('button', { name: 'Supervisor', exact: true }).click();
-    await (await conversationView(page)).getByRole('button', { name: '＋ New', exact: true }).click();
-    await (await conversationView(page)).locator('#supervisor-prompt').fill('Keep this draft while navigating permissions');
-    const target = (await conversationView(page)).locator(`.supervisor-target[data-member-id="${group.members[1].id}"]`);
-    await target.locator('.supervisor-target-enabled').check();
-    await target.locator('.supervisor-permission-open').click();
-    await expect((await conversationView(page)).locator('.room-modal-overlay.active')).toHaveCount(1);
-    await expect((await conversationView(page)).locator('#supervisor-editor-view')).toBeHidden();
-    await (await conversationView(page)).locator('#supervisor-permission-read').uncheck();
-    await expect((await conversationView(page)).locator('#supervisor-permission-stop')).not.toBeChecked();
-    await expect((await conversationView(page)).locator('#supervisor-permission-help')).toContainText('Stop disabled');
-    await (await conversationView(page)).locator('#supervisor-permission-stop').check();
-    await expect((await conversationView(page)).locator('#supervisor-permission-read')).toBeChecked();
-    await expect((await conversationView(page)).locator('#supervisor-permission-help')).toContainText('Read enabled');
-    await (await conversationView(page)).locator('#supervisor-permission-send').uncheck();
-    await page.waitForTimeout(2200);
-    await (await conversationView(page)).getByRole('button', { name: 'Back to editor', exact: true }).click();
-    await expect(target.locator('.supervisor-permission-summary')).toHaveText('Read + Stop');
-    await expect((await conversationView(page)).locator('#supervisor-prompt')).toHaveValue('Keep this draft while navigating permissions');
-    await expect((await conversationView(page)).locator('.supervisor-advanced')).toHaveCount(0);
-    const metrics = await (await conversationView(page)).locator('#supervisor-save').evaluate(button => {
-      const box = button.getBoundingClientRect(), panel = document.querySelector('.room-supervisor-modal').getBoundingClientRect();
-      return { height:box.height, width:box.width, panelWidth:panel.width, bottom:box.bottom, panelBottom:panel.bottom, inputFont:parseFloat(getComputedStyle(document.querySelector('#supervisor-prompt')).fontSize) };
-    });
-    expect(metrics.height).toBeGreaterThanOrEqual(52);
-    expect(metrics.width).toBeGreaterThan(metrics.panelWidth - 50);
-    expect(metrics.bottom).toBeLessThanOrEqual(metrics.panelBottom);
-    expect(metrics.inputFont).toBeGreaterThanOrEqual(16);
-    await (await conversationView(page)).getByRole('button', { name: 'Save & start', exact: true }).click();
-    const summary = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors`)).json();
-    const taskId = summary.tasks[0].id;
-    const config = await (await page.request.get(`/api/rooms/${group.room.id}/supervisors/${taskId}`)).json();
-    expect(config.task.targets[0]).toMatchObject({ read:true, stop:true, send:false });
-    const invalid = await page.request.patch(`/api/rooms/${group.room.id}/supervisors/${taskId}`, { data: { ...config.task, targets:[{memberId:group.members[1].id, read:false, stop:true, send:false}] } });
-    expect(invalid.ok()).toBe(false);
-    expect((await invalid.json()).error).toContain('Stop permission requires Read');
-    await (await conversationView(page)).locator('.supervisor-menu > summary').click();
-    await (await conversationView(page)).getByRole('button', {name:'Edit', exact:true}).click();
-    await target.locator('.supervisor-permission-open').click();
-    await expect((await conversationView(page)).locator('#supervisor-permission-send')).not.toBeChecked();
-    await expect((await conversationView(page)).locator('#supervisor-permission-stop')).toBeChecked();
-  } finally { await group.cleanup(); }
-});
-
-
-test('supervisor editor keeps its save action and focused field above a panned keyboard viewport', async ({ page }) => {
-  await mockVisualViewport(page);
-  const group = await setup(page);
-  try {
-    await (await conversationView(page)).getByRole('button', {name:'Supervisor', exact:true}).click();
-    await (await conversationView(page)).getByRole('button', {name:'＋ New', exact:true}).click();
-    await (await conversationView(page)).locator('#supervisor-prompt').fill('A long prompt. '.repeat(150));
-    await (await conversationView(page)).evaluate(() => window.setTestVisualViewport({height:420, offsetTop:60, scale:1}));
-    await expect.poll(async () => (await conversationView(page)).locator('#supervisor-save').evaluate(button => button.getBoundingClientRect().bottom)).toBeLessThanOrEqual(480);
-    await expect.poll(async () => (await conversationView(page)).locator('#supervisor-prompt').evaluate(field => {
-      const rect=field.getBoundingClientRect(), header=document.querySelector('.room-supervisor-modal > header').getBoundingClientRect();
-      const footer=document.querySelector('.supervisor-form-actions').getBoundingClientRect();
-      return rect.top >= header.bottom - 1 && rect.bottom <= footer.top + 1;
-    })).toBe(true);
-    await expect((await conversationView(page)).locator('#supervisor-prompt')).toHaveValue('A long prompt. '.repeat(150));
-    await (await conversationView(page)).evaluate(() => window.setTestVisualViewport({height:innerHeight, offsetTop:0, scale:1}));
-    await expect((await conversationView(page)).locator('#supervisor-save')).toBeVisible();
-  } finally {await group.cleanup();}
+test('Supervisor answers Claude questions and approves native Claude requests without upgrading permissions',async({page})=>{
+ test.setTimeout(60000);const g=await group(page.request,['codex','claude-code']);const request=page.request;const args={roomId:g.room.id,memberId:g.members[1].id};
+ try {
+  expect((await select(request,g,g.members[0].id)).ok()).toBe(true);
+  let result=await call(request,g.sessions[0],'room_start_member',{...args,text:'claude-question-probe'});expect(result.isError).toBe(false);
+  result=await call(request,g.sessions[0],'room_read_member',args);const question=result.result.pendingQuestions[0];expect(question).toBeTruthy();
+  result=await call(request,g.sessions[0],'room_answer_member',{...args,questionId:question.id,answers:{'Which database?':'SQLite'}});expect(result.isError).toBe(false);
+  await expect.poll(async()=>(await(await request.get('/api/sessions')).json()).find(session=>session.id===g.sessions[1])?.status).toBe('idle');
+  result=await call(request,g.sessions[0],'room_start_member',{...args,text:'claude-approval-probe'});expect(result.isError).toBe(false);
+  result=await call(request,g.sessions[0],'room_read_member',args);const permission=result.result.pendingPermissions[0];expect(permission).toBeTruthy();
+  result=await call(request,g.sessions[0],'room_approve_member',{...args,permissionId:permission.id,decision:'allow'});expect(result.isError).toBe(false);
+  await expect.poll(async()=>(await(await request.get('/api/sessions')).json()).find(session=>session.id===g.sessions[1])?.status).toBe('idle');
+  const output=await(await request.get(`/api/sessions/${g.sessions[1]}/output?history=true&limit=200`)).json();expect(output.messages.some(message=>message.text==='Claude permission: allow')).toBe(true);
+  const meta=await(await request.get(`/api/sessions/${g.sessions[1]}/metadata`)).json();expect(meta.settings.permissionMode).not.toBe('bypassPermissions');expect(meta.settings.permissionMode).not.toBe('acceptEdits');
+ }finally{await g.cleanup();}
 });

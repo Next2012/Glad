@@ -51,6 +51,7 @@ func (provider *ClaudeProvider) RespondUserInput(_ context.Context, id string, p
 	}
 	provider.session.patchMessage(id, map[string]any{
 		"questionStatus": "answered", "answers": updated["answers"], "response": updated["response"],
+		"answerClientMessageId": payload["clientMessageId"], "answerRoomActionSource": payload["roomActionSource"],
 	})
 	provider.sendControl(pending.RequestID, map[string]any{
 		"subtype": "success", "request_id": pending.RequestID,
@@ -85,3 +86,50 @@ func (provider *ClaudeProvider) cancelQuestionRequest(requestID string) {
 		provider.session.setState(map[string]any{"status": "thinking", "pendingQuestionCount": remaining})
 	}
 }
+
+// Adapt the browser question contract without granting tool permissions.
+func (provider *ClaudeProvider) AnswerUserInput(ctx context.Context, id, clientID string, answers map[string]string, images []Attachment, sources ...*RoomActionSource) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if len(images) > 0 {
+		return errors.New("Claude questions do not accept image answers")
+	}
+	provider.mu.Lock()
+	pending, ok := provider.questions[id]
+	provider.mu.Unlock()
+	if !ok {
+		provider.session.mu.RLock()
+		defer provider.session.mu.RUnlock()
+		for _, message := range provider.session.Messages {
+			if message["id"] == id && message["questionStatus"] == "answered" && clientID != "" && message["answerClientMessageId"] == clientID {
+				return nil
+			}
+		}
+		return errors.New("question request not found")
+	}
+	questions := mapsFromAny(pending.Input["questions"])
+	if clientID == "" || len(answers) != len(questions) {
+		return errors.New("Answer every question before submitting")
+	}
+	values := map[string]any{}
+	for _, question := range questions {
+		key := firstNonEmpty(stringValue(question["id"]), stringValue(question["question"]))
+		answer := strings.TrimSpace(answers[key])
+		if answer == "" {
+			return errors.New("Answer every question before submitting")
+		}
+		values[stringValue(question["question"])] = answer
+	}
+	payload := map[string]any{"answers": values, "clientMessageId": clientID}
+	if len(sources) > 0 && sources[0] != nil {
+		payload["roomActionSource"] = sources[0].values()
+	}
+	return provider.RespondUserInput(ctx, id, payload)
+}
+
+var (
+	_ QuestionProvider = (*ClaudeProvider)(nil)
+	_ QuestionProvider = (*CodexProvider)(nil)
+	_ QuestionProvider = (*AntigravityProvider)(nil)
+)

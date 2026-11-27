@@ -12,6 +12,7 @@ import (
 
 func (server *Server) registerRoomRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/rooms", server.listRooms)
+	mux.HandleFunc("PUT /api/rooms/{id}/supervisor", server.setRoomSupervisor)
 	mux.HandleFunc("GET /ws/rooms", server.roomWebsocket)
 	mux.HandleFunc("POST /api/rooms/{id}/abort", server.abortRoom)
 	mux.HandleFunc("POST /api/rooms/{id}/completion/read", server.markRoomRead)
@@ -214,6 +215,7 @@ func (server *Server) resumeRoom(writer http.ResponseWriter, request *http.Reque
 			return
 		}
 	}
+	server.rooms.clearExcludedSupervisor(room.ID, excluded)
 	if err := server.rooms.SwitchHistory(runtimeID, room.ID); err != nil {
 		server.writeRoomError(writer, err)
 		return
@@ -319,6 +321,7 @@ func (server *Server) forkRoom(writer http.ResponseWriter, request *http.Request
 			return
 		}
 	}
+	server.rooms.clearExcludedSupervisor(forked.ID, excluded)
 	if err := server.rooms.SwitchHistory(runtimeID, forked.ID); err != nil {
 		server.writeRoomError(writer, err)
 		return

@@ -34,7 +34,7 @@ func TestRoomStorePersistsVersionedRoomsIndependently(t *testing.T) {
 		t.Fatalf("loaded room = %#v, err=%v", loaded, err)
 	}
 	data, err := os.ReadFile(filepath.Join(directory, room.ID+".json"))
-	if err != nil || !strings.Contains(string(data), `"schemaVersion": 3`) {
+	if err != nil || !strings.Contains(string(data), `"schemaVersion": 4`) {
 		t.Fatalf("versioned room file is invalid: %v %s", err, data)
 	}
 }
@@ -509,48 +509,30 @@ func TestRoomSharesCompleteSessionHistoryAcrossGroups(t *testing.T) {
 	}
 }
 
-func TestRoomIgnoresAndRepairsInternalTransportMessages(t *testing.T) {
+func TestRoomStoreDiscardsOldGroupsOnly(t *testing.T) {
 	directory := t.TempDir()
-	store, err := OpenRoomStoreAt(filepath.Join(directory, "rooms"))
+	store, err := OpenRoomStoreAt(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport := buildRoomAgentText("visible question", nil, nil)
-	room := RoomRecord{
-		SchemaVersion: 1, ID: newUUID(), Name: "Repair",
-		CreatedAt: 1, UpdatedAt: 1, NextSequence: 6,
-		Members: []RoomMemberRecord{{ID: "member", RuntimeSessionID: "session", DisplayName: "Agent"}},
-		Entries: []RoomEntryRecord{
-			{ID: "real", Sequence: 1, Type: "user", UserText: "visible question", Status: "completed", CreatedAt: 10},
-			{ID: "real-reply", Sequence: 2, Type: "session", MemberID: "member", ClientMessageID: "room-original", Status: "completed", CreatedAt: 10},
-			{ID: "artifact", Sequence: 3, Type: "user", UserText: transport, MentionedMemberIDs: []string{"member"}, Status: "completed", CreatedAt: 11},
-			{ID: "artifact-reply", Sequence: 4, Type: "session", MemberID: "member", ClientMessageID: "direct-imported", Status: "completed", CreatedAt: 11},
-			{ID: "later", Sequence: 5, Type: "user", UserText: "later", QuotedEntryIDs: []string{"artifact", "real-reply"}, Status: "completed", CreatedAt: 12},
-		},
-	}
-	raw, err := json.MarshalIndent(room, "", "  ")
-	if err != nil {
+	id := newUUID()
+	path := filepath.Join(directory, id+".json")
+	raw := []byte(`{"schemaVersion":3,"id":"` + id + `","members":[],"entries":[]}`)
+	if err := os.WriteFile(path, raw, 0600); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(directory, "rooms", room.ID+".json")
-	if err := os.WriteFile(path, raw, 0o600); err != nil {
-		t.Fatal(err)
+	native := filepath.Join(directory, "transcript_full.jsonl")
+	_ = os.WriteFile(native, []byte("native history"), 0600)
+	items, err := store.List()
+	if err != nil || len(items) != 0 {
+		t.Fatalf("old groups not cleared: %v %v", items, err)
 	}
-	loaded, err := store.Get(room.ID)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("old group survived", err)
 	}
-	if len(loaded.Entries) != 3 || loaded.Entries[0].ID != "real" || loaded.Entries[1].ID != "real-reply" || loaded.Entries[2].ID != "later" {
-		t.Fatalf("transport artifacts were not repaired: %#v", loaded.Entries)
+	if data, _ := os.ReadFile(native); string(data) != "native history" {
+		t.Fatal("native history changed")
 	}
-	if len(loaded.Entries[2].QuotedEntryIDs) != 1 || loaded.Entries[2].QuotedEntryIDs[0] != "real-reply" {
-		t.Fatalf("references to repaired artifacts remain: %#v", loaded.Entries[2].QuotedEntryIDs)
-	}
-	persisted, err := os.ReadFile(path)
-	if err != nil || !strings.Contains(string(persisted), `"schemaVersion": 3`) || strings.Contains(string(persisted), "You are being addressed as a member of a Glad group chat.") {
-		t.Fatalf("repair was not persisted atomically: err=%v data=%s", err, persisted)
-	}
-
 }
 
 func TestRoomMemberAvatarColorsAreProviderScopedAndPersistent(t *testing.T) {

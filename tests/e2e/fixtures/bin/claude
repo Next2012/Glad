@@ -13,6 +13,7 @@ if (process.argv.includes('--version')) {
 }
 const write = message => process.stdout.write(JSON.stringify(message) + '\n');
 let ready = false;
+let groupInteraction = null;
 let sequence = 0;
 let model = 'claude-sonnet-4-5';
 let failNextStatus = false;
@@ -96,6 +97,12 @@ async function queryGroup(text) {
 const input = readline.createInterface({ input:process.stdin, crlfDelay:Infinity });
 input.on('line', line => {
   const message = JSON.parse(line);
+  if (message.type === 'control_response' && groupInteraction) {
+    const result=message.response?.response || {};
+    const kind=groupInteraction;groupInteraction=null;
+    answer(kind === 'question' ? 'Claude question answered: '+JSON.stringify(result.updatedInput?.answers) : 'Claude permission: '+result.behavior);
+    return;
+  }
   if (message.type === 'control_request') {
     const request = message.request;
     const response = request.subtype === 'initialize' ? { commands:[], models:[] } : {};
@@ -123,6 +130,14 @@ input.on('line', line => {
     }
     if (text.includes('__GLAD_E2E_CLAUDE_STATUS_FAIL__')) failNextStatus = true;
     record({ type: 'user', uuid: randomUUID(), message: { role: 'user', content: text } });
+    if (text.includes('claude-question-probe') || text.includes('claude-approval-probe')) {
+      const question=text.includes('claude-question-probe');groupInteraction=question?'question':'permission';
+      write({type:'control_request',request_id:'group-'+sequence,request:{subtype:'can_use_tool',tool_name:question?'AskUserQuestion':'Bash',tool_use_id:'group-tool-'+sequence,input:question?{questions:[{question:'Which database?',header:'Database',options:[{label:'SQLite'},{label:'Postgres'}]}]}:{command:'echo group-probe'}}});return;
+    }
+    if (text.includes('__GLAD_GROUP_CALL__')) {
+      const config=JSON.parse(process.argv[process.argv.indexOf('--mcp-config')+1]).mcpServers.glad;
+      require('../group-mcp')(config,text).then(answer).catch(error=>answer('GROUP_CONTROL_ERROR '+error.message)); return;
+    }
     if (text.includes('__GLAD_E2E_GROUP_QUERY__')) {
       queryGroup(text).catch(error => answer('GROUP_MCP_ERROR ' + error.message));
       return;

@@ -82,7 +82,7 @@ func (provider *CodexProvider) Steer(ctx context.Context, input ProviderInput, e
 	provider.session.appendMessage(map[string]any{
 		"kind": "user", "text": input.Text, "agentText": input.AgentText,
 		"attachments": attachments, "skills": input.Skills, "clientMessageId": input.ClientMessageID,
-		"supervisorSource": input.Source.values(), "threadId": provider.threadID, "turnId": expectedTurnID,
+		"roomActionSource": input.Source.values(), "threadId": provider.threadID, "turnId": expectedTurnID,
 		"delivery": "steer",
 	})
 	provider.updatePublicStateLocked("running")

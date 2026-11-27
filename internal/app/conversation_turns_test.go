@@ -339,3 +339,42 @@ func TestTurnDetailsUseLiveOutputBeforeNativeFileExists(t *testing.T) {
 		t.Fatal(result, err)
 	}
 }
+
+func TestAntigravityNativeSummarySegmentsAndEmptyCompletion(t *testing.T) {
+	cases := []struct {
+		name     string
+		segments []string
+		want     string
+	}{
+		{"segments", []string{"First paragraph", "Second paragraph", ""}, "First paragraph\nSecond paragraph"},
+		{"capped", []string{strings.Repeat("完整输出", 300), "must not follow truncation", ""}, codexPreviewText(strings.Repeat("完整输出", 300), 1200)},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			file, err := os.CreateTemp(t.TempDir(), "transcript-*.jsonl")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer file.Close()
+			encoder := json.NewEncoder(file)
+			_ = encoder.Encode(map[string]any{"type": "USER_INPUT", "step_index": 0, "content": "Question"})
+			for i, text := range test.segments {
+				status := "RUNNING"
+				if i == len(test.segments)-1 {
+					status = "DONE"
+				}
+				_ = encoder.Encode(map[string]any{"type": "PLANNER_RESPONSE", "step_index": i + 1, "content": text, "status": status})
+			}
+			if _, err := file.Seek(0, 0); err != nil {
+				t.Fatal(err)
+			}
+			turns, err := indexConversation(context.Background(), file, "antigravity")
+			if err != nil || len(turns) != 1 {
+				t.Fatal(turns, err)
+			}
+			if turns[0].Assistant != test.want || turns[0].Status != "completed" {
+				t.Fatalf("summary/status mismatch: %#v", turns[0])
+			}
+		})
+	}
+}

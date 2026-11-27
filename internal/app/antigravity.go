@@ -269,9 +269,9 @@ func (p *AntigravityProvider) openParams(id string) (map[string]any, error) {
 	defer p.mu.Unlock()
 	servers := []any{}
 	if p.session.mcpURL != "" && p.session.mcpExecutable != "" {
-		config := supervisorMCPConfig(p.session)
+		config := gladMCPConfig(p.session)
 		env := []any{}
-		for _, key := range []string{"GLAD_SUPERVISOR_URL", "GLAD_SUPERVISOR_TOKEN", "GLAD_SUPERVISOR_SESSION"} {
+		for _, key := range []string{"GLAD_MCP_URL", "GLAD_MCP_TOKEN", "GLAD_MCP_SESSION"} {
 			env = append(env, map[string]any{"name": key, "value": config["env"].(map[string]string)[key]})
 		}
 		servers = append(servers, map[string]any{"name": "glad", "command": config["command"], "args": config["args"], "env": env})
@@ -526,7 +526,7 @@ func (p *AntigravityProvider) appendUserLocked(input ProviderInput, steering boo
 	for _, file := range input.Files {
 		attachments = append(attachments, map[string]any{"id": file.ID, "name": file.Name, "size": file.Size, "kind": "file"})
 	}
-	p.appendLocked(map[string]any{"id": id, "kind": "user", "text": input.Text, "clientMessageId": input.ClientMessageID, "attachments": attachments, "internal": input.Internal, "agentText": input.AgentText, "supervisorSource": input.Source.values(), "delivery": map[bool]string{true: "steer", false: "turn"}[steering]})
+	p.appendLocked(map[string]any{"id": id, "kind": "user", "text": input.Text, "clientMessageId": input.ClientMessageID, "attachments": attachments, "internal": input.Internal, "agentText": input.AgentText, "roomActionSource": input.Source.values(), "delivery": map[bool]string{true: "steer", false: "turn"}[steering]})
 	return id
 }
 func (p *AntigravityProvider) awaitPrompt(reply chan antigravityReply, generation uint64, turn string, steering bool, userID string) {

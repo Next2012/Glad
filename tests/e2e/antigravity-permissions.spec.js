@@ -142,6 +142,7 @@ test('mode shortcut preserves drafts and approval blocks policy changes', async 
     await view.locator('#cmd-input').focus(); await view.locator('#cmd-input').press('Shift+Tab');
     expect(await view.evaluate(() => antigravityState.mode)).toBe(initial);
     await view.locator('[data-agy-policy-cancel]').click();
+    await expect(view.locator('[data-agy-policy-footer]')).toBeHidden();
     await view.locator('#cmd-input').focus(); await view.locator('#cmd-input').press('Shift+Tab');
     await expect.poll(() => view.evaluate(() => antigravityState.mode)).not.toBe(initial);
     await expect(view.locator('[data-agy-policy-footer]')).toBeHidden();

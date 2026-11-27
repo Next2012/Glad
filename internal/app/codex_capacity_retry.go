@@ -55,7 +55,7 @@ func (provider *CodexProvider) runCapacityRetry(generation uint64) {
 	provider.session.mu.RLock()
 	source := provider.session.currentSource
 	provider.session.mu.RUnlock()
-	err := provider.send(ctx, ProviderInput{ClientMessageID: newUUID(), Text: "继续", AgentText: supervisorAgentText(source, "继续"), Source: source}, generation)
+	err := provider.send(ctx, ProviderInput{ClientMessageID: newUUID(), Text: "继续", AgentText: "继续", Source: source}, generation)
 	if err == nil {
 		return
 	}

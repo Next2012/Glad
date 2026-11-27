@@ -35,7 +35,7 @@ func TestCodexSteeringPreservesTurnAttachmentsAndDeduplicates(t *testing.T) {
 	input.Images = []Attachment{{ID: "image", Name: "screen.png", Path: "/tmp/screen.png"}}
 	input.Files = []Attachment{{ID: "file", Name: "notes.txt", Path: "/tmp/notes.txt", Size: 7}}
 	input.Skills = []map[string]any{{"name": "review", "path": "/tmp/SKILL.md"}}
-	input.Source = &SupervisorSource{Version: 1, TaskID: newUUID(), InvocationID: newUUID(), Kind: "command"}
+	input.Source = &RoomActionSource{RoomID: newUUID(), MemberID: newUUID(), ActionID: newUUID(), Kind: "command"}
 	if ok, _ := provider.CanAccept(); ok {
 		t.Fatal("steering broadened idle-only readiness")
 	}
@@ -83,7 +83,7 @@ func TestCodexSteeringPreservesTurnAttachmentsAndDeduplicates(t *testing.T) {
 	}
 	message := cloneMap(messages[0])
 	attachments, _ := message["attachments"].([]map[string]any)
-	if message["text"] != input.Text || message["agentText"] != input.AgentText || len(attachments) != 2 || sourceValue(message["supervisorSource"]) == nil {
+	if message["text"] != input.Text || message["agentText"] != input.AgentText || len(attachments) != 2 || sourceValue(message["roomActionSource"]) == nil {
 		t.Fatalf("lost display/provenance/attachments: %#v", message)
 	}
 	input.AgentText = "different"
@@ -104,7 +104,6 @@ func TestCodexSteeringRejectsStaleAndBlockingStates(t *testing.T) {
 		{"ordinary-send-busy", func(_ *CodexProvider, input *ProviderInput) { input.Delivery, input.ExpectedTurnID = "", "" }},
 		{"recovering", func(provider *CodexProvider, _ *ProviderInput) { provider.session.recovering = true }},
 		{"closed-session", func(provider *CodexProvider, _ *ProviderInput) { provider.session.closed = true }},
-		{"lease", func(provider *CodexProvider, _ *ProviderInput) { provider.session.supervisorLease = "other-invocation" }},
 		{"stopping", func(provider *CodexProvider, _ *ProviderInput) { provider.aborting = true }},
 		{"sending", func(provider *CodexProvider, _ *ProviderInput) { provider.sending = true }},
 		{"resuming", func(provider *CodexProvider, _ *ProviderInput) { provider.resumeInFlight = true }},

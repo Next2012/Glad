@@ -141,7 +141,7 @@ func TestCloseRoomCleansOnlyIdleUnsharedCurrentMembers(t *testing.T) {
 	manager := NewRoomManager(store, sessions, NewAttachmentStore())
 	first, _ := manager.Create("first")
 	second, _ := manager.Create("second")
-	for _, id := range []string{"idle", "shared", "running", "waiting", "reserved", "removed", "sending"} {
+	for _, id := range []string{"idle", "shared", "running", "waiting", "removed", "sending"} {
 		session := newSession(id, id, "codex-structured", ToolInfo{Key: "codex"}, directory)
 		session.Provider = &stubProvider{}
 		sessions.sessions[id] = session
@@ -156,8 +156,6 @@ func TestCloseRoomCleansOnlyIdleUnsharedCurrentMembers(t *testing.T) {
 			session.StatusValue = "running"
 		case "waiting":
 			session.State["pendingQuestionCount"] = 1
-		case "reserved":
-			session.supervisorLease = "active-invocation"
 		case "removed":
 			_ = manager.RemoveMember(first.ID, member.ID)
 		case "sending":
@@ -171,7 +169,7 @@ func TestCloseRoomCleansOnlyIdleUnsharedCurrentMembers(t *testing.T) {
 	if sessions.Get("idle") != nil {
 		t.Fatal("orphan idle session survived")
 	}
-	for _, id := range []string{"shared", "running", "waiting", "reserved", "removed", "sending"} {
+	for _, id := range []string{"shared", "running", "waiting", "removed", "sending"} {
 		if sessions.Get(id) == nil {
 			t.Fatalf("closed protected session %s", id)
 		}

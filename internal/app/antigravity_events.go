@@ -253,6 +253,9 @@ func (p *AntigravityProvider) serverRequestLocked(rpcID any, method string, para
 		id := newUUID()
 		tool := mapValue(params["toolCall"])
 		options := mapsFromAny(params["options"])
+		if p.resolveGladMCPPermissionLocked(rpcID, tool, options) {
+			return
+		}
 		p.permissions[id] = antigravityInteraction{rpcID, generation, params}
 		permission := Permission{ID: id, Status: "pending", Title: firstNonEmpty(stringValue(tool["title"]), "Antigravity tool permission"), ToolName: firstNonEmpty(stringValue(tool["name"]), stringValue(tool["title"])), ThreadID: p.nativeID, TurnID: p.turnID, Input: mapValue(tool["rawInput"]), Options: options, CreatedAt: millis(), ToolUseID: stringValue(tool["toolCallId"])}
 		p.session.addPermission(permission)
@@ -398,7 +401,7 @@ func (p *AntigravityProvider) RespondUserInput(ctx context.Context, id string, p
 	if action != "accept" {
 		status = "cancelled"
 	}
-	p.session.patchMessage(id, map[string]any{"questionStatus": status, "answers": answers, "answerClientMessageId": payload["clientMessageId"], "answerSupervisorSource": payload["supervisorSource"]})
+	p.session.patchMessage(id, map[string]any{"questionStatus": status, "answers": answers, "answerClientMessageId": payload["clientMessageId"], "answerRoomActionSource": payload["roomActionSource"]})
 	p.publishStateLocked()
 	p.scheduleSettleLocked()
 	return nil
@@ -491,7 +494,7 @@ func antigravityNumber(value any) float64 {
 }
 
 // Supervisor questions share the same form contract as direct browser answers.
-func (p *AntigravityProvider) AnswerUserInput(ctx context.Context, id, clientID string, answers map[string]string, images []Attachment, sources ...*SupervisorSource) error {
+func (p *AntigravityProvider) AnswerUserInput(ctx context.Context, id, clientID string, answers map[string]string, images []Attachment, sources ...*RoomActionSource) error {
 	if len(images) > 0 {
 		return errors.New("Antigravity form questions do not accept image answers")
 	}
@@ -501,7 +504,7 @@ func (p *AntigravityProvider) AnswerUserInput(ctx context.Context, id, clientID 
 	}
 	payload := map[string]any{"answers": values, "action": "accept", "clientMessageId": clientID}
 	if len(sources) > 0 && sources[0] != nil {
-		payload["supervisorSource"] = sources[0].values()
+		payload["roomActionSource"] = sources[0].values()
 	}
 	return p.RespondUserInput(ctx, id, payload)
 }

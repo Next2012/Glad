@@ -71,36 +71,3 @@ test('Claude status remains visible on refresh and reports errors with a retry',
     await page.screenshot({path:testInfo.outputPath('claude-info.png')});
   } finally { await page.request.delete(`/api/sessions/${session.id}`); }
 });
-
-test('a Codex question wakes the supervisor, gets answered while running, and records history tool calls', async ({page})=>{
-  test.setTimeout(60000);
-  const room=await(await page.request.post('/api/rooms',{data:{name:'Question supervisor validation'}})).json();
-  const sessions=[],members=[];
-  try {
-    for(const name of ['Director','Worker']){
-      const response=await page.request.post('/api/sessions',{data:{toolKey:'codex',name}});
-      expect(response.ok()).toBe(true); const session=await response.json(); sessions.push(session.id);
-      expect((await page.request.post(`/api/rooms/${room.id}/members`,{data:{sessionId:session.id}})).ok()).toBe(true);
-    }
-    members.push(...(await(await page.request.get(`/api/rooms/${room.id}`)).json()).members);
-    const response=await page.request.post(`/api/rooms/${room.id}/supervisors`,{data:{executorMemberId:members[0].id,targets:[{memberId:members[1].id,read:true,send:true,stop:false}],intervalSeconds:120,prompt:'__GLAD_E2E_SUPERVISOR_ANSWER__'}});
-    expect(response.ok()).toBe(true); const task=(await response.json()).task;
-    expect((await page.request.post(`/api/sessions/${sessions[1]}/input`,{data:{text:'__GLAD_E2E_ASYNC_QUESTION__'}})).ok()).toBe(true);
-    const taskPath=`/api/rooms/${room.id}/supervisors/${task.id}`;
-    await expect.poll(async()=> (await(await page.request.get(taskPath)).json()).summary.lastRun?.status,{timeout:20000}).toBe('completed');
-    const history=await(await page.request.get(`${taskPath}/history`)).json();
-    const detail=await(await page.request.get(`${taskPath}/history/${history.items[0].id}`)).json();
-    const run=detail.invocation||detail;
-    expect(run.calls.filter(call=>call.success).map(call=>call.tool)).toEqual(expect.arrayContaining(['read_session','answer_question','session_history','read_session_record']));
-    expect(run.calls.some(call=>call.tool==='stop_session')).toBe(false);
-    const output=await(await page.request.get(`/api/sessions/${sessions[1]}/output?history=true&limit=200`)).json();
-    expect(output.pendingQuestions).toHaveLength(0);
-    expect(output.messages.some(message=>message.kind==='question'&&message.questionStatus==='answered')).toBe(true);
-    await page.goto('/',{waitUntil:'networkidle'});
-    await page.evaluate(id=>openRoom(id),room.id);
-    await expect((await conversationView(page)).locator('#room-view')).toBeVisible();
-  } finally {
-    await page.request.delete(`/api/rooms/${room.id}`);
-    for(const id of sessions) await page.request.delete(`/api/sessions/${id}`);
-  }
-});

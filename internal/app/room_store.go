@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 )
 
-const currentRoomSchemaVersion = 3
+const currentRoomSchemaVersion = 4
 
 var (
 	errRoomNotFound     = errors.New("room not found")
@@ -23,6 +23,8 @@ var (
 // text and attachments deliberately never enter this structure: session-native
 // history remains the source of truth for those values.
 type RoomRecord struct {
+	SupervisorMemberID            string             `json:"supervisorMemberId,omitempty"`
+	Actions                       []RoomActionRecord `json:"actions,omitempty"`
 	SchemaVersion                 int                `json:"schemaVersion"`
 	ID                            string             `json:"id"`
 	Name                          string             `json:"name"`
@@ -103,7 +105,11 @@ func OpenRoomStoreAt(directory string) (*FileRoomStore, error) {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return nil, err
 	}
-	return &FileRoomStore{directory: directory}, nil
+	store := &FileRoomStore{directory: directory}
+	if _, err := store.List(); err != nil {
+		return nil, err
+	}
+	return store, nil
 }
 
 func (store *FileRoomStore) roomPath(id string) (string, error) {
@@ -128,6 +134,9 @@ func (store *FileRoomStore) List() ([]RoomRecord, error) {
 			continue
 		}
 		room, err := store.readLocked(filepath.Join(store.directory, item.Name()))
+		if errors.Is(err, errRoomNotFound) {
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("read room %s: %w", item.Name(), err)
 		}
@@ -167,7 +176,7 @@ func (store *FileRoomStore) Save(room RoomRecord) error {
 	if room.SchemaVersion > currentRoomSchemaVersion {
 		return errRoomSchemaTooNew
 	}
-	room, err = migrateRoom(room)
+	room, err = normalizeRoom(room)
 	if err != nil {
 		return err
 	}
@@ -224,16 +233,27 @@ func (store *FileRoomStore) readLocked(path string) (RoomRecord, error) {
 	if header.SchemaVersion > currentRoomSchemaVersion {
 		return RoomRecord{}, errRoomSchemaTooNew
 	}
+	if header.SchemaVersion < currentRoomSchemaVersion {
+		var legacy RoomRecord
+		if json.Unmarshal(data, &legacy) != nil || legacy.ID == "" || filepath.Base(path) != legacy.ID+".json" {
+			return RoomRecord{}, errors.New("invalid legacy room record")
+		}
+		if err := os.Remove(path); err != nil {
+			return RoomRecord{}, err
+		}
+		store.revision.Add(1)
+		return RoomRecord{}, errRoomNotFound
+	}
 	var room RoomRecord
 	if err := json.Unmarshal(data, &room); err != nil {
 		return RoomRecord{}, err
 	}
-	originalVersion, originalEntries := room.SchemaVersion, len(room.Entries)
-	room, err = migrateRoom(room)
+	originalVersion, originalEntries, originalActions := room.SchemaVersion, len(room.Entries), len(room.Actions)
+	room, err = normalizeRoom(room)
 	if err != nil {
 		return RoomRecord{}, err
 	}
-	if room.SchemaVersion != originalVersion || len(room.Entries) != originalEntries {
+	if room.SchemaVersion != originalVersion || len(room.Entries) != originalEntries || len(room.Actions) != originalActions {
 		if err := store.writeLocked(path, room); err != nil {
 			return RoomRecord{}, err
 		}
@@ -241,37 +261,11 @@ func (store *FileRoomStore) readLocked(path string) (RoomRecord, error) {
 	return room, nil
 }
 
-// Migrations are centralized and persisted atomically on first read.
-func migrateRoom(room RoomRecord) (RoomRecord, error) {
-	if room.SchemaVersion == 0 {
-		room.SchemaVersion = 1
-	}
-	if room.SchemaVersion == 1 {
-		room.Entries = stripRoomTransportArtifacts(room.Entries)
-		room.SchemaVersion = 2
-	}
-	if room.SchemaVersion == 2 {
-		room.SchemaVersion = 3
-	}
+// Normalize current records; unsupported historical schemas are handled above.
+func normalizeRoom(room RoomRecord) (RoomRecord, error) {
+	room.Actions = trimRoomActions(room.Actions)
 	if room.SchemaVersion != currentRoomSchemaVersion {
 		return RoomRecord{}, fmt.Errorf("unsupported room schema version %d", room.SchemaVersion)
-	}
-	// Legacy persisted batches contain a command followed by its dispatched replies.
-	command := RoomEntryRecord{}
-	for i := range room.Entries {
-		entry := &room.Entries[i]
-		if entry.Type == "user" {
-			command = *entry
-			continue
-		}
-		if entry.Type == "session" && entry.TriggerEntryID == "" {
-			for _, id := range command.MentionedMemberIDs {
-				if id == entry.MemberID {
-					entry.TriggerEntryID = command.ID
-					break
-				}
-			}
-		}
 	}
 	if room.NextSequence < 1 {
 		room.NextSequence = 1
@@ -301,8 +295,6 @@ func migrateRoom(room RoomRecord) (RoomRecord, error) {
 	if room.Entries == nil {
 		room.Entries = []RoomEntryRecord{}
 	}
-	// Also repair v2 files written while the provider-history bug was active.
-	room.Entries = stripRoomTransportArtifacts(room.Entries)
 	return room, nil
 }
 
@@ -355,45 +347,4 @@ func roomTransportEnvelope(text string) (string, string, bool) {
 		}
 	}
 	return strings.TrimSpace(trimmed[start : start+end]), origin, true
-}
-
-// Old provider histories can lose Glad's room-* client ID after resume and
-// expose the injected agent payload as an ordinary user message. Those entries
-// were never authored by the user and always have a synthetic direct reply.
-func stripRoomTransportArtifacts(entries []RoomEntryRecord) []RoomEntryRecord {
-	if len(entries) == 0 {
-		return entries
-	}
-	cleaned := make([]RoomEntryRecord, 0, len(entries))
-	removed := map[string]bool{}
-	for index := 0; index < len(entries); index++ {
-		entry := entries[index]
-		if entry.Type != "user" || !isRoomTransportText(entry.UserText) {
-			cleaned = append(cleaned, entry)
-			continue
-		}
-		removed[entry.ID] = true
-		if index+1 < len(entries) {
-			reply := entries[index+1]
-			if reply.Type == "session" && strings.HasPrefix(reply.ClientMessageID, "direct-") &&
-				reply.CreatedAt == entry.CreatedAt && len(entry.MentionedMemberIDs) == 1 &&
-				reply.MemberID == entry.MentionedMemberIDs[0] {
-				removed[reply.ID] = true
-				index++
-			}
-		}
-	}
-	if len(removed) == 0 {
-		return cleaned
-	}
-	for index := range cleaned {
-		quotes := cleaned[index].QuotedEntryIDs[:0]
-		for _, id := range cleaned[index].QuotedEntryIDs {
-			if !removed[id] {
-				quotes = append(quotes, id)
-			}
-		}
-		cleaned[index].QuotedEntryIDs = quotes
-	}
-	return cleaned
 }

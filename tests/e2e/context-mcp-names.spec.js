@@ -169,41 +169,21 @@ test('Claude rename, individual resume, group resume and fork share session-owne
   }
 });
 
-test('supervisor wake reads sparse monitor turns through the real MCP process', async ({ page }) => {
+test('group Supervisor reads sparse member history through the shared MCP process', async ({ page }) => {
   test.setTimeout(60000);
-  const group = await createGroup(page, 'Monitor turns');
-  const sessions = [];
+  const group = await createGroup(page, 'Monitor turns'); const sessions=[];
   try {
-    const director = await createSession(page, 'codex', 'Director');
-    sessions.push(director);
-    const worker = await createSession(page, 'claude-code', 'Monitor');
-    sessions.push(worker);
-    const directorMember = await addMember(page, group, director);
-    const workerMember = await addMember(page, group, worker);
-    for (let i = 1; i <= 3; i++) {
-      await checkedJSON(await page.request.post(`/api/sessions/${worker.id}/input`, {
-        data: { text: `Monitor round ${i}` }
-      }));
-      await waitForIdle(page, worker.id);
-    }
-    const created = await checkedJSON(await page.request.post(`/api/rooms/${group.id}/supervisors`, {
-      data: {
-        executorMemberId: directorMember.memberId,
-        targets: [{ memberId: workerMember.memberId, read: true, send: false, stop: false }],
-        intervalSeconds: 120,
-        prompt: '__GLAD_E2E_SUPERVISOR__ __GLAD_E2E_TURN_QUERY__'
-      }
-    }));
-    const taskPath = `/api/rooms/${group.id}/supervisors/${created.task.id}`;
-    await checkedJSON(await page.request.post(`${taskPath}/trigger`, { data: { mode: 'configured' } }));
-    await expect.poll(async () => (await (await page.request.get(taskPath)).json()).summary.lastRun?.status,
-      { timeout: 20000 }).toBe('completed');
-    const history = await (await page.request.get(`${taskPath}/history`)).json();
-    const detail = await (await page.request.get(`${taskPath}/history/${history.items[0].id}`)).json();
-    expect(detail.invocation.calls.filter(call => call.success).map(call => call.tool)).toEqual([
-      'list_targets', 'read_session', 'session_turns', 'session_turn_details'
-    ]);
-  } finally {
-    await deleteFixtures(page, [group], sessions);
-  }
+    const director=await createSession(page,'codex','Director');sessions.push(director);
+    const worker=await createSession(page,'claude-code','Monitor');sessions.push(worker);
+    const leader=await addMember(page,group,director);const member=await addMember(page,group,worker);
+    for(let i=1;i<=3;i++){await checkedJSON(await page.request.post(`/api/sessions/${worker.id}/input`,{data:{text:`Monitor round ${i}`}}));await waitForIdle(page,worker.id);}
+    await checkedJSON(await page.request.put(`/api/rooms/${group.id}/supervisor`,{data:{memberId:leader.memberId,expectedCurrentMemberId:''}}));
+    const command={key:'sparse',tool:'room_turns',args:{roomId:group.id,memberId:member.memberId,turnNumbers:[1,3],limit:20}};
+    await checkedJSON(await page.request.post(`/api/sessions/${director.id}/input`,{data:{text:'__GLAD_GROUP_CALL__'+JSON.stringify(command)}}));
+    await waitForIdle(page,director.id);
+    const output=await(await page.request.get(`/api/sessions/${director.id}/output?history=true&limit=200`)).json();
+    const message=output.messages.find(item=>item.kind==='assistant'&&item.text?.startsWith('GROUP_CONTROL_RESULT '));
+    const response=JSON.parse(message.text.slice('GROUP_CONTROL_RESULT '.length));expect(response.isError).toBe(false);
+    expect(response.result.turns).toHaveLength(2);expect(response.result.turns.map(turn=>turn.userPreview)).toEqual(['Monitor round 1','Monitor round 3']);
+  }finally{await deleteFixtures(page,[group],sessions);}
 });

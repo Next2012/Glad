@@ -51,17 +51,9 @@ func roomMCPTools() []map[string]any {
 	return result
 }
 
-func allGladTools() []map[string]any { return append(supervisorTools(), roomMCPTools()...) }
-func isRoomMCPTool(name string) bool {
-	for _, t := range roomMCPTools() {
-		if t["name"] == name {
-			return true
-		}
-	}
-	return false
-}
+func allGladTools() []map[string]any { return append(roomMCPTools(), roomControlTools()...) }
 
-// Authorization is checked on every request, independent of supervisor leases.
+// Membership is checked on every request.
 func (manager *RoomManager) authorizedRoom(callerID, roomID string) (RoomRecord, error) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
@@ -89,9 +81,21 @@ func (manager *RoomManager) authorizedRoom(callerID, roomID string) (RoomRecord,
 	return RoomRecord{}, errors.New("Session is not a current member of this group")
 }
 
-func (manager *RoomManager) CallMCP(ctx context.Context, caller *Session, tool string, args map[string]any) (map[string]any, error) {
-	if err := validateGladArguments(tool, args, roomMCPTools()); err != nil {
+func (manager *RoomManager) CallMCP(ctx context.Context, caller *Session, tool string, args map[string]any, callIDs ...string) (map[string]any, error) {
+	if err := validateGladArguments(tool, args, allGladTools()); err != nil {
 		return nil, err
+	}
+	for _, definition := range roomControlTools() {
+		if definition["name"] == tool {
+			callID := ""
+			if len(callIDs) > 0 {
+				callID = callIDs[0]
+			}
+			if callID == "" {
+				callID = newUUID()
+			}
+			return manager.callControl(ctx, caller, tool, callID, args)
+		}
 	}
 	if tool == "list_rooms" {
 		manager.mu.Lock()
@@ -118,9 +122,19 @@ func (manager *RoomManager) CallMCP(ctx context.Context, caller *Session, tool s
 	case "room_members":
 		members := []map[string]any{}
 		for _, m := range room.Members {
-			members = append(members, map[string]any{"memberId": m.ID, "name": manager.sessions.memberName(m), "sessionId": m.RuntimeSessionID, "conversationId": m.NativeConversationID, "left": m.LeftAt != 0})
+			item := map[string]any{"memberId": m.ID, "name": manager.sessions.memberName(m), "sessionId": m.RuntimeSessionID, "conversationId": m.NativeConversationID, "left": m.LeftAt != 0, "isSupervisor": m.ID == room.SupervisorMemberID, "available": false}
+			if session := manager.sessions.Get(m.RuntimeSessionID); session != nil && m.LeftAt == 0 {
+				session.mu.RLock()
+				item["status"] = session.StatusValue
+				item["pendingPermissionCount"] = len(session.Permissions)
+				item["pendingQuestionCount"] = session.State["pendingQuestionCount"]
+				session.mu.RUnlock()
+				item["available"] = true
+				item["canAccept"], item["readinessReason"] = sessionCanAccept(session)
+			}
+			members = append(members, item)
 		}
-		result = map[string]any{"success": true, "members": members, "readScope": "current group membership grants shared history read access independently of supervisor Read permission"}
+		result = map[string]any{"success": true, "members": members, "readScope": "current group membership grants shared history read access"}
 	case "room_references":
 		result, err = manager.referenceGraph(ctx, room, args)
 	case "room_turns", "room_turn_details":
@@ -182,7 +196,7 @@ func (manager *RoomManager) queryRoomTurns(ctx context.Context, room RoomRecord,
 			continue
 		}
 		for _, turn := range turns {
-			if turn.Hidden || member.LeftAt != 0 && turn.CreatedAt > member.LeftAt {
+			if member.LeftAt != 0 && turn.CreatedAt > member.LeftAt {
 				continue
 			}
 			localID := turn.ID
@@ -287,7 +301,7 @@ func (manager *RoomManager) referenceGraph(ctx context.Context, room RoomRecord,
 			continue
 		}
 		for _, turn := range turns {
-			if turn.Hidden || member.LeftAt != 0 && turn.CreatedAt > member.LeftAt {
+			if member.LeftAt != 0 && turn.CreatedAt > member.LeftAt {
 				continue
 			}
 			command, reply := roomHistoryEntryID(member.ID, turn.ID, "user"), roomHistoryEntryID(member.ID, turn.ID, "assistant")
@@ -342,9 +356,6 @@ func (manager *RoomManager) referenceGraph(ctx context.Context, room RoomRecord,
 
 func roomTransportMetadata(text string) map[string]any {
 	const open, close = "<glad_group_metadata>", "</glad_group_metadata>"
-	if source, visible := supervisorEnvelope(text); source != nil {
-		text = visible
-	}
 	if _, _, ok := roomTransportEnvelope(text); !ok {
 		return nil
 	}
